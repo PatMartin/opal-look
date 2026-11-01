@@ -1,0 +1,29 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/opal_look"]
+
+[project]
+name = "opal-look"
+version = "0.1.0"
+description = "OPAL Look vision service (contract opal_look_v1.4.0)"
+requires-python = ">=3.12"
+dependencies = [
+    "fastapi>=0.115",
+    "uvicorn>=0.30",
+    "pydantic>=2.8",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8",
+    "httpx>=0.27",
+]
+
+[project.scripts]
+opal-look = "opal_look.main:main"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

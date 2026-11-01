@@ -1,0 +1,1 @@
+"""OPAL Look vision service."""

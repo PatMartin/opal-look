@@ -1,0 +1,43 @@
+"""Application factory."""
+
+from __future__ import annotations
+
+import os
+from contextlib import asynccontextmanager
+from pathlib import Path
+
+from fastapi import FastAPI
+
+from . import constants
+from .correlation import CorrelationMiddleware
+from .errors import register_error_handlers
+from .routers import health
+from .store import Store
+
+
+def default_data_dir() -> Path:
+    return Path(os.environ.get("OPAL_LOOK_DATA_DIR", "data"))
+
+
+def create_app(data_dir: Path | str | None = None, store: Store | None = None) -> FastAPI:
+    @asynccontextmanager
+    async def lifespan(app: FastAPI):
+        yield
+        app.state.store.close()
+
+    app = FastAPI(
+        title="OPAL Look",
+        version=constants.SERVICE_VERSION,
+        # The published OpenAPI contract is authoritative; do not serve a
+        # generated spec that could drift from it.
+        openapi_url=None,
+        docs_url=None,
+        redoc_url=None,
+        lifespan=lifespan,
+    )
+    app.state.store = store if store is not None else Store(Path(data_dir) if data_dir else default_data_dir())
+
+    app.add_middleware(CorrelationMiddleware)
+    register_error_handlers(app)
+    app.include_router(health.router)
+    return app

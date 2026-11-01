@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
-from typing import Any, Literal
+from typing import Annotated, Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from .errors import ApiError
 
@@ -131,3 +131,43 @@ class ProfileUpdate(BaseModel):
     model_id: str | None = Field(default=None, pattern=IDENTIFIER_PATTERN)
     task: Task | None = Field(default=None)
     settings: AnalysisSettings | None = Field(default=None)
+
+
+# -- analyze ----------------------------------------------------------------
+
+class MediaFrameInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    kind: Literal["media"]
+    media_id: str = Field(pattern=IDENTIFIER_PATTERN)
+
+
+class SourceFrameInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    kind: Literal["source"]
+    source_id: str = Field(pattern=IDENTIFIER_PATTERN)
+    position_ms: int | None = Field(default=None, ge=0)
+
+
+FrameInput = Annotated[
+    MediaFrameInput | SourceFrameInput, Field(discriminator="kind")
+]
+
+
+class AnalyzeRequest(BaseModel):
+    model_config = ConfigDict(strict=True, extra="forbid")
+
+    profile_id: int | None = Field(default=None, ge=1)
+    model_id: str | None = Field(default=None, pattern=IDENTIFIER_PATTERN)
+    task: Task | None = Field(default=None)
+    settings: AnalysisSettings | None = Field(default=None)
+    input: FrameInput
+    store_result: bool = Field(default=True)
+
+    @model_validator(mode="after")
+    def _no_explicit_nulls(self) -> "AnalyzeRequest":
+        for name in self.model_fields_set:
+            if getattr(self, name) is None and name != "input":
+                raise ValueError(f"explicit null is not allowed for {name}")
+        return self

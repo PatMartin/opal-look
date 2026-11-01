@@ -77,9 +77,9 @@ def probe(store: Store, row: sqlite3.Row) -> dict[str, Any]:
     if source_type in ("rtsp", "http"):
         return _probe_result(False, "network source not yet probed")
     if source_type == "host_video":
-        if os.path.isfile(locator):
-            return _probe_result(True, None)
-        return _probe_result(False, "host path not found")
+        if not os.path.isfile(locator):
+            return _probe_result(False, "host path not found")
+        return _probe_result(False, "no video decoder installed")
     if source_type == "media":
         if media_exists(store, locator):
             return _probe_result(True, None)

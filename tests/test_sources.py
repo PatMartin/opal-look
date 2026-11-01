@@ -86,7 +86,8 @@ def test_host_video_source(client, tmp_path):
     assert resp.status_code == 201
     body = resp.json()
     assert body["live"] is False
-    assert body["available"] is True
+    # No video decoder installed -> resource exists but is not usable.
+    assert body["available"] is False
 
 
 def test_host_video_missing_path_still_registers(client):

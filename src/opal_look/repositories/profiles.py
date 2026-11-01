@@ -10,6 +10,7 @@ from typing import Any, Protocol
 class ProfileRepository(Protocol):
     def list(self) -> list[sqlite3.Row]: ...
     def get(self, profile_id: int) -> sqlite3.Row | None: ...
+    def get_active(self) -> sqlite3.Row | None: ...
     def count(self) -> int: ...
     def count_for_model(self, model_id: str) -> int: ...
     def insert(self, name: str, model_id: str, task: str, settings: dict, active: bool) -> int: ...
@@ -37,6 +38,11 @@ class SqliteProfileRepository:
         return self._conn.execute(
             "SELECT COUNT(*) AS n FROM profiles WHERE model_id = ?", (model_id,)
         ).fetchone()["n"]
+
+    def get_active(self) -> sqlite3.Row | None:
+        return self._conn.execute(
+            "SELECT * FROM profiles WHERE active = 1 LIMIT 1"
+        ).fetchone()
 
     def insert(self, name: str, model_id: str, task: str, settings: dict, active: bool) -> int:
         cursor = self._conn.execute(

@@ -55,7 +55,7 @@ interface; do not serve a generated spec). Python 3.12+ / FastAPI / SQLite.
 | profiles (CRUD+activate+validate, resolved settings) | verified |
 | devices/cameras (empty discovery; no adapters yet) | verified |
 | media (upload JPEG/PNG+EXIF, cursor list, get/delete/content, expiry) | verified |
-| analyze | not started |
+| analyze (selection resolution, media/source frame inputs, all 5 tasks, filters, persistence) | verified |
 | sessions/SSE/preview | not started |
 | results/snapshots | not started |
 | backup | not started |

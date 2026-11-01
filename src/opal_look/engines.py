@@ -13,10 +13,52 @@ Probed at read time: availability, message, capabilities.
 from __future__ import annotations
 
 import json
+import random
 import sqlite3
 from typing import Any, Protocol
 
 from .store import Store
+
+
+class EngineUnavailable(Exception):
+    """Adapter cannot execute inference right now (-> 503)."""
+
+
+def _rle_rect(width: int, height: int, box: dict[str, float]) -> dict[str, Any]:
+    """Row-major RLE mask for a normalized rectangle at frame dimensions.
+
+    Alternating background/foreground runs; first run is background (may
+    be 0); sum(counts) == width*height.
+    """
+    x0 = int(box["x"] * width)
+    y0 = int(box["y"] * height)
+    x1 = min(width, x0 + max(1, int(box["width"] * width)))
+    y1 = min(height, y0 + max(1, int(box["height"] * height)))
+
+    counts: list[int] = []
+    run = 0
+    prev_fg = False
+
+    def emit(length: int, fg: bool) -> None:
+        nonlocal run, prev_fg
+        if length == 0:
+            return
+        if fg == prev_fg:
+            run += length
+        else:
+            counts.append(run)
+            prev_fg = fg
+            run = length
+
+    for y in range(height):
+        if y0 <= y < y1:
+            emit(x0, False)
+            emit(x1 - x0, True)
+            emit(width - x1, False)
+        else:
+            emit(width, False)
+    counts.append(run)
+    return {"width": width, "height": height, "encoding": "rle", "counts": counts}
 
 TASKS = ["detection", "classification", "segmentation", "pose", "ocr"]
 SOURCE_TYPES = ["camera", "rtsp", "http", "host_video", "media"]
@@ -50,6 +92,15 @@ class EngineAdapter(Protocol):
     def describe_model(self, resource: dict[str, Any]) -> dict[str, Any]: ...
     def validate_model(self, resource: dict[str, Any]) -> tuple[list[str], list[str]]: ...
     def validate_engine_options(self, options: dict[str, Any]) -> list[str]: ...
+    def infer(
+        self,
+        width: int,
+        height: int,
+        task: str,
+        model_desc: dict[str, Any],
+        engine_options: dict[str, Any],
+        frame_key: int,
+    ) -> dict[str, Any]: ...
 
 
 class SyntheticAdapter:
@@ -128,6 +179,114 @@ class SyntheticAdapter:
             elif key == "fail" and not isinstance(value, bool):
                 errors.append("engine option 'fail' must be a boolean")
         return errors
+
+    def infer(
+        self,
+        width: int,
+        height: int,
+        task: str,
+        model_desc: dict[str, Any],
+        engine_options: dict[str, Any],
+        frame_key: int,
+    ) -> dict[str, Any]:
+        if engine_options.get("fail"):
+            raise EngineUnavailable("synthetic engine forced failure")
+        latency = engine_options.get("latency_ms") or 0
+        if latency:
+            import time
+
+            time.sleep(min(latency, 10_000) / 1000)
+        rng = random.Random((engine_options.get("seed") or 0) ^ frame_key ^ hash(task))
+        classes = model_desc["classes"]
+
+        def box() -> dict[str, float]:
+            w = round(rng.uniform(0.08, 0.5), 4)
+            h = round(rng.uniform(0.08, 0.6), 4)
+            return {
+                "x": round(rng.uniform(0, 1 - w), 4),
+                "y": round(rng.uniform(0, 1 - h), 4),
+                "width": w,
+                "height": h,
+            }
+
+        def pick() -> dict[str, Any]:
+            cls = rng.choice(classes)
+            return {
+                "class_id": cls["class_id"],
+                "label": cls["label"],
+                "confidence": round(rng.uniform(0.05, 0.99), 4),
+            }
+
+        n = rng.randint(1, 3)
+        if task == "detection":
+            objects = [
+                {**pick(), "box": box(), "track_id": None} for _ in range(n)
+            ]
+            objects.sort(key=lambda o: (-o["confidence"], o["class_id"], o["box"]["x"], o["box"]["y"]))
+            return {"task": "detection", "objects": objects}
+        if task == "classification":
+            scored = [pick() for _ in classes]
+            scored.sort(key=lambda c: (-c["confidence"], c["class_id"]))
+            return {"task": "classification", "classes": scored}
+        if task == "segmentation":
+            if engine_options.get("segmentation_kind", "instance") == "semantic":
+                half = (width * height) // 2
+                return {
+                    "task": "segmentation",
+                    "kind": "semantic",
+                    "map": {
+                        "width": width,
+                        "height": height,
+                        "encoding": "rle",
+                        "runs": [
+                            {"class_id": classes[0]["class_id"], "count": half},
+                            {"class_id": classes[1]["class_id"], "count": width * height - half},
+                        ],
+                        "classes": [
+                            {"class_id": classes[0]["class_id"], "label": classes[0]["label"], "confidence": 0.9},
+                            {"class_id": classes[1]["class_id"], "label": classes[1]["label"], "confidence": 0.8},
+                        ],
+                    },
+                }
+            instances = [
+                {**pick(), "box": b, "mask": _rle_rect(width, height, b)}
+                for b in (box() for _ in range(n))
+            ]
+            instances.sort(key=lambda o: (-o["confidence"], o["class_id"], o["box"]["x"], o["box"]["y"]))
+            return {"task": "segmentation", "kind": "instance", "instances": instances}
+        if task == "pose":
+            poses = []
+            for _ in range(n):
+                base = pick()
+                keypoints = [
+                    {
+                        "index": kp["index"],
+                        "x": round(rng.random(), 4),
+                        "y": round(rng.random(), 4),
+                        "confidence": round(rng.uniform(0.3, 0.99), 4),
+                    }
+                    for kp in model_desc["keypoints"]
+                ]
+                poses.append({**base, "box": box(), "keypoints": keypoints})
+            poses.sort(key=lambda o: (-o["confidence"], o["class_id"], o["box"]["x"], o["box"]["y"]))
+            return {"task": "pose", "poses": poses}
+        if task == "ocr":
+            regions = [
+                {
+                    "text": rng.choice(["OPAL LOOK", "SNAPSHOT 42", "EXIT", "ZONE A"]),
+                    "confidence": round(rng.uniform(0.4, 0.99), 4),
+                    "polygon": [
+                        {"x": round(bx, 4), "y": round(by, 4)}
+                        for bx, by in (
+                            (0.1, 0.1), (0.4, 0.1), (0.4, 0.2), (0.1, 0.2)
+                        )
+                    ],
+                    "language": "eng",
+                }
+                for _ in range(n)
+            ]
+            return {"task": "ocr", "regions": regions}
+        raise ValueError(f"unsupported task: {task}")
 
 
 class EngineRegistry:

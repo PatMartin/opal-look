@@ -7,6 +7,7 @@ from .meta import MetaRepository, SqliteMetaRepository, new_revision
 from .models import ModelRepository, SqliteModelRepository
 from .profiles import ProfileRepository, SqliteProfileRepository
 from .results import ResultRepository, SqliteResultRepository
+from .sessions import SessionRepository, SqliteSessionRepository
 from .settings import SettingsRepository, SqliteSettingsRepository
 from .snapshots import SnapshotRepository, SqliteSnapshotRepository
 from .sources import SourceRepository, SqliteSourceRepository
@@ -19,6 +20,7 @@ __all__ = [
     "ProfileRepository",
     "ResultRepository",
     "SettingsRepository",
+    "SessionRepository",
     "SnapshotRepository",
     "SourceRepository",
     "SqliteEngineRepository",
@@ -28,6 +30,7 @@ __all__ = [
     "SqliteProfileRepository",
     "SqliteResultRepository",
     "SqliteSettingsRepository",
+    "SqliteSessionRepository",
     "SqliteSnapshotRepository",
     "SqliteSourceRepository",
     "new_revision",

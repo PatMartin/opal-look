@@ -21,6 +21,7 @@ from .repositories import (
     SqliteModelRepository,
     SqliteProfileRepository,
     SqliteResultRepository,
+    SqliteSessionRepository,
     SqliteSettingsRepository,
     SqliteSnapshotRepository,
     SqliteSourceRepository,
@@ -48,6 +49,7 @@ class Store:
         self.media = SqliteMediaRepository(self._conn)
         self.results = SqliteResultRepository(self._conn)
         self.snapshots = SqliteSnapshotRepository(self._conn)
+        self.sessions = SqliteSessionRepository(self._conn)
 
     def _init_schema(self) -> None:
         self._conn.executescript(
@@ -137,6 +139,28 @@ class Store:
                 height INTEGER NOT NULL,
                 created_at TEXT NOT NULL,
                 expires_at TEXT NOT NULL
+            );
+            CREATE TABLE IF NOT EXISTS sessions (
+                session_id TEXT PRIMARY KEY,
+                source_id TEXT NOT NULL,
+                profile_id INTEGER,
+                model_id TEXT NOT NULL,
+                engine_id TEXT NOT NULL,
+                task TEXT NOT NULL,
+                settings TEXT NOT NULL,
+                reconnect TEXT,
+                store_results INTEGER NOT NULL,
+                state TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                started_at TEXT,
+                finished_at TEXT,
+                start_position_ms INTEGER,
+                end_position_ms INTEGER,
+                frames_analyzed INTEGER NOT NULL DEFAULT 0,
+                frames_dropped INTEGER NOT NULL DEFAULT 0,
+                tracking_epoch INTEGER NOT NULL DEFAULT 0,
+                last_result_id TEXT,
+                error TEXT
             );
             """
         )

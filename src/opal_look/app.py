@@ -14,8 +14,10 @@ from .correlation import CorrelationMiddleware
 from .engines import ensure_default_model, ensure_engines, load_plugin_adapters
 from .errors import register_error_handlers
 from .framecache import FrameCache
+from .sessions import SessionRuntimeRegistry
 from .routers import (
-    analyze, engines, health, media, models, profiles, results, settings, snapshots, sources,
+    analyze, engines, health, media, models, profiles, results, sessions as sessions_router,
+    settings, snapshots, sources,
 )
 from .store import Store
 
@@ -44,6 +46,9 @@ def create_app(data_dir: Path | str | None = None, store: Store | None = None) -
     # Event transport is provisioned out of band; absence blocks events_enabled=true.
     app.state.event_transport = os.environ.get("OPAL_LOOK_EVENT_TRANSPORT") or None
     app.state.frame_cache = FrameCache()
+    app.state.session_runtimes = SessionRuntimeRegistry()
+    app.state.store.sessions.fail_interrupted(
+        '{"code":"service_restarted","message":"service restarted before completion"}')
     load_plugin_adapters()
     ensure_engines(app.state.store)
     ensure_default_model(app.state.store)
@@ -61,4 +66,5 @@ def create_app(data_dir: Path | str | None = None, store: Store | None = None) -
     app.include_router(analyze.router)
     app.include_router(results.router)
     app.include_router(snapshots.router)
+    app.include_router(sessions_router.router)
     return app

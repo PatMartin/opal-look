@@ -13,9 +13,9 @@ from .store import Store
 def nonterminal_sessions_referencing(store: Store, kind: str, resource_id: str) -> int:
     """Count of nonterminal sessions referencing the resource.
 
-    kind: 'engine' | 'model' | 'source' | 'media'. Sessions land in P6.
+    kind: 'engine' | 'model' | 'source' | 'media' | 'profile'.
     """
-    return 0
+    return store.sessions.count_nonterminal(kind, str(resource_id))
 
 
 def profiles_referencing_model(store: Store, model_id: str) -> int:

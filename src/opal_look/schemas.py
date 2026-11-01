@@ -171,3 +171,41 @@ class AnalyzeRequest(BaseModel):
             if getattr(self, name) is None and name != "input":
                 raise ValueError(f"explicit null is not allowed for {name}")
         return self
+
+
+class ReconnectPolicy(BaseModel):
+    model_config = ConfigDict(strict=True, extra="forbid")
+
+    enabled: bool = Field(default=True)
+    max_attempts: int = Field(default=10, ge=0)
+    initial_delay_ms: int = Field(default=1000, ge=100)
+    max_delay_ms: int = Field(default=30000, ge=100)
+
+    @model_validator(mode="after")
+    def _bounds(self) -> "ReconnectPolicy":
+        if self.max_delay_ms < self.initial_delay_ms:
+            raise ValueError("max_delay_ms must be >= initial_delay_ms")
+        return self
+
+
+class SessionCreate(BaseModel):
+    model_config = ConfigDict(strict=True, extra="forbid")
+
+    profile_id: int | None = Field(default=None, ge=1)
+    model_id: str | None = Field(default=None, pattern=IDENTIFIER_PATTERN)
+    task: Task | None = Field(default=None)
+    settings: AnalysisSettings | None = Field(default=None)
+    source_id: str = Field(pattern=IDENTIFIER_PATTERN)
+    store_results: bool = Field(default=True)
+    start_position_ms: int = Field(default=0, ge=0)
+    end_position_ms: int | None = Field(default=None, ge=0)
+    reconnect: ReconnectPolicy | None = Field(default=None)
+
+    @model_validator(mode="after")
+    def _check(self) -> "SessionCreate":
+        for name in ("profile_id", "model_id", "task", "settings", "end_position_ms", "reconnect"):
+            if name in self.model_fields_set and getattr(self, name) is None:
+                raise ValueError(f"explicit null is not allowed for {name}")
+        if self.end_position_ms is not None and self.end_position_ms <= self.start_position_ms:
+            raise ValueError("end_position_ms must exceed start_position_ms")
+        return self

@@ -44,6 +44,18 @@ class SqliteProfileRepository:
             "SELECT * FROM profiles WHERE active = 1 LIMIT 1"
         ).fetchone()
 
+    def insert_explicit(self, fields: dict) -> None:
+        """Insert preserving profile_id/active (backup import)."""
+        self._conn.execute(
+            "INSERT INTO profiles (profile_id, name, model_id, task, settings, active) "
+            "VALUES (?, ?, ?, ?, ?, ?)",
+            (fields["profile_id"], fields["name"], fields["model_id"], fields["task"],
+             fields["settings"], int(fields["active"])),
+        )
+
+    def delete_all(self) -> None:
+        self._conn.execute("DELETE FROM profiles")
+
     def insert(self, name: str, model_id: str, task: str, settings: dict, active: bool) -> int:
         cursor = self._conn.execute(
             "INSERT INTO profiles (name, model_id, task, settings, active) VALUES (?, ?, ?, ?, ?)",

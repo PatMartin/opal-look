@@ -65,6 +65,9 @@ class SqliteModelRepository:
     def delete(self, model_id: str) -> None:
         self._conn.execute("DELETE FROM models WHERE model_id = ?", (model_id,))
 
+    def delete_all(self) -> None:
+        self._conn.execute("DELETE FROM models")
+
 
 def _encode(value: Any) -> Any:
     if isinstance(value, dict):

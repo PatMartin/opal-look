@@ -57,6 +57,9 @@ class SqliteSourceRepository:
     def delete(self, source_id: str) -> None:
         self._conn.execute("DELETE FROM sources WHERE source_id = ?", (source_id,))
 
+    def delete_all(self) -> None:
+        self._conn.execute("DELETE FROM sources")
+
     def count_for_locator(self, locator: str) -> int:
         return self._conn.execute(
             "SELECT COUNT(*) AS n FROM sources WHERE locator = ?", (locator,)

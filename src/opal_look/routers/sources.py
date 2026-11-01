@@ -88,12 +88,17 @@ def patch_api_v1_sources_source_id(
     reject_null_fields(supplied)
 
     row = _get_source_or_404(store, source_id)
+    stored_options = row["source_options"]
+    if isinstance(stored_options, str):
+        stored_options = json.loads(stored_options)
+    if isinstance(stored_options, str):  # tolerate legacy double-encoding
+        stored_options = json.loads(stored_options)
     merged = {
         "type": supplied.get("type") or row["type"],
         "locator": supplied.get("locator") or row["locator"],
         "source_options": supplied.get("source_options")
         if "source_options" in supplied
-        else json.loads(row["source_options"]),
+        else stored_options,
     }
     _check_source_fields(store, merged["type"], merged["locator"], merged["source_options"])
     _session_refs(store, source_id)

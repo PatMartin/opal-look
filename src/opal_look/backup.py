@@ -160,7 +160,7 @@ def import_config(store: Store, payload: dict[str, Any]) -> list[str]:
                 "source_id": s["source_id"], "name": s["name"], "type": s["type"],
                 "locator": s["locator"], "credential_ref": s.get("credential_ref"),
                 "enabled": int(bool(s.get("enabled", True))),
-                "source_options": json.dumps(s.get("source_options") or {})})
+                "source_options": s.get("source_options") or {}})
         for p in payload.get("profiles") or []:
             store.profiles.insert_explicit({
                 "profile_id": p["profile_id"], "name": p["name"],

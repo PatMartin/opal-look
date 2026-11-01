@@ -107,7 +107,25 @@ def _profiles_activate(profile_id: str):
 
 
 app.add_typer(_profiles_app, name="profiles")
-app.add_typer(_collection_app("results", "/api/v1/results/"), name="results")
+_results_app = _collection_app("results", "/api/v1/results/")
+
+
+@_results_app.command("snapshot")
+def _results_snapshot(result_id: str, annotated: bool = typer.Option(False, "--annotated"),
+                      retain: bool = typer.Option(False, "--retain"),
+                      out: Path = typer.Option(None, "--out")):
+    data = unwrap(_client().request(
+        "POST", f"/api/v1/results/{result_id}/snapshot",
+        json={"annotated": annotated, "retain": retain}))
+    if retain:
+        _emit(data)
+    else:
+        target = out or Path(f"{result_id}.jpg")
+        Path(target).write_bytes(data)
+        typer.echo(str(target))
+
+
+app.add_typer(_results_app, name="results")
 app.add_typer(_collection_app("snapshots", "/api/v1/snapshots/"), name="snapshots")
 
 
@@ -134,7 +152,8 @@ def _settings_show(key: str = typer.Argument(None)):
 @settings_app.command("set")
 def _settings_set(key: str, value: str):
     c = _client()
-    _emit(unwrap(c.mutate("PUT", f"/api/v1/settings/{key}", json=json.loads(value))))
+    _emit(unwrap(c.mutate("PUT", f"/api/v1/settings/{key}",
+                          json={"value": json.loads(value)})))
 
 
 @settings_app.command("unset")

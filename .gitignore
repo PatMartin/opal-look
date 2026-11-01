@@ -4,3 +4,11 @@ vendor/
 __pycache__/
 *.egg-info/
 .pytest_cache/
+
+# demo artifacts
+/demo-img.jpg
+/dl*.jpg
+/dl*.json
+/snap.jpg
+/export.json
+/*demo-data*/

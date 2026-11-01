@@ -51,7 +51,9 @@ interface; do not serve a generated spec). Python 3.12+ / FastAPI / SQLite.
 | settings (map GET/PATCH + per-key GET/PUT/DELETE, If-Match/ETag) | verified |
 | engines (list/get/patch/validate; synthetic adapter) | verified |
 | models (list+filters/create/get/patch/delete/validate) | verified |
-| sources/profiles/devices | not started |
+| sources (CRUD+validate, per-type locator/option adapters) | verified |
+| profiles (CRUD+activate+validate, resolved settings) | verified |
+| devices/cameras (empty discovery; no adapters yet) | verified |
 | media | not started |
 | analyze | not started |
 | sessions/SSE/preview | not started |

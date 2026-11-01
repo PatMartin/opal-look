@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from .errors import ApiError
 
@@ -48,3 +48,86 @@ class ModelUpdate(BaseModel):
     engine_id: str | None = Field(default=None, pattern=IDENTIFIER_PATTERN)
     resource: dict[str, Any] | None = Field(default=None)
     enabled: bool | None = Field(default=None)
+
+
+# -- sources ----------------------------------------------------------------
+
+SourceType = Literal["camera", "rtsp", "http", "host_video", "media"]
+
+
+class SourceCreate(BaseModel):
+    model_config = ConfigDict(strict=True, extra="forbid")
+
+    source_id: str = Field(pattern=IDENTIFIER_PATTERN)
+    name: str = Field(min_length=1)
+    type: SourceType
+    locator: str = Field(min_length=1)
+    credential_ref: str | None = Field(default=None)
+    enabled: bool = Field(default=True)
+    source_options: dict[str, Any] = Field(default_factory=dict)
+
+
+class SourceUpdate(BaseModel):
+    model_config = ConfigDict(strict=True, extra="forbid")
+
+    name: str | None = Field(default=None, min_length=1)
+    type: SourceType | None = Field(default=None)
+    locator: str | None = Field(default=None, min_length=1)
+    credential_ref: str | None = Field(default=None)
+    enabled: bool | None = Field(default=None)
+    source_options: dict[str, Any] | None = Field(default=None)
+
+
+# -- profiles ---------------------------------------------------------------
+
+class Point(BaseModel):
+    model_config = ConfigDict(strict=True, extra="forbid")
+
+    x: float = Field(ge=0, le=1)
+    y: float = Field(ge=0, le=1)
+
+
+class Region(BaseModel):
+    model_config = ConfigDict(strict=True, extra="forbid")
+
+    region_id: str = Field(pattern=IDENTIFIER_PATTERN)
+    polygon: list[Point] = Field(min_length=3)
+
+
+class AnalysisSettings(BaseModel):
+    model_config = ConfigDict(strict=True, extra="forbid")
+
+    confidence: float = Field(default=0.25, ge=0, le=1)
+    class_labels: list[str] = Field(default_factory=list)
+    image_size: int | None = Field(default=None, ge=32)
+    regions: list[Region] = Field(default_factory=list)
+    max_fps: float = Field(default=5, gt=0)
+    file_mode: Literal["sampled", "every_frame"] = Field(default="sampled")
+    tracking: bool = Field(default=False)
+    segmentation_kind: Literal["instance", "semantic"] = Field(default="instance")
+    engine_options: dict[str, Any] = Field(default_factory=dict)
+
+    @field_validator("class_labels")
+    @classmethod
+    def _unique_labels(cls, labels: list[str]) -> list[str]:
+        if len(set(labels)) != len(labels):
+            raise ValueError("class_labels entries must be unique")
+        return labels
+
+
+class ProfileCreate(BaseModel):
+    model_config = ConfigDict(strict=True, extra="forbid")
+
+    name: str = Field(min_length=1)
+    model_id: str = Field(pattern=IDENTIFIER_PATTERN)
+    task: Task
+    settings: AnalysisSettings | None = Field(default=None)
+
+
+class ProfileUpdate(BaseModel):
+    model_config = ConfigDict(strict=True, extra="forbid")
+
+    name: str | None = Field(default=None, min_length=1)
+    model_id: str | None = Field(default=None, pattern=IDENTIFIER_PATTERN)
+    task: Task | None = Field(default=None)
+    settings: AnalysisSettings | None = Field(default=None)

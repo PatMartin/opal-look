@@ -49,6 +49,7 @@ class EngineAdapter(Protocol):
     def metadata(self) -> dict[str, Any]: ...
     def describe_model(self, resource: dict[str, Any]) -> dict[str, Any]: ...
     def validate_model(self, resource: dict[str, Any]) -> tuple[list[str], list[str]]: ...
+    def validate_engine_options(self, options: dict[str, Any]) -> list[str]: ...
 
 
 class SyntheticAdapter:
@@ -112,6 +113,21 @@ class SyntheticAdapter:
         for key in sorted(unknown):
             warnings.append(f"unrecognized resource key: {key}")
         return errors, warnings
+
+    _ENGINE_OPTION_KEYS = {"seed", "fail", "latency_ms"}
+
+    def validate_engine_options(self, options: dict[str, Any]) -> list[str]:
+        errors = []
+        for key, value in options.items():
+            if key not in self._ENGINE_OPTION_KEYS:
+                errors.append(f"unknown engine option: {key}")
+            elif key in ("seed", "latency_ms") and not isinstance(value, int):
+                errors.append(f"engine option {key!r} must be an integer")
+            elif key == "latency_ms" and value < 0:
+                errors.append("engine option 'latency_ms' must be >= 0")
+            elif key == "fail" and not isinstance(value, bool):
+                errors.append("engine option 'fail' must be a boolean")
+        return errors
 
 
 class EngineRegistry:

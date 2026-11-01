@@ -40,7 +40,12 @@ def _engine_or_404(store: Store, engine_id: str):
     return row
 
 
-def _model_references(store: Store, model_id: str) -> None:
+def _session_refs(store: Store, model_id: str) -> None:
+    if nonterminal_sessions_referencing(store, "model", model_id):
+        raise ApiError(409, f"Model {model_id!r} is referenced by a nonterminal session.")
+
+
+def _delete_refs(store: Store, model_id: str) -> None:
     if (
         nonterminal_sessions_referencing(store, "model", model_id)
         or profiles_referencing_model(store, model_id)
@@ -108,7 +113,7 @@ def patch_api_v1_models_model_id(
         errors, _ = adapter.validate_model(supplied["resource"])
         if errors:
             raise ApiError(422, "Invalid model resource locator.", details=errors)
-    _model_references(store, model_id)
+    _session_refs(store, model_id)
 
     with store.write_txn():
         check_if_match(request, store)
@@ -124,7 +129,7 @@ def delete_api_v1_models_model_id(
     request: Request, response: Response, store: StoreDep, model_id: str
 ) -> None:
     _get_model_or_404(store, model_id)
-    _model_references(store, model_id)
+    _delete_refs(store, model_id)
     with store.write_txn():
         check_if_match(request, store)
         store.models.delete(model_id)

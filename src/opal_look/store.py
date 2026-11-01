@@ -18,7 +18,9 @@ from .repositories import (
     SqliteEngineRepository,
     SqliteMetaRepository,
     SqliteModelRepository,
+    SqliteProfileRepository,
     SqliteSettingsRepository,
+    SqliteSourceRepository,
     new_revision,
 )
 
@@ -38,6 +40,8 @@ class Store:
         self.settings = SqliteSettingsRepository(self._conn)
         self.engines = SqliteEngineRepository(self._conn)
         self.models = SqliteModelRepository(self._conn)
+        self.sources = SqliteSourceRepository(self._conn)
+        self.profiles = SqliteProfileRepository(self._conn)
 
     def _init_schema(self) -> None:
         self._conn.executescript(
@@ -64,6 +68,23 @@ class Store:
                 engine_id TEXT NOT NULL,
                 resource TEXT NOT NULL,
                 enabled INTEGER NOT NULL DEFAULT 1
+            );
+            CREATE TABLE IF NOT EXISTS sources (
+                source_id TEXT PRIMARY KEY,
+                name TEXT NOT NULL,
+                type TEXT NOT NULL,
+                locator TEXT NOT NULL,
+                credential_ref TEXT,
+                enabled INTEGER NOT NULL DEFAULT 1,
+                source_options TEXT NOT NULL DEFAULT '{}'
+            );
+            CREATE TABLE IF NOT EXISTS profiles (
+                profile_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT NOT NULL,
+                model_id TEXT NOT NULL,
+                task TEXT NOT NULL,
+                settings TEXT NOT NULL DEFAULT '{}',
+                active INTEGER NOT NULL DEFAULT 0
             );
             """
         )

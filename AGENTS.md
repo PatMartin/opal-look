@@ -56,7 +56,8 @@ interface; do not serve a generated spec). Python 3.12+ / FastAPI / SQLite.
 | devices/cameras (empty discovery; no adapters yet) | verified |
 | media (upload JPEG/PNG+EXIF, cursor list, get/delete/content, expiry) | verified |
 | analyze (selection resolution, media/source frame inputs, all 5 tasks, filters, persistence) | verified |
+| results (search filters, cursor+budget, get/delete), ephemeral frame cache | verified |
+| snapshots (exact-frame capture, annotate, retain, CRUD+content) | verified |
 | sessions/SSE/preview | not started |
-| results/snapshots | not started |
 | backup | not started |
 | event bus | deferred |

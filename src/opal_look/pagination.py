@@ -23,14 +23,20 @@ def filter_key(filters: dict[str, Any]) -> str:
     return hashlib.sha256(canonical.encode()).hexdigest()[:16]
 
 
-def encode_cursor(fkey: str, last_key: list) -> str:
-    payload = {"v": 1, "f": fkey, "k": last_key, "t": int(time.time())}
+def encode_cursor(
+    fkey: str, last_key: list, bound: str | None = None, scanned: int = 0
+) -> str:
+    payload = {
+        "v": 1, "f": fkey, "k": last_key, "t": int(time.time()),
+        "b": bound, "n": scanned,
+    }
     return base64.urlsafe_b64encode(json.dumps(payload).encode()).decode()
 
 
-def decode_cursor(raw: str | None, fkey: str) -> list | None:
+def decode_cursor(raw: str | None, fkey: str) -> tuple[list | None, str | None, int]:
+    """Returns (last_key, upper_bound, scanned_so_far)."""
     if raw is None:
-        return None
+        return None, None, 0
     try:
         payload = json.loads(base64.urlsafe_b64decode(raw.encode()))
     except Exception:
@@ -44,4 +50,4 @@ def decode_cursor(raw: str | None, fkey: str) -> list | None:
     key = payload.get("k")
     if not isinstance(key, list):
         raise ApiError(422, "Invalid cursor.")
-    return key
+    return key, payload.get("b"), int(payload.get("n", 0))

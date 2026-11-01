@@ -225,7 +225,7 @@ def apply_filters(payload: dict, task: str, settings: dict) -> dict:
     return payload
 
 
-async def run_analysis(store: Store, req: AnalyzeRequest) -> dict[str, Any]:
+async def run_analysis(store: Store, req: AnalyzeRequest, frame_cache=None) -> dict[str, Any]:
     app_settings = effective_settings(store)
     sel = resolve_selection(store, req)
     frame = acquire_frame(store, req.input, app_settings.max_image_pixels)
@@ -309,4 +309,8 @@ async def run_analysis(store: Store, req: AnalyzeRequest) -> dict[str, Any]:
                     "settings": json.dumps(sel.settings),
                 }
             )
+    if frame_cache is not None:
+        frame_cache.put(
+            result_id, frame.image, result, app_settings.frame_cache_seconds
+        )
     return result

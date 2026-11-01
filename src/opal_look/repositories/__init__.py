@@ -8,6 +8,7 @@ from .models import ModelRepository, SqliteModelRepository
 from .profiles import ProfileRepository, SqliteProfileRepository
 from .results import ResultRepository, SqliteResultRepository
 from .settings import SettingsRepository, SqliteSettingsRepository
+from .snapshots import SnapshotRepository, SqliteSnapshotRepository
 from .sources import SourceRepository, SqliteSourceRepository
 
 __all__ = [
@@ -18,6 +19,7 @@ __all__ = [
     "ProfileRepository",
     "ResultRepository",
     "SettingsRepository",
+    "SnapshotRepository",
     "SourceRepository",
     "SqliteEngineRepository",
     "SqliteMediaRepository",
@@ -26,6 +28,7 @@ __all__ = [
     "SqliteProfileRepository",
     "SqliteResultRepository",
     "SqliteSettingsRepository",
+    "SqliteSnapshotRepository",
     "SqliteSourceRepository",
     "new_revision",
 ]

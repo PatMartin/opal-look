@@ -22,6 +22,7 @@ from .repositories import (
     SqliteProfileRepository,
     SqliteResultRepository,
     SqliteSettingsRepository,
+    SqliteSnapshotRepository,
     SqliteSourceRepository,
     new_revision,
 )
@@ -46,6 +47,7 @@ class Store:
         self.profiles = SqliteProfileRepository(self._conn)
         self.media = SqliteMediaRepository(self._conn)
         self.results = SqliteResultRepository(self._conn)
+        self.snapshots = SqliteSnapshotRepository(self._conn)
 
     def _init_schema(self) -> None:
         self._conn.executescript(
@@ -125,6 +127,16 @@ class Store:
                 payload TEXT NOT NULL,
                 engine_metadata TEXT NOT NULL DEFAULT '{}',
                 settings TEXT NOT NULL DEFAULT '{}'
+            );
+            CREATE TABLE IF NOT EXISTS snapshots (
+                snapshot_id TEXT PRIMARY KEY,
+                result_id TEXT NOT NULL,
+                annotated INTEGER NOT NULL DEFAULT 0,
+                path TEXT NOT NULL,
+                width INTEGER NOT NULL,
+                height INTEGER NOT NULL,
+                created_at TEXT NOT NULL,
+                expires_at TEXT NOT NULL
             );
             """
         )

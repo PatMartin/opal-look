@@ -78,7 +78,7 @@ def get_api_v1_media(
     limit: int = Query(default=100, ge=1, le=500),
     cursor: str | None = Query(default=None, min_length=1),
 ) -> dict:
-    after = decode_cursor(cursor, _FKEY)
+    after, _, _ = decode_cursor(cursor, _FKEY)
     rows = store.media.page(now_iso(), after, limit)
     items = rows[:limit]
     has_more = len(rows) > limit

@@ -13,7 +13,10 @@ from .access_log import AccessLogMiddleware
 from .correlation import CorrelationMiddleware
 from .engines import ensure_default_model, ensure_engines, load_plugin_adapters
 from .errors import register_error_handlers
-from .routers import analyze, engines, health, media, models, profiles, settings, sources
+from .framecache import FrameCache
+from .routers import (
+    analyze, engines, health, media, models, profiles, results, settings, snapshots, sources,
+)
 from .store import Store
 
 
@@ -40,6 +43,7 @@ def create_app(data_dir: Path | str | None = None, store: Store | None = None) -
     app.state.store = store if store is not None else Store(Path(data_dir) if data_dir else default_data_dir())
     # Event transport is provisioned out of band; absence blocks events_enabled=true.
     app.state.event_transport = os.environ.get("OPAL_LOOK_EVENT_TRANSPORT") or None
+    app.state.frame_cache = FrameCache()
     load_plugin_adapters()
     ensure_engines(app.state.store)
     ensure_default_model(app.state.store)
@@ -55,4 +59,6 @@ def create_app(data_dir: Path | str | None = None, store: Store | None = None) -
     app.include_router(profiles.router)
     app.include_router(media.router)
     app.include_router(analyze.router)
+    app.include_router(results.router)
+    app.include_router(snapshots.router)
     return app

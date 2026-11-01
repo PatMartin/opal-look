@@ -2,6 +2,7 @@
 and the Store.write_txn unit of work."""
 
 from .engines import EngineRepository, SqliteEngineRepository
+from .media import MediaRepository, SqliteMediaRepository
 from .meta import MetaRepository, SqliteMetaRepository, new_revision
 from .models import ModelRepository, SqliteModelRepository
 from .profiles import ProfileRepository, SqliteProfileRepository
@@ -10,12 +11,14 @@ from .sources import SourceRepository, SqliteSourceRepository
 
 __all__ = [
     "EngineRepository",
+    "MediaRepository",
     "MetaRepository",
     "ModelRepository",
     "ProfileRepository",
     "SettingsRepository",
     "SourceRepository",
     "SqliteEngineRepository",
+    "SqliteMediaRepository",
     "SqliteMetaRepository",
     "SqliteModelRepository",
     "SqliteProfileRepository",

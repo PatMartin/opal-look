@@ -28,6 +28,8 @@ def media_dependencies(store: Store, model_id: str) -> int:
 
 
 def media_exists(store: Store, media_id: str) -> bool:
-    """Media repository lands in P3; False until then."""
-    repo = getattr(store, "media", None)
-    return bool(repo is not None and repo.get(media_id))
+    """Unexpired registered media exists (used for source availability/refs)."""
+    from .timeutil import expired
+
+    row = store.media.get(media_id)
+    return bool(row is not None and not expired(row["expires_at"]))

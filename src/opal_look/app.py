@@ -13,7 +13,7 @@ from .access_log import AccessLogMiddleware
 from .correlation import CorrelationMiddleware
 from .engines import ensure_default_model, ensure_engines, load_plugin_adapters
 from .errors import register_error_handlers
-from .routers import engines, health, models, profiles, settings, sources
+from .routers import engines, health, media, models, profiles, settings, sources
 from .store import Store
 
 
@@ -53,4 +53,5 @@ def create_app(data_dir: Path | str | None = None, store: Store | None = None) -
     app.include_router(models.router)
     app.include_router(sources.router)
     app.include_router(profiles.router)
+    app.include_router(media.router)
     return app

@@ -16,6 +16,7 @@ from typing import Iterator
 
 from .repositories import (
     SqliteEngineRepository,
+    SqliteMediaRepository,
     SqliteMetaRepository,
     SqliteModelRepository,
     SqliteProfileRepository,
@@ -42,6 +43,7 @@ class Store:
         self.models = SqliteModelRepository(self._conn)
         self.sources = SqliteSourceRepository(self._conn)
         self.profiles = SqliteProfileRepository(self._conn)
+        self.media = SqliteMediaRepository(self._conn)
 
     def _init_schema(self) -> None:
         self._conn.executescript(
@@ -85,6 +87,19 @@ class Store:
                 task TEXT NOT NULL,
                 settings TEXT NOT NULL DEFAULT '{}',
                 active INTEGER NOT NULL DEFAULT 0
+            );
+            CREATE TABLE IF NOT EXISTS media (
+                media_id TEXT PRIMARY KEY,
+                filename TEXT NOT NULL,
+                kind TEXT NOT NULL,
+                content_type TEXT NOT NULL,
+                size_bytes INTEGER NOT NULL,
+                path TEXT NOT NULL,
+                width INTEGER,
+                height INTEGER,
+                duration_ms INTEGER,
+                created_at TEXT NOT NULL,
+                expires_at TEXT NOT NULL
             );
             """
         )

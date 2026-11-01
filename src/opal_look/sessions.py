@@ -83,6 +83,7 @@ async def _worker(app, store, session_id: str, sel, source_row, store_results: b
     adapter = ENGINE_REGISTRY.get(sel.engine_id)
     desc = model_read(store, sel.model_row)
     store.sessions.update(session_id, {"state": "running", "started_at": now_iso()})
+    _state_event(app, store, runtime, session_id, "running")
     frame_index = 0
     try:
         async for frame in _frames(store, source_row):
@@ -130,6 +131,11 @@ async def _worker(app, store, session_id: str, sel, source_row, store_results: b
             runtime.events.append((frame_index, "result", result))
             runtime.updated.set()
             runtime.updated = asyncio.Event()
+            try:
+                from .events import publish_event
+                publish_event(app, store, "opal.look.result", session_id, result)
+            except Exception:
+                pass
             frame_index += 1
             store.sessions.update(session_id, {
                 "frames_analyzed": frame_index, "last_result_id": rid})
@@ -142,8 +148,19 @@ async def _worker(app, store, session_id: str, sel, source_row, store_results: b
     finally:
         row = store.sessions.get(session_id)
         if row is not None and row["state"] in TERMINAL:
+            _state_event(app, store, runtime, session_id, row["state"])
             runtime.events.append((frame_index + 10_000, "end", {"state": row["state"]}))
             runtime.updated.set()
+
+
+def _state_event(app, store, runtime, session_id: str, state: str) -> None:
+    runtime.events.append((len(runtime.events), "state", {"state": state}))
+    runtime.updated.set()
+    try:
+        from .events import publish_event
+        publish_event(app, store, "opal.look.session.state", session_id, {"state": state})
+    except Exception:
+        pass
 
 
 async def _frames(store, source_row):

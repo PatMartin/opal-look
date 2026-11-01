@@ -16,6 +16,7 @@ dependencies = [
     "pydantic>=2.8",
     "Pillow>=10",
     "python-multipart>=0.0.9",
+    "pyzmq>=25",
 ]
 
 [project.optional-dependencies]

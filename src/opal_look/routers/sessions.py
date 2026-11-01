@@ -169,6 +169,40 @@ def get_api_v1_sessions_session_id_results_latest(
     raise ApiError(409, "No result is available yet.", code="result_unavailable")
 
 
+@router.get("/api/v1/sessions/{session_id}/events")
+async def get_api_v1_sessions_session_id_events(
+    request: Request, store: StoreDep, session_id: str
+):
+    row = _session_or_404(store, session_id)
+    runtime = request.app.state.session_runtimes.get(session_id)
+
+    async def stream():
+        import json as _json
+
+        yield f"event: state\ndata: {{\"state\": \"{row['state']}\"}}\n\n"
+        sent = len(runtime.events) if runtime else 0
+        while row["state"] not in TERMINAL:
+            events = runtime.events if runtime else []
+            for eid, kind, payload in events[sent:]:
+                sent += 1
+                yield f"id: {eid}\nevent: {kind}\ndata: {_json.dumps(payload)}\n\n"
+                if kind == "end":
+                    return
+            if runtime is None:
+                return
+            try:
+                await asyncio.wait_for(runtime.updated.wait(), timeout=15.0)
+            except asyncio.TimeoutError:
+                yield ": heartbeat\n\n"
+        # Terminal: drain remaining events.
+        if runtime:
+            for eid, kind, payload in runtime.events[sent:]:
+                yield f"id: {eid}\nevent: {kind}\ndata: {_json.dumps(payload)}\n\n"
+
+    from fastapi.responses import StreamingResponse
+    return StreamingResponse(stream(), media_type="text/event-stream")
+
+
 @router.get("/api/v1/sessions/{session_id}/results/events")
 async def get_api_v1_sessions_session_id_results_events(
     request: Request, store: StoreDep, session_id: str

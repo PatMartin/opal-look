@@ -22,13 +22,20 @@ def test_live_probe(client):
     assert body["ready"] is True
 
 
-def test_ready_probe_not_ready_without_models(client):
-    # No registered models/engines yet -> vision readiness is false (503).
+def test_ready_probe_ready_with_seeded_synthetic_model(client):
+    # The seeded synthetic engine + model make the service ready.
+    resp = client.get("/api/v1/health/ready")
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["ready"] is True
+    assert body["status"] == "ok"
+
+
+def test_ready_probe_unavailable_when_engine_disabled(client):
+    client.patch("/api/v1/engines/synthetic", json={"enabled": False}, headers={"If-Match": "*"})
     resp = client.get("/api/v1/health/ready")
     assert resp.status_code == 503
-    body = resp.json()
-    assert body["ready"] is False
-    assert body["status"] == "unavailable"
+    assert resp.json()["ready"] is False
 
 
 def test_suite_health_shape(client):
@@ -38,8 +45,9 @@ def test_suite_health_shape(client):
     for field in ("status", "ready", "engines", "active_sessions", "details",
                   "media_capabilities", "event_publication"):
         assert field in body
-    assert body["ready"] is False
-    assert body["engines"] == []
+    assert body["ready"] is True
+    engine_ids = [e["engine_id"] for e in body["engines"]]
+    assert "synthetic" in engine_ids
     assert body["active_sessions"] == 0
     caps = body["media_capabilities"]
     assert "image/jpeg" in caps["image_content_types"]

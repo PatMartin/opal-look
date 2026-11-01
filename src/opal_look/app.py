@@ -10,8 +10,9 @@ from fastapi import FastAPI
 
 from . import constants
 from .correlation import CorrelationMiddleware
+from .engines import ensure_default_model, ensure_engines
 from .errors import register_error_handlers
-from .routers import health, settings
+from .routers import engines, health, models, settings
 from .store import Store
 
 
@@ -38,9 +39,13 @@ def create_app(data_dir: Path | str | None = None, store: Store | None = None) -
     app.state.store = store if store is not None else Store(Path(data_dir) if data_dir else default_data_dir())
     # Event transport is provisioned out of band; absence blocks events_enabled=true.
     app.state.event_transport = os.environ.get("OPAL_LOOK_EVENT_TRANSPORT") or None
+    ensure_engines(app.state.store)
+    ensure_default_model(app.state.store)
 
     app.add_middleware(CorrelationMiddleware)
     register_error_handlers(app)
     app.include_router(health.router)
     app.include_router(settings.router)
+    app.include_router(engines.router)
+    app.include_router(models.router)
     return app

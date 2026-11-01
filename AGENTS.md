@@ -38,7 +38,9 @@ interface; do not serve a generated spec). Python 3.12+ / FastAPI / SQLite.
 | errors/correlation envelope | verified |
 | health (/, /health, live, ready, suite health) | verified |
 | settings (map GET/PATCH + per-key GET/PUT/DELETE, If-Match/ETag) | verified |
-| engines/models/sources/profiles/devices | not started |
+| engines (list/get/patch/validate; synthetic adapter) | verified |
+| models (list+filters/create/get/patch/delete/validate) | verified |
+| sources/profiles/devices | not started |
 | media | not started |
 | analyze | not started |
 | sessions/SSE/preview | not started |

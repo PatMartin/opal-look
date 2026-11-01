@@ -33,6 +33,21 @@ class Store:
                 key TEXT PRIMARY KEY,
                 value TEXT NOT NULL
             );
+            CREATE TABLE IF NOT EXISTS engines (
+                engine_id TEXT PRIMARY KEY,
+                name TEXT NOT NULL,
+                execution TEXT NOT NULL,
+                enabled INTEGER NOT NULL DEFAULT 1,
+                config TEXT NOT NULL DEFAULT '{}',
+                metadata TEXT NOT NULL DEFAULT '{}'
+            );
+            CREATE TABLE IF NOT EXISTS models (
+                model_id TEXT PRIMARY KEY,
+                name TEXT NOT NULL,
+                engine_id TEXT NOT NULL,
+                resource TEXT NOT NULL,
+                enabled INTEGER NOT NULL DEFAULT 1
+            );
             """
         )
         row = self._conn.execute("SELECT value FROM meta WHERE key = 'config_revision'").fetchone()
@@ -89,6 +104,63 @@ class Store:
 
     def delete_setting(self, key: str) -> None:
         self._conn.execute("DELETE FROM setting_overrides WHERE key = ?", (key,))
+
+    # -- engines -----------------------------------------------------------
+
+    def list_engines(self) -> list[sqlite3.Row]:
+        return self._conn.execute("SELECT * FROM engines ORDER BY rowid").fetchall()
+
+    def get_engine(self, engine_id: str) -> sqlite3.Row | None:
+        return self._conn.execute(
+            "SELECT * FROM engines WHERE engine_id = ?", (engine_id,)
+        ).fetchone()
+
+    def update_engine(self, engine_id: str, fields: dict[str, Any]) -> None:
+        assignments = ", ".join(f"{key} = ?" for key in fields)
+        values = [json.dumps(v) if isinstance(v, dict) else int(v) if isinstance(v, bool) else v for v in fields.values()]
+        self._conn.execute(
+            f"UPDATE engines SET {assignments} WHERE engine_id = ?", (*values, engine_id)
+        )
+
+    # -- models ------------------------------------------------------------
+
+    def list_models(
+        self, engine_id: str | None = None, enabled: bool | None = None
+    ) -> list[sqlite3.Row]:
+        query = "SELECT * FROM models"
+        clauses, params = [], []
+        if engine_id is not None:
+            clauses.append("engine_id = ?")
+            params.append(engine_id)
+        if enabled is not None:
+            clauses.append("enabled = ?")
+            params.append(int(enabled))
+        if clauses:
+            query += " WHERE " + " AND ".join(clauses)
+        return self._conn.execute(query + " ORDER BY rowid", params).fetchall()
+
+    def get_model(self, model_id: str) -> sqlite3.Row | None:
+        return self._conn.execute(
+            "SELECT * FROM models WHERE model_id = ?", (model_id,)
+        ).fetchone()
+
+    def insert_model(
+        self, model_id: str, name: str, engine_id: str, resource: dict, enabled: bool
+    ) -> None:
+        self._conn.execute(
+            "INSERT INTO models (model_id, name, engine_id, resource, enabled) VALUES (?, ?, ?, ?, ?)",
+            (model_id, name, engine_id, json.dumps(resource), int(enabled)),
+        )
+
+    def update_model(self, model_id: str, fields: dict[str, Any]) -> None:
+        assignments = ", ".join(f"{key} = ?" for key in fields)
+        values = [json.dumps(v) if isinstance(v, dict) else int(v) if isinstance(v, bool) else v for v in fields.values()]
+        self._conn.execute(
+            f"UPDATE models SET {assignments} WHERE model_id = ?", (*values, model_id)
+        )
+
+    def delete_model(self, model_id: str) -> None:
+        self._conn.execute("DELETE FROM models WHERE model_id = ?", (model_id,))
 
     def close(self) -> None:
         self._conn.close()

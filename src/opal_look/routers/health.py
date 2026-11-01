@@ -15,28 +15,50 @@ from ..constants import (
     SERVICE_NAME,
     SERVICE_VERSION,
 )
+from ..engines import engine_read
 
 router = APIRouter()
 
 
 def _readiness(request: Request) -> tuple[bool, str]:
-    """(ready, status). Ready requires usable storage plus at least one
-    enabled model on an available engine; none are registered yet."""
+    """Ready: storage usable and at least one enabled model on an
+    available engine can serve an analysis task."""
     store = request.app.state.store
     if not store.ping():
         return False, "unavailable"
-    # No engines/models registered yet -> cannot serve analysis.
+    for model in store.list_models(enabled=True):
+        if model_read_available(store, model):
+            return True, "ok"
     return False, "unavailable"
+
+
+def model_read_available(store, model_row) -> bool:
+    engine_row = store.get_engine(model_row["engine_id"])
+    if engine_row is None:
+        return False
+    read = engine_read(store, engine_row)
+    return read["enabled"] and read["available"]
 
 
 def _health_read(request: Request) -> dict:
     store = request.app.state.store
     storage_ok = store.ping()
     ready, status = _readiness(request)
+    engines = [engine_read(store, row) for row in store.list_engines()]
+    if ready and any(e["enabled"] and not e["available"] for e in engines):
+        status = "degraded"
     return {
         "status": status,
         "ready": ready,
-        "engines": [],
+        "engines": [
+            {
+                "engine_id": e["engine_id"],
+                "enabled": e["enabled"],
+                "available": e["available"],
+                "message": e["message"],
+            }
+            for e in engines
+        ],
         "active_sessions": 0,
         "details": {"storage": "ok" if storage_ok else "unavailable"},
         "media_capabilities": {

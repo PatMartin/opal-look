@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Request
+from fastapi import APIRouter
 from fastapi.responses import JSONResponse
 
+from ..dependencies import StoreDep
 from ..constants import (
     API_VERSION,
     CONTRACT_VERSION,
@@ -20,31 +21,29 @@ from ..engines import engine_read
 router = APIRouter()
 
 
-def _readiness(request: Request) -> tuple[bool, str]:
+def _readiness(store) -> tuple[bool, str]:
     """Ready: storage usable and at least one enabled model on an
     available engine can serve an analysis task."""
-    store = request.app.state.store
     if not store.ping():
         return False, "unavailable"
-    for model in store.list_models(enabled=True):
-        if model_read_available(store, model):
+    for model in store.models.list(enabled=True):
+        if _model_available(store, model):
             return True, "ok"
     return False, "unavailable"
 
 
-def model_read_available(store, model_row) -> bool:
-    engine_row = store.get_engine(model_row["engine_id"])
+def _model_available(store, model_row) -> bool:
+    engine_row = store.engines.get(model_row["engine_id"])
     if engine_row is None:
         return False
     read = engine_read(store, engine_row)
     return read["enabled"] and read["available"]
 
 
-def _health_read(request: Request) -> dict:
-    store = request.app.state.store
+def _health_read(store) -> dict:
     storage_ok = store.ping()
-    ready, status = _readiness(request)
-    engines = [engine_read(store, row) for row in store.list_engines()]
+    ready, status = _readiness(store)
+    engines = [engine_read(store, row) for row in store.engines.list()]
     if ready and any(e["enabled"] and not e["available"] for e in engines):
         status = "degraded"
     return {
@@ -81,8 +80,8 @@ def _health_read(request: Request) -> dict:
 
 
 @router.get("/api/v1/health/")
-def get_api_v1_health(request: Request) -> dict:
-    return _health_read(request)
+def get_api_v1_health(store: StoreDep) -> dict:
+    return _health_read(store)
 
 
 @router.get("/api/v1/health/live")
@@ -91,8 +90,8 @@ def get_api_v1_health_live() -> dict:
 
 
 @router.get("/api/v1/health/ready")
-def get_api_v1_health_ready(request: Request) -> JSONResponse:
-    ready, status = _readiness(request)
+def get_api_v1_health_ready(store: StoreDep) -> JSONResponse:
+    ready, status = _readiness(store)
     return JSONResponse(
         status_code=200 if ready else 503,
         content={"status": status, "ready": ready, "details": {}},

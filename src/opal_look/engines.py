@@ -114,32 +114,61 @@ class SyntheticAdapter:
         return errors, warnings
 
 
-ADAPTERS: dict[str, EngineAdapter] = {a.engine_id: a for a in (SyntheticAdapter(),)}
+class EngineRegistry:
+    """Factory/registry of installed engine adapters."""
+
+    def __init__(self) -> None:
+        self._adapters: dict[str, EngineAdapter] = {}
+
+    def register(self, adapter: EngineAdapter) -> None:
+        self._adapters[adapter.engine_id] = adapter
+
+    def get(self, engine_id: str) -> EngineAdapter | None:
+        return self._adapters.get(engine_id)
+
+    def all(self) -> list[EngineAdapter]:
+        return list(self._adapters.values())
+
+    def __contains__(self, engine_id: str) -> bool:
+        return engine_id in self._adapters
 
 
-def ensure_engines(store: Store) -> None:
+ENGINE_REGISTRY = EngineRegistry()
+ENGINE_REGISTRY.register(SyntheticAdapter())
+
+
+def load_plugin_adapters(registry: EngineRegistry = ENGINE_REGISTRY) -> None:
+    """Optional plugin hook: register adapters from 'opal_look.engines' entry points."""
+    import logging
+    from importlib.metadata import entry_points
+
+    for ep in entry_points(group="opal_look.engines"):
+        try:
+            registry.register(ep.load()())
+        except Exception:
+            logging.getLogger(__name__).warning("failed to load engine plugin %s", ep.name)
+
+
+def ensure_engines(store: Store, registry: EngineRegistry = ENGINE_REGISTRY) -> None:
     """Seed registry rows for installed adapters; idempotent."""
     with store.write_txn():
-        for adapter in ADAPTERS.values():
-            store._conn.execute(
-                "INSERT OR IGNORE INTO engines (engine_id, name, execution, enabled, config, metadata) "
-                "VALUES (?, ?, ?, 1, '{}', '{}')",
-                (adapter.engine_id, adapter.name, adapter.execution),
-            )
+        for adapter in registry.all():
+            store.engines.seed(adapter.engine_id, adapter.name, adapter.execution)
 
 
 def ensure_default_model(store: Store) -> None:
     """Seed one usable synthetic model so the service is ready out of the box."""
     with store.write_txn():
-        store._conn.execute(
-            "INSERT OR IGNORE INTO models (model_id, name, engine_id, resource, enabled) "
-            "VALUES ('synthetic-vision', 'Synthetic vision model', 'synthetic', ?, 1)",
-            ('{"ref": "builtin"}',),
+        store.models.seed(
+            "synthetic-vision",
+            "Synthetic vision model",
+            "synthetic",
+            {"ref": "builtin"},
         )
 
 
 def engine_read(store: Store, row: sqlite3.Row) -> dict[str, Any]:
-    adapter = ADAPTERS[row["engine_id"]]
+    adapter = ENGINE_REGISTRY.get(row["engine_id"])
     config = json.loads(row["config"])
     enabled = bool(row["enabled"])
     available, message = adapter.probe(config, enabled)
@@ -157,8 +186,8 @@ def engine_read(store: Store, row: sqlite3.Row) -> dict[str, Any]:
 
 
 def model_read(store: Store, row: sqlite3.Row) -> dict[str, Any]:
-    adapter = ADAPTERS[row["engine_id"]]
-    engine_row = store.get_engine(row["engine_id"])
+    adapter = ENGINE_REGISTRY.get(row["engine_id"])
+    engine_row = store.engines.get(row["engine_id"])
     config = json.loads(engine_row["config"])
     engine_enabled = bool(engine_row["enabled"])
     engine_available, _ = adapter.probe(config, engine_enabled)

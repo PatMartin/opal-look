@@ -9,8 +9,9 @@ from pathlib import Path
 from fastapi import FastAPI
 
 from . import constants
+from .access_log import AccessLogMiddleware
 from .correlation import CorrelationMiddleware
-from .engines import ensure_default_model, ensure_engines
+from .engines import ensure_default_model, ensure_engines, load_plugin_adapters
 from .errors import register_error_handlers
 from .routers import engines, health, models, settings
 from .store import Store
@@ -39,10 +40,12 @@ def create_app(data_dir: Path | str | None = None, store: Store | None = None) -
     app.state.store = store if store is not None else Store(Path(data_dir) if data_dir else default_data_dir())
     # Event transport is provisioned out of band; absence blocks events_enabled=true.
     app.state.event_transport = os.environ.get("OPAL_LOOK_EVENT_TRANSPORT") or None
+    load_plugin_adapters()
     ensure_engines(app.state.store)
     ensure_default_model(app.state.store)
 
     app.add_middleware(CorrelationMiddleware)
+    app.add_middleware(AccessLogMiddleware)
     register_error_handlers(app)
     app.include_router(health.router)
     app.include_router(settings.router)

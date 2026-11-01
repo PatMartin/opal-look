@@ -10,8 +10,19 @@ interface; do not serve a generated spec). Python 3.12+ / FastAPI / SQLite.
 - Run: `.venv/Scripts/opal-look` or `uvicorn opal_look.app:create_app --factory`
 - Data dir: `OPAL_LOOK_DATA_DIR` (default `./data`)
 
-## Conventions
+## Conventions / design patterns
 
+- Persistence: per-aggregate repositories behind Protocols under
+  `src/opal_look/repositories/`; `Store` owns the connection + schema and
+  exposes `store.meta/settings/engines/models`. `store.write_txn()` is the
+  unit-of-work context manager for atomic check-and-mutate.
+- DI: FastAPI `Depends` providers in `src/opal_look/dependencies.py`
+  (`StoreDep`); handlers inject the store rather than reaching app.state.
+- Engines: `EngineAdapter` Protocol + `ENGINE_REGISTRY` (factory/registry,
+  `opal_look.engines` entry-point hook via `load_plugin_adapters()`).
+- DTOs: pydantic models in `src/opal_look/schemas.py` + `settings.py`.
+- Middleware: `CorrelationMiddleware` (outer correlation/validation),
+  `AccessLogMiddleware` (outermost, logs all requests).
 - All errors use the OpalError envelope (`src/opal_look/errors.py`,
   `ApiError(status, message, code=...)`).
 - X-Opal-* correlation headers handled by `CorrelationMiddleware`; never

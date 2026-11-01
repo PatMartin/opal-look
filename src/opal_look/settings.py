@@ -88,4 +88,4 @@ SETTINGS_KEYS = frozenset(ServiceSettings.model_fields)
 
 
 def effective_settings(store: Store) -> ServiceSettings:
-    return ServiceSettings.model_validate(store.setting_overrides())
+    return ServiceSettings.model_validate(store.settings.overrides())

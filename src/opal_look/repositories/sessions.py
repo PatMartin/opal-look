@@ -10,6 +10,8 @@ from ..timeutil import now_iso
 
 TERMINAL_STATES = ("stopped", "completed", "failed")
 
+IDEMPOTENCY_TTL_HOURS = 24
+
 
 class SessionRepository(Protocol):
     def get(self, session_id: str) -> sqlite3.Row | None: ...
@@ -76,6 +78,22 @@ class SqliteSessionRepository:
                     query += f" AND {col} = ?"
                     params.append(int(rid) if col == "profile_id" else rid)
         return self._conn.execute(query, params).fetchone()["n"]
+
+    def get_idempotency(self, key: str, now: str) -> sqlite3.Row | None:
+        return self._conn.execute(
+            "SELECT * FROM idempotency_keys WHERE key = ? AND expires_at > ?", (key, now)
+        ).fetchone()
+
+    def put_idempotency(self, key: str, fingerprint: str, session_id: str) -> None:
+        from datetime import datetime, timedelta, timezone
+        now = datetime.now(timezone.utc)
+        self._conn.execute(
+            "INSERT OR REPLACE INTO idempotency_keys (key, fingerprint, session_id, "
+            "created_at, expires_at) VALUES (?, ?, ?, ?, ?)",
+            (key, fingerprint, session_id,
+             now.isoformat().replace("+00:00", "Z"),
+             (now + timedelta(hours=IDEMPOTENCY_TTL_HOURS)).isoformat().replace("+00:00", "Z")),
+        )
 
     def fail_interrupted(self, error_json: str) -> None:
         self._conn.execute(

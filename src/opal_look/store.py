@@ -162,6 +162,13 @@ class Store:
                 last_result_id TEXT,
                 error TEXT
             );
+            CREATE TABLE IF NOT EXISTS idempotency_keys (
+                key TEXT PRIMARY KEY,
+                fingerprint TEXT NOT NULL,
+                session_id TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                expires_at TEXT NOT NULL
+            );
             """
         )
         if self._conn.execute(

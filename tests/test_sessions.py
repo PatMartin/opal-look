@@ -198,3 +198,40 @@ def test_session_preview_mjpeg(client, media_source):
 
 def test_session_preview_unknown_404(client):
     assert client.get("/api/v1/sessions/nope/preview").status_code == 404
+
+
+def test_session_idempotency_replay(client, media_source):
+    body = {"source_id": "ms", "model_id": "synthetic-vision", "task": "detection"}
+    first = client.post("/api/v1/sessions/", json=body,
+                        headers={"Idempotency-Key": "key-1"})
+    assert first.status_code == 202
+    second = client.post("/api/v1/sessions/", json=body,
+                         headers={"Idempotency-Key": "key-1"})
+    assert second.status_code == 202
+    assert second.json()["session_id"] == first.json()["session_id"]
+
+
+def test_session_idempotency_conflict_409(client, media_source):
+    client.post("/api/v1/sessions/",
+                json={"source_id": "ms", "model_id": "synthetic-vision",
+                      "task": "detection"},
+                headers={"Idempotency-Key": "key-2"})
+    resp = client.post("/api/v1/sessions/",
+                       json={"source_id": "ms", "model_id": "synthetic-vision",
+                             "task": "ocr"},
+                       headers={"Idempotency-Key": "key-2"})
+    assert resp.status_code == 409
+
+
+def test_session_idempotency_deleted_409(client, media_source):
+    sid = client.post("/api/v1/sessions/",
+                      json={"source_id": "ms", "model_id": "synthetic-vision",
+                            "task": "detection"},
+                      headers={"Idempotency-Key": "key-3"}).json()["session_id"]
+    _wait_terminal(client, sid)
+    client.delete(f"/api/v1/sessions/{sid}")
+    resp = client.post("/api/v1/sessions/",
+                       json={"source_id": "ms", "model_id": "synthetic-vision",
+                             "task": "detection"},
+                       headers={"Idempotency-Key": "key-3"})
+    assert resp.status_code == 409

@@ -29,6 +29,24 @@ async def post_api_v1_sessions(request: Request, store: StoreDep, body: SessionC
     idem = request.headers.get("idempotency-key")
     if idem is not None and not _IDEMPOTENCY_RE.match(idem):
         raise ApiError(422, "Invalid Idempotency-Key header.")
+    if idem is not None:
+        import hashlib
+        import json as _json
+        fingerprint = hashlib.sha256(
+            _json.dumps(body.model_dump(mode="json"), sort_keys=True).encode()
+        ).hexdigest()
+        prior = store.sessions.get_idempotency(idem, now_iso())
+        if prior is not None:
+            if prior["fingerprint"] != fingerprint:
+                raise ApiError(409, "Idempotency-Key was used with a different request.",
+                               code="idempotency_conflict")
+            prior_session = store.sessions.get(prior["session_id"])
+            if prior_session is None:
+                raise ApiError(409, "The session created by this Idempotency-Key was deleted.",
+                               code="idempotency_conflict")
+            return JSONResponse(
+                session_read(prior_session), status_code=202,
+                headers={"Location": f"/api/v1/sessions/{prior['session_id']}"})
 
     source = store.sources.get(body.source_id)
     if source is None:
@@ -60,6 +78,8 @@ async def post_api_v1_sessions(request: Request, store: StoreDep, body: SessionC
             "start_position_ms": body.start_position_ms or None,
             "end_position_ms": body.end_position_ms,
         })
+        if idem is not None:
+            store.sessions.put_idempotency(idem, fingerprint, session_id)
     handle = asyncio.create_task(
         _worker(request.app, store, session_id, sel, source, body.store_results))
     request.app.state.session_runtimes.ensure(session_id).task_handle = handle

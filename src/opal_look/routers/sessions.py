@@ -147,3 +147,76 @@ def get_api_v1_sessions_session_id_results_latest(
         from ..results import result_read
         return result_read(stored)
     raise ApiError(409, "No result is available yet.", code="result_unavailable")
+
+
+@router.get("/api/v1/sessions/{session_id}/results/events")
+async def get_api_v1_sessions_session_id_results_events(
+    request: Request, store: StoreDep, session_id: str
+):
+    row = _session_or_404(store, session_id)
+    runtime = request.app.state.session_runtimes.get(session_id)
+    last_event_id = request.headers.get("last-event-id")
+    start_after = None
+    if last_event_id is not None:
+        try:
+            start_after = int(last_event_id)
+        except ValueError:
+            raise ApiError(422, "Invalid Last-Event-ID.")
+
+    async def stream():
+        import json as _json
+
+        sent = 0
+        while True:
+            events = runtime.events if runtime else []
+            pending = [e for e in events if start_after is None or e[0] > start_after]
+            for eid, kind, payload in pending[sent:]:
+                sent += 1
+                yield f"id: {eid}\nevent: {kind}\ndata: {_json.dumps(payload)}\n\n"
+                if kind == "end":
+                    return
+            if row["state"] in TERMINAL and (not runtime or not any(
+                    e[1] == "end" for e in events)):
+                # Terminal with no runtime events: emit end immediately.
+                yield "event: end\ndata: {\"state\": \"%s\"}\n\n" % row["state"]
+                return
+            if runtime is None:
+                return
+            try:
+                await asyncio.wait_for(runtime.updated.wait(), timeout=15.0)
+            except asyncio.TimeoutError:
+                yield ": heartbeat\n\n"
+
+    from fastapi.responses import StreamingResponse
+    return StreamingResponse(stream(), media_type="text/event-stream")
+
+
+@router.get("/api/v1/sessions/{session_id}/preview")
+async def get_api_v1_sessions_session_id_preview(
+    request: Request, store: StoreDep, session_id: str
+):
+    row = _session_or_404(store, session_id)
+    runtime = request.app.state.session_runtimes.get(session_id)
+    if (runtime is None or not runtime.preview_frames) and row["state"] in TERMINAL:
+        raise ApiError(409, "No preview frames are available.", code="frame_unavailable")
+
+    async def stream():
+        sent = 0
+        while True:
+            frames = runtime.preview_frames if runtime else []
+            while sent < len(frames):
+                yield (
+                    b"--frame\r\nContent-Type: image/jpeg\r\n\r\n"
+                    + frames[sent] + b"\r\n"
+                )
+                sent += 1
+            if row["state"] in TERMINAL or runtime is None:
+                return
+            try:
+                await asyncio.wait_for(runtime.updated.wait(), timeout=15.0)
+            except asyncio.TimeoutError:
+                continue
+
+    from fastapi.responses import StreamingResponse
+    return StreamingResponse(
+        stream(), media_type="multipart/x-mixed-replace; boundary=frame")

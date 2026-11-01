@@ -59,6 +59,6 @@ interface; do not serve a generated spec). Python 3.12+ / FastAPI / SQLite.
 | results (search filters, cursor+budget, get/delete), ephemeral frame cache | verified |
 | snapshots (exact-frame capture, annotate, retain, CRUD+content) | verified |
 | sessions (admission/state machine/worker/stop/delete/latest; SSE+preview pending) | verified |
-| SSE events stream, MJPEG preview | not started |
+| SSE events stream (result+end events, heartbeat), MJPEG preview | verified |
 | backup | not started |
 | event bus | deferred |

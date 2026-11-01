@@ -168,3 +168,33 @@ def test_session_stop_idempotent(client, media_source):
     resp = client.post(f"/api/v1/sessions/{sid}/stop")
     assert resp.status_code == 200
     assert resp.json()["state"] == final["state"]
+
+
+def test_session_events_sse(client, media_source):
+    sid = _create(client).json()["session_id"]
+    _wait_terminal(client, sid)
+    resp = client.get(f"/api/v1/sessions/{sid}/results/events")
+    assert resp.status_code == 200
+    assert "text/event-stream" in resp.headers["content-type"]
+    text = resp.text
+    assert "event: result" in text
+    assert "event: end" in text
+    assert f'"session_id": "{sid}"' in text
+
+
+def test_session_events_unknown_404(client):
+    assert client.get("/api/v1/sessions/nope/results/events").status_code == 404
+
+
+def test_session_preview_mjpeg(client, media_source):
+    sid = _create(client).json()["session_id"]
+    _wait_terminal(client, sid)
+    resp = client.get(f"/api/v1/sessions/{sid}/preview")
+    assert resp.status_code == 200
+    assert "multipart/x-mixed-replace" in resp.headers["content-type"]
+    assert b"--frame" in resp.content
+    assert b"\xff\xd8" in resp.content
+
+
+def test_session_preview_unknown_404(client):
+    assert client.get("/api/v1/sessions/nope/preview").status_code == 404

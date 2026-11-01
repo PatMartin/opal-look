@@ -55,6 +55,9 @@ class SessionRuntime:
     stop_requested: bool = False
     task_handle: asyncio.Task | None = None
     latest_result: dict | None = None
+    events: list = field(default_factory=list)  # [(event_id, kind, payload)]
+    preview_frames: list = field(default_factory=list)  # [jpeg bytes]
+    updated: asyncio.Event = field(default_factory=asyncio.Event)
 
 
 class SessionRuntimeRegistry:
@@ -121,6 +124,12 @@ async def _worker(app, store, session_id: str, sel, source_row, store_results: b
             runtime.latest_result = result
             app.state.frame_cache.put(
                 rid, frame.copy(), result, effective_settings(store).frame_cache_seconds)
+            buf = io.BytesIO()
+            frame.convert("RGB").save(buf, format="JPEG")
+            runtime.preview_frames.append(buf.getvalue())
+            runtime.events.append((frame_index, "result", result))
+            runtime.updated.set()
+            runtime.updated = asyncio.Event()
             frame_index += 1
             store.sessions.update(session_id, {
                 "frames_analyzed": frame_index, "last_result_id": rid})
@@ -130,6 +139,11 @@ async def _worker(app, store, session_id: str, sel, source_row, store_results: b
         raise
     except Exception as exc:  # source/inference failure -> failed
         _fail(store, session_id, "session_failed", str(exc) or type(exc).__name__)
+    finally:
+        row = store.sessions.get(session_id)
+        if row is not None and row["state"] in TERMINAL:
+            runtime.events.append((frame_index + 10_000, "end", {"state": row["state"]}))
+            runtime.updated.set()
 
 
 async def _frames(store, source_row):

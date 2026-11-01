@@ -22,7 +22,14 @@ interface; do not serve a generated spec). Python 3.12+ / FastAPI / SQLite.
 - `events_enabled=true` requires `OPAL_LOOK_EVENT_TRANSPORT` env
   (provisioned out of band); otherwise 422.
 - Planned clients (later phases): `opal-look-cli` (Typer, REST-only via
-  httpx) and a thin SPA (static client calling REST, no business logic).
+  httpx; suite verb taxonomy add/remove/update/list/show + operational
+  verbs per upstream x-opal-cli conventions) and a full-coverage SPA
+  (static assets at /app/ calling REST, no business logic).
+- Event bus: real two-frame ZeroMQ publisher via pyzmq, enabled through
+  provisioned transport config.
+- vendor/opal-api/ holds local-only reference copies of the sibling
+  contracts (opal_event/listen/talk + upstream opal_look — note upstream
+  Look is a different API; our opal_look_v1.4.0.yaml is authoritative).
 
 ## Contract coverage (verified)
 

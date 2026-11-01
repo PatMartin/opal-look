@@ -17,6 +17,8 @@ dependencies = [
     "Pillow>=10",
     "python-multipart>=0.0.9",
     "pyzmq>=25",
+    "typer>=0.12",
+    "httpx>=0.27",
 ]
 
 [project.optional-dependencies]
@@ -27,6 +29,7 @@ dev = [
 
 [project.scripts]
 opal-look = "opal_look.main:main"
+opal-look-cli = "opal_look_cli.cli:main"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

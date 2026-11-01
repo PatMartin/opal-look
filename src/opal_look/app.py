@@ -68,4 +68,8 @@ def create_app(data_dir: Path | str | None = None, store: Store | None = None) -
     app.include_router(snapshots.router)
     app.include_router(sessions_router.router)
     app.include_router(backup.router)
+
+    from fastapi.staticfiles import StaticFiles
+    app.mount("/app", StaticFiles(directory=Path(__file__).parent / "static", html=True),
+              name="app")
     return app

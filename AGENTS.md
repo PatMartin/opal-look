@@ -61,4 +61,6 @@ interface; do not serve a generated spec). Python 3.12+ / FastAPI / SQLite.
 | sessions (admission/state machine/worker/stop/delete/latest; SSE+preview pending) | verified |
 | SSE events stream (result+end events, heartbeat), MJPEG preview | verified |
 | backup (export/import/validate + managed create/list/download/restore/delete) | verified |
-| event bus | deferred |
+| event bus (pyzmq PUSH two-frame, allowlist+rate+drop counters) | verified |
+| CLI (opal-look-cli, all verbs, REST-only) | verified |
+| SPA (/app/ static client, all sections) | verified |

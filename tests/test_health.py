@@ -57,3 +57,10 @@ def test_suite_health_shape(client):
     pub = body["event_publication"]
     assert pub["enabled"] is False
     assert pub["status"] == "disabled"
+
+
+def test_spa_served(client):
+    assert client.get("/app/").status_code == 200
+    assert "OPAL Look" in client.get("/app/").text
+    assert client.get("/app/app.js").status_code == 200
+    assert client.get("/app/style.css").status_code == 200

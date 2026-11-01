@@ -58,9 +58,19 @@ interface; do not serve a generated spec). Python 3.12+ / FastAPI / SQLite.
 | analyze (selection resolution, media/source frame inputs, all 5 tasks, filters, persistence) | verified |
 | results (search filters, cursor+budget, get/delete), ephemeral frame cache | verified |
 | snapshots (exact-frame capture, annotate, retain, CRUD+content) | verified |
-| sessions (admission/state machine/worker/stop/delete/latest; SSE+preview pending) | verified |
+| sessions (admission/state machine/worker/stop/delete/latest) | verified |
 | SSE events stream (result+end events, heartbeat), MJPEG preview | verified |
 | backup (export/import/validate + managed create/list/download/restore/delete) | verified |
 | event bus (pyzmq PUSH two-frame, allowlist+rate+drop counters) | verified |
 | CLI (opal-look-cli, all verbs, REST-only) | verified |
 | SPA (/app/ static client, all sections) | verified |
+
+| idempotency (durable keys, fingerprint replay, 409s) | verified |
+| retention sweep (startup purge of expired rows) | verified |
+| conformance (Spectral 0 errors; Schemathesis fixes applied) | verified |
+| CI (GitHub Actions pytest) | verified |
+
+Deferred (documented): video decoder (media/host_video -> 415/503 until
+installed), live-source capture adapters, reconnect policy runtime
+behavior, SSE replay-window edge cases (replay_expired/stream_overflow),
+health event-publication counter surface.

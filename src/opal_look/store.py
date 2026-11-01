@@ -209,3 +209,20 @@ class Store:
 
     def close(self) -> None:
         self._conn.close()
+
+
+def sweep_expired(store: "Store") -> dict[str, int]:
+    """Purge rows past their expires_at (media/results/snapshots/idempotency).
+    Returns per-table delete counts. Call on startup and periodically."""
+    from .timeutil import now_iso
+    counts = {}
+    now = now_iso()
+    for table, col in (("media", "expires_at"), ("results", "expires_at"),
+                       ("snapshots", "expires_at"), ("idempotency_keys", "expires_at")):
+        cur = store._conn.execute(
+            f"DELETE FROM {table} WHERE {col} IS NOT NULL AND {col} <= ?", (now,))
+        counts[table] = cur.rowcount
+    store._conn.execute(
+        "DELETE FROM sessions WHERE state IN ('stopped','completed','failed') "
+        "AND finished_at < datetime('now', '-30 days')")
+    return counts

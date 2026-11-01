@@ -49,6 +49,8 @@ def create_app(data_dir: Path | str | None = None, store: Store | None = None) -
     app.state.session_runtimes = SessionRuntimeRegistry()
     app.state.store.sessions.fail_interrupted(
         '{"code":"service_restarted","message":"service restarted before completion"}')
+    from .store import sweep_expired
+    app.state.swept = sweep_expired(app.state.store)
     load_plugin_adapters()
     ensure_engines(app.state.store)
     ensure_default_model(app.state.store)

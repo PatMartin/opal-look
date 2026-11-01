@@ -126,4 +126,4 @@ def delete_api_v1_media_media_id(request: Request, store: StoreDep, media_id: st
 @router.get("/api/v1/media/{media_id}/content")
 def get_api_v1_media_media_id_content(request: Request, store: StoreDep, media_id: str):
     row = _get_media_or_404(store, media_id)
-    return FileResponse(row["path"], media_type=row["content_type"])
+    return FileResponse(row["path"], media_type="application/octet-stream")

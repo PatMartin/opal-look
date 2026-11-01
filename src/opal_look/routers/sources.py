@@ -116,6 +116,7 @@ def patch_api_v1_sources_source_id(
 def delete_api_v1_sources_source_id(
     request: Request, response: Response, store: StoreDep, source_id: str
 ) -> None:
+    check_if_match(request, store)
     _get_source_or_404(store, source_id)
     _session_refs(store, source_id)
     with store.write_txn():

@@ -106,7 +106,7 @@ def test_media_content_download(client):
     mid = _upload(client, data=data).json()["media_id"]
     resp = client.get(f"/api/v1/media/{mid}/content")
     assert resp.status_code == 200
-    assert resp.headers["content-type"] == "image/jpeg"
+    assert resp.headers["content-type"] == "application/octet-stream"
     assert resp.content == data
 
 

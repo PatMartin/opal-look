@@ -95,11 +95,12 @@ def patch_api_v1_profiles_profile_id(
     request: Request,
     store: StoreDep,
     patch: ProfileUpdate,
-    profile_id: int = Path(ge=1),
+    profile_id: int = Path(ge=1, le=9223372036854775807),
 ) -> JSONResponse:
     supplied = patch.model_dump(exclude_unset=True)
     reject_null_fields(supplied)
 
+    check_if_match(request, store)
     row = _get_profile_or_404(store, profile_id)
     task = supplied.get("task") or row["task"]
     model_id = supplied.get("model_id") or row["model_id"]
@@ -126,8 +127,10 @@ def patch_api_v1_profiles_profile_id(
 
 @router.delete("/api/v1/profiles/{profile_id}", status_code=204)
 def delete_api_v1_profiles_profile_id(
-    request: Request, response: Response, store: StoreDep, profile_id: int = Path(ge=1)
+    request: Request, response: Response, store: StoreDep,
+    profile_id: int = Path(ge=1, le=9223372036854775807)
 ) -> None:
+    check_if_match(request, store)
     row = _get_profile_or_404(store, profile_id)
     if row["active"]:
         raise ApiError(409, "Cannot delete the active profile; activate another first.")
@@ -167,8 +170,10 @@ def post_api_v1_profiles_profile_id_validate(
 
 @router.post("/api/v1/profiles/{profile_id}/activate")
 def post_api_v1_profiles_profile_id_activate(
-    request: Request, store: StoreDep, profile_id: int = Path(ge=1)
+    request: Request, store: StoreDep,
+    profile_id: int = Path(ge=1, le=9223372036854775807)
 ) -> JSONResponse:
+    check_if_match(request, store)
     row = _get_profile_or_404(store, profile_id)
     read = profile_read(row)
     # Activation re-checks current compatibility; runtime unavailability is OK.

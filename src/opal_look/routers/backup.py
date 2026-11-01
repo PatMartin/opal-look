@@ -36,9 +36,13 @@ def _import_common(request, store, payload) -> JSONResponse:
     )
 
 
+_REQUIRED_KEYS = {"version", "exported_at", "engines", "models", "sources",
+                  "profiles", "settings"}
+
+
 def _require_export(body) -> dict:
-    if not isinstance(body, dict) or "version" not in body:
-        raise ApiError(422, "Request body must be a ConfigExport object.")
+    if not isinstance(body, dict) or not _REQUIRED_KEYS.issubset(body):
+        raise ApiError(422, "Request body must be a complete ConfigExport object.")
     return body
 
 
@@ -82,7 +86,7 @@ def post_api_v1_backup_create(request: Request, store: StoreDep) -> JSONResponse
     path = backup_dir(store) / filename
     path.write_text(json.dumps(export_config(store), indent=2))
     return JSONResponse(
-        backup_read(path), status_code=201,
+        {"filename": filename, "message": "Backup created."}, status_code=201,
         headers={"Location": f"/api/v1/backup/download/{filename}"},
     )
 

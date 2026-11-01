@@ -48,6 +48,7 @@ def patch_api_v1_engines_engine_id(
     supplied = patch.model_dump(exclude_unset=True)
     reject_null_fields(supplied)
 
+    check_if_match(request, store)
     _get_engine_or_404(store, engine_id)
     adapter = ENGINE_REGISTRY.get(engine_id)
 

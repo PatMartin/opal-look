@@ -105,6 +105,7 @@ def patch_api_v1_models_model_id(
     supplied = patch.model_dump(exclude_unset=True)
     reject_null_fields(supplied)
 
+    check_if_match(request, store)
     _get_model_or_404(store, model_id)
     if "engine_id" in supplied:
         _engine_or_404(store, supplied["engine_id"])
@@ -128,6 +129,7 @@ def patch_api_v1_models_model_id(
 def delete_api_v1_models_model_id(
     request: Request, response: Response, store: StoreDep, model_id: str
 ) -> None:
+    check_if_match(request, store)
     _get_model_or_404(store, model_id)
     _delete_refs(store, model_id)
     with store.write_txn():

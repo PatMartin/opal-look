@@ -12,3 +12,6 @@ __pycache__/
 /snap.jpg
 /export.json
 /*demo-data*/
+
+# tool artifacts
+/.schemathesis/

@@ -16,7 +16,13 @@ interface; do not serve a generated spec). Python 3.12+ / FastAPI / SQLite.
   `ApiError(status, message, code=...)`).
 - X-Opal-* correlation headers handled by `CorrelationMiddleware`; never
   trust them for authz.
-- Config mutations require If-Match vs global config revision (Step 2+).
+- Config mutations require If-Match vs global config revision:
+  `check_if_match(request, store)` inside `store.write_txn()`
+  (src/opal_look/precondition.py). All config writes bump the revision.
+- `events_enabled=true` requires `OPAL_LOOK_EVENT_TRANSPORT` env
+  (provisioned out of band); otherwise 422.
+- Planned clients (later phases): `opal-look-cli` (Typer, REST-only via
+  httpx) and a thin SPA (static client calling REST, no business logic).
 
 ## Contract coverage (verified)
 
@@ -24,7 +30,7 @@ interface; do not serve a generated spec). Python 3.12+ / FastAPI / SQLite.
 |---|---|
 | errors/correlation envelope | verified |
 | health (/, /health, live, ready, suite health) | verified |
-| settings | not started |
+| settings (map GET/PATCH + per-key GET/PUT/DELETE, If-Match/ETag) | verified |
 | engines/models/sources/profiles/devices | not started |
 | media | not started |
 | analyze | not started |

@@ -1,8 +1,9 @@
 """Source-type adapters: locator validation, capability probing, live flags.
 
-Registration is configuration only; availability reflects current observed
-status (no forced network/device probes on reads). Capture adapters land
-with session support; until then non-file sources report unavailable.
+Registration is configuration only; availability reflects installed
+capture adapters (no forced network/device probes on reads). Live
+connectivity is checked explicitly via /validate for types with an
+installed capture adapter.
 """
 
 from __future__ import annotations
@@ -53,8 +54,18 @@ def check_locator(source_type: str, locator: str) -> list[str]:
 
 
 def check_source_options(source_type: str, options: dict[str, Any]) -> list[str]:
-    unknown = sorted(set(options) - SOURCE_OPTION_KEYS[source_type])
-    return [f"unknown source option: {key}" for key in unknown]
+    errors = [f"unknown source option: {key}"
+              for key in sorted(set(options) - SOURCE_OPTION_KEYS[source_type])]
+    if source_type == "rtsp":
+        transport = options.get("transport")
+        if transport is not None and transport not in ("tcp", "udp"):
+            errors.append("source option 'transport' must be 'tcp' or 'udp'")
+        timeout = options.get("timeout_ms")
+        if timeout is not None and (
+            not isinstance(timeout, int) or isinstance(timeout, bool) or timeout <= 0
+        ):
+            errors.append("source option 'timeout_ms' must be a positive integer")
+    return errors
 
 
 def missing_reference(store: Store, source_type: str, locator: str) -> str | None:
@@ -74,7 +85,15 @@ def probe(store: Store, row: sqlite3.Row) -> dict[str, Any]:
         return _probe_result(False, "source disabled")
     if source_type == "camera":
         return _probe_result(False, "no camera capture adapter installed")
-    if source_type in ("rtsp", "http"):
+    if source_type == "rtsp":
+        from .capture import capture_adapter_for
+
+        adapter = capture_adapter_for("rtsp")
+        if adapter is None:
+            return _probe_result(False, "no rtsp capture adapter installed")
+        installed, message = adapter.installed()
+        return _probe_result(installed, message)
+    if source_type == "http":
         return _probe_result(False, "network source not yet probed")
     if source_type == "host_video":
         if not os.path.isfile(locator):
@@ -129,6 +148,9 @@ def validate_source(store: Store, row: sqlite3.Row) -> dict[str, Any]:
         errors.append("source is disabled")
     elif not read["available"]:
         errors.append(f"source unavailable: {read['message'] or 'probe failed'}")
+    details = {"type": read["type"], "live": read["live"]}
+    if read["type"] == "rtsp" and read["enabled"] and read["available"]:
+        _validate_rtsp_connect(read, errors, details)
     warnings = []
     if read["type"] in ("rtsp", "http"):
         warnings.append("network source availability is not probed on read")
@@ -136,8 +158,28 @@ def validate_source(store: Store, row: sqlite3.Row) -> dict[str, Any]:
         "valid": not errors,
         "errors": errors,
         "warnings": warnings,
-        "details": {"type": read["type"], "live": read["live"]},
+        "details": details,
     }
+
+
+def _validate_rtsp_connect(read: dict[str, Any], errors: list[str], details: dict) -> None:
+    """Bounded live connectivity check for /validate (not run on reads)."""
+    from .capture import CaptureError, capture_adapter_for, credentialed_locator
+
+    adapter = capture_adapter_for("rtsp")
+    if adapter is None:
+        return
+    try:
+        url = credentialed_locator(read["locator"], read["credential_ref"])
+    except CaptureError as exc:
+        errors.append(str(exc))
+        return
+    probed = adapter.probe_stream(read["locator"], read["source_options"], url)
+    if not probed["available"]:
+        errors.append(f"stream unreachable: {probed['message'] or 'connect failed'}")
+        return
+    details.update(
+        {"width": probed["width"], "height": probed["height"], "fps": probed["fps"]})
 
 
 def discover_cameras() -> list[dict[str, Any]]:

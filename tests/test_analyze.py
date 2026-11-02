@@ -248,6 +248,7 @@ def test_analyze_unavailable_source_503(client):
             "name": "Cam",
             "type": "rtsp",
             "locator": "rtsp://192.0.2.1/feed",
+            "enabled": False,
         },
         headers={"If-Match": "*"},
     )

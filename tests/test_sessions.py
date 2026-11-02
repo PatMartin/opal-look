@@ -109,7 +109,7 @@ def test_session_unavailable_source_503(client):
         "/api/v1/sources/",
         json={
             "source_id": "down", "name": "D", "type": "rtsp",
-            "locator": "rtsp://192.0.2.9/x",
+            "locator": "rtsp://192.0.2.9/x", "enabled": False,
         },
         headers={"If-Match": "*"},
     )

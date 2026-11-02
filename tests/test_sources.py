@@ -20,7 +20,8 @@ def test_create_rtsp_source(client):
     assert resp.headers["location"] == "/api/v1/sources/cam-1"
     body = resp.json()
     assert body["live"] is True
-    assert body["available"] is False
+    # Capture adapter installed -> available (connectivity is not probed on read).
+    assert body["available"] is True
     assert body["enabled"] is True
     assert body["width"] is None and body["duration_ms"] is None
 
@@ -177,13 +178,63 @@ def test_validate_source_disabled(client):
     assert any("disabled" in e for e in body["errors"])
 
 
-def test_validate_source_unavailable_but_structurally_fine(client):
+def test_validate_source_unreachable(client, fake_rtsp):
+    fake_rtsp.probe_result["available"] = False
+    fake_rtsp.probe_result["message"] = "connect refused"
     client.post("/api/v1/sources/", json=RTSP, headers={"If-Match": "*"})
     resp = client.post("/api/v1/sources/cam-1/validate")
     assert resp.status_code == 200
     body = resp.json()
     assert body["valid"] is False
-    assert any("unavailable" in e for e in body["errors"])
+    assert any("unreachable" in e for e in body["errors"])
+
+
+def test_validate_source_live_probe_ok(client, fake_rtsp):
+    client.post("/api/v1/sources/", json=RTSP, headers={"If-Match": "*"})
+    resp = client.post("/api/v1/sources/cam-1/validate")
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["valid"] is True
+    assert body["details"]["width"] == 320
+    assert body["details"]["height"] == 240
+    assert body["details"]["fps"] == 15.0
+    assert fake_rtsp.probe_calls == ["rtsp://192.168.1.50:554/stream1"]
+
+
+def test_validate_source_unresolved_credential(client, fake_rtsp, monkeypatch):
+    monkeypatch.delenv("OPAL_LOOK_CRED_DRIVEWAY", raising=False)
+    client.post(
+        "/api/v1/sources/",
+        json={**RTSP, "credential_ref": "driveway"},
+        headers={"If-Match": "*"},
+    )
+    resp = client.post("/api/v1/sources/cam-1/validate")
+    body = resp.json()
+    assert body["valid"] is False
+    assert any("not provisioned" in e for e in body["errors"])
+    assert not fake_rtsp.probe_calls
+
+
+def test_validate_source_credential_injected(client, fake_rtsp, monkeypatch):
+    monkeypatch.setenv("OPAL_LOOK_CRED_DRIVEWAY", "alice:s3cret")
+    client.post(
+        "/api/v1/sources/",
+        json={**RTSP, "credential_ref": "driveway"},
+        headers={"If-Match": "*"},
+    )
+    resp = client.post("/api/v1/sources/cam-1/validate")
+    assert resp.json()["valid"] is True
+    assert fake_rtsp.probe_calls == ["rtsp://alice:s3cret@192.168.1.50:554/stream1"]
+
+
+def test_rtsp_invalid_option_values_422(client):
+    for options in ({"transport": "sctp"}, {"timeout_ms": 0}, {"timeout_ms": "x"}):
+        resp = client.post(
+            "/api/v1/sources/",
+            json={**RTSP, "source_options": options},
+            headers={"If-Match": "*"},
+        )
+        assert resp.status_code == 422
 
 
 def test_validate_unknown_source_404(client):

@@ -29,15 +29,46 @@ from .repositories import (
 )
 
 
+class _LockedConnection:
+    """Serializes statement execution across threads.
+
+    A single sqlite3 connection is not safe for concurrent use even with
+    check_same_thread=False (SQLITE_MISUSE under contention). Repositories
+    and store helpers go through this proxy; write_txn() holds the same
+    re-entrant lock for its whole transaction so statements issued inside
+    it (same thread) pass through while other threads wait.
+    """
+
+    def __init__(self, conn: sqlite3.Connection, lock: threading.RLock) -> None:
+        self._conn = conn
+        self._lock = lock
+
+    def execute(self, *args, **kwargs):
+        with self._lock:
+            return self._conn.execute(*args, **kwargs)
+
+    def executemany(self, *args, **kwargs):
+        with self._lock:
+            return self._conn.executemany(*args, **kwargs)
+
+    def executescript(self, *args, **kwargs):
+        with self._lock:
+            return self._conn.executescript(*args, **kwargs)
+
+    def __getattr__(self, name: str):
+        return getattr(self._conn, name)
+
+
 class Store:
     def __init__(self, data_dir: Path) -> None:
         self.data_dir = Path(data_dir)
         self.data_dir.mkdir(parents=True, exist_ok=True)
         self.db_path = self.data_dir / "opal-look.db"
-        self._conn = sqlite3.connect(self.db_path, check_same_thread=False, isolation_level=None)
-        self._conn.row_factory = sqlite3.Row
-        self._conn.execute("PRAGMA journal_mode=WAL")
-        self._write_lock = threading.Lock()
+        raw = sqlite3.connect(self.db_path, check_same_thread=False, isolation_level=None)
+        raw.row_factory = sqlite3.Row
+        raw.execute("PRAGMA journal_mode=WAL")
+        self._lock = threading.RLock()
+        self._conn = _LockedConnection(raw, self._lock)
         self._init_schema()
 
         self.meta = SqliteMetaRepository(self._conn)
@@ -189,7 +220,7 @@ class Store:
     @contextmanager
     def write_txn(self) -> Iterator["Store"]:
         """Exclusive write transaction for atomic check-and-mutate."""
-        with self._write_lock:
+        with self._lock:
             self._conn.execute("BEGIN IMMEDIATE")
             try:
                 yield self

@@ -85,60 +85,78 @@ async def _worker(app, store, session_id: str, sel, source_row, store_results: b
     store.sessions.update(session_id, {"state": "running", "started_at": now_iso()})
     _state_event(app, store, runtime, session_id, "running")
     frame_index = 0
+    dropped_total = 0
+    tracking_epoch = 0
+    live = source_row["type"] in LIVE_TYPES
+    max_fps = sel.settings.get("max_fps") or 5
+    last_analysis = 0.0
     try:
-        async for frame in _frames(store, source_row):
-            if runtime.stop_requested:
-                store.sessions.update(
-                    session_id, {"state": "stopped", "finished_at": now_iso()})
-                return
-            captured = now_iso()
-            thumb = frame.crop((0, 0, min(32, frame.width), min(32, frame.height)))
-            payload = await asyncio.to_thread(
-                adapter.infer, frame.width, frame.height, sel.task, desc,
-                sel.settings.get("engine_options") or {}, zlib.crc32(thumb.tobytes()))
-            from .analysis import apply_filters
-            payload = apply_filters(payload, sel.task, sel.settings)
-            rid = f"result-{secrets.token_hex(8)}"
-            analyzed = now_iso()
-            expires = iso(utcnow() + timedelta(
-                hours=effective_settings(store).result_retention_hours)) if store_results else None
-            media_id = source_row["locator"] if source_row["type"] == "media" else None
-            result = {
-                "result_id": rid, "session_id": session_id, "source_id": source_row["source_id"],
-                "media_id": media_id, "model_id": sel.model_id, "engine_id": sel.engine_id,
-                "task": sel.task, "frame_index": frame_index, "tracking_epoch": 0,
-                "captured_at": captured, "analyzed_at": analyzed,
-                "position_ms": None, "width": frame.width, "height": frame.height,
-                "duration_ms": 0.0, "stored": bool(store_results), "expires_at": expires,
-                "payload": payload, "engine_metadata": {"adapter": "synthetic"},
-            }
-            if store_results:
-                with store.write_txn():
-                    store.results.insert({**{k: result[k] for k in (
-                        "result_id", "session_id", "source_id", "media_id", "model_id",
-                        "engine_id", "task", "frame_index", "tracking_epoch", "captured_at",
-                        "analyzed_at", "position_ms", "width", "height", "duration_ms",
-                        "expires_at")}, "profile_id": sel.profile_id, "stored": 1,
-                        "payload": json.dumps(payload),
-                        "engine_metadata": json.dumps(result["engine_metadata"]),
-                        "settings": json.dumps(sel.settings)})
-            runtime.latest_result = result
-            app.state.frame_cache.put(
-                rid, frame.copy(), result, effective_settings(store).frame_cache_seconds)
-            buf = io.BytesIO()
-            frame.convert("RGB").save(buf, format="JPEG")
-            runtime.preview_frames.append(buf.getvalue())
-            runtime.events.append((frame_index, "result", result))
-            runtime.updated.set()
-            runtime.updated = asyncio.Event()
-            try:
-                from .events import publish_event
-                publish_event(app, store, "opal.look.result", session_id, result)
-            except Exception:
-                pass
-            frame_index += 1
-            store.sessions.update(session_id, {
-                "frames_analyzed": frame_index, "last_result_id": rid})
+        gen = _frames(store, source_row)
+        try:
+            async for produced in gen:
+                if runtime.stop_requested:
+                    store.sessions.update(
+                        session_id, {"state": "stopped", "finished_at": now_iso()})
+                    return
+                if live:
+                    wait = (1.0 / max_fps) - (time.monotonic() - last_analysis)
+                    if wait > 0:
+                        await asyncio.sleep(wait)
+                frame = produced.image
+                dropped_total += produced.dropped
+                captured = now_iso()
+                last_analysis = time.monotonic()
+                thumb = frame.crop((0, 0, min(32, frame.width), min(32, frame.height)))
+                payload = await asyncio.to_thread(
+                    adapter.infer, frame.width, frame.height, sel.task, desc,
+                    sel.settings.get("engine_options") or {}, zlib.crc32(thumb.tobytes()))
+                from .analysis import apply_filters
+                payload = apply_filters(payload, sel.task, sel.settings)
+                rid = f"result-{secrets.token_hex(8)}"
+                analyzed = now_iso()
+                expires = iso(utcnow() + timedelta(
+                    hours=effective_settings(store).result_retention_hours)) if store_results else None
+                media_id = source_row["locator"] if source_row["type"] == "media" else None
+                result = {
+                    "result_id": rid, "session_id": session_id, "source_id": source_row["source_id"],
+                    "media_id": media_id, "model_id": sel.model_id, "engine_id": sel.engine_id,
+                    "task": sel.task, "frame_index": frame_index,
+                    "tracking_epoch": tracking_epoch,
+                    "captured_at": captured, "analyzed_at": analyzed,
+                    "position_ms": None, "width": frame.width, "height": frame.height,
+                    "duration_ms": 0.0, "stored": bool(store_results), "expires_at": expires,
+                    "payload": payload, "engine_metadata": {"adapter": "synthetic"},
+                }
+                if store_results:
+                    with store.write_txn():
+                        store.results.insert({**{k: result[k] for k in (
+                            "result_id", "session_id", "source_id", "media_id", "model_id",
+                            "engine_id", "task", "frame_index", "tracking_epoch", "captured_at",
+                            "analyzed_at", "position_ms", "width", "height", "duration_ms",
+                            "expires_at")}, "profile_id": sel.profile_id, "stored": 1,
+                            "payload": json.dumps(payload),
+                            "engine_metadata": json.dumps(result["engine_metadata"]),
+                            "settings": json.dumps(sel.settings)})
+                runtime.latest_result = result
+                app.state.frame_cache.put(
+                    rid, frame.copy(), result, effective_settings(store).frame_cache_seconds)
+                buf = io.BytesIO()
+                frame.convert("RGB").save(buf, format="JPEG")
+                runtime.preview_frames.append(buf.getvalue())
+                runtime.events.append((frame_index, "result", result))
+                runtime.updated.set()
+                runtime.updated = asyncio.Event()
+                try:
+                    from .events import publish_event
+                    publish_event(app, store, "opal.look.result", session_id, result)
+                except Exception:
+                    pass
+                frame_index += 1
+                store.sessions.update(session_id, {
+                    "frames_analyzed": frame_index, "frames_dropped": dropped_total,
+                    "tracking_epoch": tracking_epoch, "last_result_id": rid})
+        finally:
+            await gen.aclose()
         store.sessions.update(session_id, {"state": "completed", "finished_at": now_iso()})
     except asyncio.CancelledError:
         store.sessions.update(session_id, {"state": "stopped", "finished_at": now_iso()})
@@ -163,8 +181,14 @@ def _state_event(app, store, runtime, session_id: str, state: str) -> None:
         pass
 
 
+@dataclass
+class ProducedFrame:
+    image: Any
+    dropped: int = 0
+
+
 async def _frames(store, source_row):
-    """Async generator of PIL frames for a session source."""
+    """Async generator of ProducedFrame for a session source."""
     from PIL import Image, ImageOps
 
     if source_row["type"] == "media":
@@ -172,7 +196,49 @@ async def _frames(store, source_row):
         if media is None or media_is_expired(media):
             raise ApiError(503, "source media unavailable")
         data = Path(media["path"]).read_bytes()
-        yield ImageOps.exif_transpose(Image.open(io.BytesIO(data))).convert("RGB")
+        yield ProducedFrame(
+            ImageOps.exif_transpose(Image.open(io.BytesIO(data))).convert("RGB"))
+        return
+    if source_row["type"] in LIVE_TYPES:
+        inner = _live_frames(source_row)
+        try:
+            async for produced in inner:
+                yield produced
+        finally:
+            await inner.aclose()
         return
     raise ApiError(503, "no frame producer for this source type")
     yield  # pragma: no cover
+
+
+async def _live_frames(source_row):
+    """ProducedFrames from a capture adapter via a drop-oldest pump.
+
+    Live sources prioritize fresh frames: the pump keeps only the latest
+    decoded frame; evicted frames accumulate into ``dropped``. Stream
+    failures surface as StreamError/StreamEnded (handled by the worker).
+    """
+    from .capture import (
+        CaptureError,
+        LiveFramePump,
+        capture_adapter_for,
+        credentialed_locator,
+    )
+
+    adapter = capture_adapter_for(source_row["type"])
+    if adapter is None:
+        raise CaptureError(f"no capture adapter for {source_row['type']!r}")
+    options = source_row["source_options"]
+    if isinstance(options, str):
+        options = json.loads(options)
+    url = await asyncio.to_thread(
+        credentialed_locator, source_row["locator"], source_row["credential_ref"])
+    stream = await asyncio.to_thread(
+        adapter.open_stream, source_row["locator"], options, url)
+    pump = LiveFramePump(stream).start()
+    try:
+        while True:
+            image = await asyncio.to_thread(pump.get)
+            yield ProducedFrame(image, pump.take_dropped())
+    finally:
+        pump.close()

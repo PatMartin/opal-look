@@ -198,13 +198,13 @@ class LiveFramePump:
                     self._queue.get_nowait()
                     self.dropped += 1
                     self._queue.put_nowait(frame)
-        except Exception as exc:  # delivered to consumer
-            try:
-                self._queue.put_nowait((self._SENTINEL, exc))
-            except queue.Full:
-                self._queue.get_nowait()
-                self.dropped += 1
-                self._queue.put_nowait((self._SENTINEL, exc))
+        except Exception as exc:  # delivered to consumer after queued frames
+            while not self._closed:
+                try:
+                    self._queue.put((self._SENTINEL, exc), timeout=0.05)
+                    break
+                except queue.Full:
+                    continue
 
     def get(self, timeout: float | None = None) -> Any:
         """Return the latest frame; raises the stream's terminal error."""
@@ -213,9 +213,24 @@ class LiveFramePump:
             raise item[1]
         return item
 
+    def take_dropped(self) -> int:
+        """Frames dropped since the last call (reset-and-read)."""
+        n, self.dropped = self.dropped, 0
+        return n
+
     def close(self) -> None:
         self._closed = True
         try:
             self._stream.close()
         except Exception:
             pass
+        # Wake a consumer blocked in get(); a stale frame may be evicted.
+        sentinel = (self._SENTINEL, StreamEnded("pump closed"))
+        try:
+            self._queue.put_nowait(sentinel)
+        except queue.Full:
+            try:
+                self._queue.get_nowait()
+                self._queue.put_nowait(sentinel)
+            except (queue.Empty, queue.Full):
+                pass

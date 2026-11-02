@@ -4,6 +4,8 @@ import time
 import pytest
 from PIL import Image
 
+from opal_look.capture import CaptureError
+
 
 def _img(size=(40, 30)):
     buf = io.BytesIO()
@@ -221,6 +223,96 @@ def test_session_idempotency_conflict_409(client, media_source):
                              "task": "ocr"},
                        headers={"Idempotency-Key": "key-2"})
     assert resp.status_code == 409
+
+
+def _rtsp_source(client, source_id="cam"):
+    client.post(
+        "/api/v1/sources/",
+        json={
+            "source_id": source_id, "name": "Cam", "type": "rtsp",
+            "locator": "rtsp://192.0.2.9/x",
+        },
+        headers={"If-Match": "*"},
+    )
+
+
+def _wait_frames(client, sid, n=1, timeout=8.0):
+    deadline = time.monotonic() + timeout
+    row = {}
+    while time.monotonic() < deadline:
+        row = client.get(f"/api/v1/sessions/{sid}").json()
+        if row["frames_analyzed"] >= n or row["state"] in (
+            "stopped", "completed", "failed"
+        ):
+            return row
+        time.sleep(0.05)
+    return row
+
+
+def test_session_rtsp_stream_results(client, fake_rtsp):
+    fake_rtsp.frames_per_open = [2]
+    fake_rtsp.frame_delay = 0.01
+    _rtsp_source(client)
+    sid = _create(client, source_id="cam",
+                  reconnect={"enabled": False}).json()["session_id"]
+    final = _wait_terminal(client, sid)
+    # Live stream end without reconnect -> failed, frames still analyzed.
+    assert final["state"] == "failed"
+    assert final["frames_analyzed"] == 2
+    assert final["last_result_id"]
+    result = client.get(f"/api/v1/results/{final['last_result_id']}")
+    assert result.status_code == 200
+    assert result.json()["source_id"] == "cam"
+
+
+def test_session_rtsp_open_failure_fails(client, fake_rtsp):
+    fake_rtsp.open_error = CaptureError("boom")
+    _rtsp_source(client)
+    sid = _create(client, source_id="cam").json()["session_id"]
+    final = _wait_terminal(client, sid)
+    assert final["state"] == "failed"
+    assert "boom" in final["error"]["message"]
+
+
+def test_session_rtsp_running_then_stop(client, fake_rtsp):
+    fake_rtsp.frames_per_open = [None]
+    fake_rtsp.frame_delay = 0.01
+    _rtsp_source(client)
+    sid = _create(client, source_id="cam").json()["session_id"]
+    row = _wait_frames(client, sid, 2)
+    assert row["frames_analyzed"] >= 2
+    client.post(f"/api/v1/sessions/{sid}/stop")
+    final = _wait_terminal(client, sid)
+    assert final["state"] == "stopped"
+
+
+def test_session_rtsp_drops_for_freshness(client, fake_rtsp):
+    fake_rtsp.frames_per_open = [None]
+    fake_rtsp.frame_delay = 0.001
+    _rtsp_source(client)
+    sid = _create(client, source_id="cam", settings={"max_fps": 1}).json()["session_id"]
+    _wait_frames(client, sid, 2)
+    client.post(f"/api/v1/sessions/{sid}/stop")
+    final = _wait_terminal(client, sid)
+    assert final["state"] == "stopped"
+    assert final["frames_dropped"] > 0
+
+
+def test_session_rtsp_latest_result_and_preview(client, fake_rtsp):
+    fake_rtsp.frames_per_open = [None]
+    fake_rtsp.frame_delay = 0.01
+    _rtsp_source(client)
+    sid = _create(client, source_id="cam").json()["session_id"]
+    _wait_frames(client, sid, 1)
+    latest = client.get(f"/api/v1/sessions/{sid}/results/latest")
+    assert latest.status_code == 200
+    assert latest.json()["source_id"] == "cam"
+    assert latest.json()["media_id"] is None
+    client.post(f"/api/v1/sessions/{sid}/stop")
+    _wait_terminal(client, sid)
+    resp = client.get(f"/api/v1/sessions/{sid}/preview")
+    assert resp.status_code == 200
+    assert b"\xff\xd8" in resp.content
 
 
 def test_session_idempotency_deleted_409(client, media_source):

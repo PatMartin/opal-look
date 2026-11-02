@@ -267,3 +267,67 @@ def test_analyze_deterministic_with_seed(client, media_id):
     a = _analyze(client, media_id, settings={"engine_options": {"seed": 42}}).json()
     b = _analyze(client, media_id, settings={"engine_options": {"seed": 42}}).json()
     assert a["payload"] == b["payload"]
+
+
+def _rtsp_source(client, source_id="cam"):
+    client.post(
+        "/api/v1/sources/",
+        json={
+            "source_id": source_id, "name": "Cam", "type": "rtsp",
+            "locator": "rtsp://192.0.2.1/feed",
+        },
+        headers={"If-Match": "*"},
+    )
+
+
+def _analyze_source(client, source_id="cam", **overrides):
+    body = {
+        "input": {"kind": "source", "source_id": source_id},
+        "model_id": "synthetic-vision",
+        "task": "detection",
+    }
+    body.update(overrides)
+    return client.post("/api/v1/analyze", json=body)
+
+
+def test_analyze_rtsp_source(client, fake_rtsp):
+    _rtsp_source(client)
+    resp = _analyze_source(client)
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["source_id"] == "cam"
+    assert body["media_id"] is None
+    assert body["position_ms"] is None
+    assert body["width"] == 16 and body["height"] == 16
+    assert body["payload"]["task"] == "detection"
+    assert fake_rtsp.grab_calls == ["rtsp://192.0.2.1/feed"]
+
+
+def test_analyze_rtsp_grab_failure_503(client, fake_rtsp):
+    from opal_look.capture import CaptureError
+
+    fake_rtsp.grab_error = CaptureError("connect timeout")
+    _rtsp_source(client)
+    resp = _analyze_source(client)
+    assert resp.status_code == 503
+
+
+def test_analyze_rtsp_position_ms_422(client, fake_rtsp):
+    _rtsp_source(client)
+    resp = _analyze_source(
+        client, input={"kind": "source", "source_id": "cam", "position_ms": 5})
+    assert resp.status_code == 422
+
+
+def test_analyze_rtsp_unresolved_credential_503(client, fake_rtsp, monkeypatch):
+    monkeypatch.delenv("OPAL_LOOK_CRED_DRIVEWAY", raising=False)
+    client.post(
+        "/api/v1/sources/",
+        json={
+            "source_id": "cam", "name": "Cam", "type": "rtsp",
+            "locator": "rtsp://192.0.2.1/feed", "credential_ref": "driveway",
+        },
+        headers={"If-Match": "*"},
+    )
+    resp = _analyze_source(client)
+    assert resp.status_code == 503

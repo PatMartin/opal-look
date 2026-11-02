@@ -134,7 +134,12 @@ def acquire_frame(store: Store, frame_input, max_pixels: int) -> Frame:
             if position:
                 raise ApiError(422, "position_ms is beyond end of media.")
         else:
-            raise ApiError(503, f"Source {frame_input.source_id!r} is unavailable.")
+            image = _grab_live_frame(row)
+            if image.width * image.height > max_pixels:
+                raise ApiError(413, "Decoded image exceeds the configured pixel limit.")
+            return Frame(
+                image=image, source_id=row["source_id"], media_id=None,
+                position_ms=None)
 
     try:
         data = path.read_bytes()
@@ -146,6 +151,23 @@ def acquire_frame(store: Store, frame_input, max_pixels: int) -> Frame:
     if image.width * image.height > max_pixels:
         raise ApiError(413, "Decoded image exceeds the configured pixel limit.")
     return Frame(image=image, source_id=source_id, media_id=media_id, position_ms=position)
+
+
+def _grab_live_frame(row) -> Any:
+    """One frame from a live source via its capture adapter."""
+    from .capture import CaptureError, capture_adapter_for, credentialed_locator
+
+    adapter = capture_adapter_for(row["type"])
+    if adapter is None:
+        raise ApiError(503, f"Source {row['source_id']!r} is unavailable.")
+    options = row["source_options"]
+    if isinstance(options, str):
+        options = json.loads(options)
+    try:
+        url = credentialed_locator(row["locator"], row["credential_ref"])
+        return adapter.grab(row["locator"], options, url)
+    except CaptureError as exc:
+        raise ApiError(503, f"Source {row['source_id']!r} is unavailable: {exc}")
 
 
 def _point_in_polygon(x: float, y: float, polygon: list[dict]) -> bool:
@@ -228,7 +250,8 @@ def apply_filters(payload: dict, task: str, settings: dict) -> dict:
 async def run_analysis(store: Store, req: AnalyzeRequest, frame_cache=None) -> dict[str, Any]:
     app_settings = effective_settings(store)
     sel = resolve_selection(store, req)
-    frame = acquire_frame(store, req.input, app_settings.max_image_pixels)
+    frame = await asyncio.to_thread(
+        acquire_frame, store, req.input, app_settings.max_image_pixels)
     captured_at = now_iso()
 
     adapter = ENGINE_REGISTRY.get(sel.engine_id)

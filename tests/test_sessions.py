@@ -258,6 +258,7 @@ def test_session_rtsp_stream_results(client, fake_rtsp):
     final = _wait_terminal(client, sid)
     # Live stream end without reconnect -> failed, frames still analyzed.
     assert final["state"] == "failed"
+    assert final["error"]["code"] == "source_disconnected"
     assert final["frames_analyzed"] == 2
     assert final["last_result_id"]
     result = client.get(f"/api/v1/results/{final['last_result_id']}")
@@ -268,9 +269,11 @@ def test_session_rtsp_stream_results(client, fake_rtsp):
 def test_session_rtsp_open_failure_fails(client, fake_rtsp):
     fake_rtsp.open_error = CaptureError("boom")
     _rtsp_source(client)
-    sid = _create(client, source_id="cam").json()["session_id"]
+    sid = _create(client, source_id="cam",
+                  reconnect={"enabled": False}).json()["session_id"]
     final = _wait_terminal(client, sid)
     assert final["state"] == "failed"
+    assert final["error"]["code"] == "source_disconnected"
     assert "boom" in final["error"]["message"]
 
 
@@ -313,6 +316,88 @@ def test_session_rtsp_latest_result_and_preview(client, fake_rtsp):
     resp = client.get(f"/api/v1/sessions/{sid}/preview")
     assert resp.status_code == 200
     assert b"\xff\xd8" in resp.content
+
+
+def _wait_state(client, sid, states, timeout=8.0):
+    deadline = time.monotonic() + timeout
+    row = {}
+    while time.monotonic() < deadline:
+        row = client.get(f"/api/v1/sessions/{sid}").json()
+        if row["state"] in states:
+            return row
+        time.sleep(0.02)
+    return row
+
+
+def _state_events(client, sid):
+    runtime = client.app.state.session_runtimes.get(sid)
+    if runtime is None:
+        return []
+    return [p["state"] for _, kind, p in runtime.events if kind == "state"]
+
+
+_FAST_RECONNECT = {"enabled": True, "max_attempts": 5,
+                   "initial_delay_ms": 100, "max_delay_ms": 200}
+
+
+def test_session_rtsp_reconnect_recovers(client, fake_rtsp):
+    fake_rtsp.fail_on_open = 1            # first connect attempt fails
+    fake_rtsp.frames_per_open = [None]
+    fake_rtsp.frame_delay = 0.01
+    _rtsp_source(client)
+    sid = _create(client, source_id="cam", reconnect=_FAST_RECONNECT).json()["session_id"]
+    row = _wait_frames(client, sid, 2)
+    assert row["frames_analyzed"] >= 2
+    assert row["tracking_epoch"] == 1
+    client.post(f"/api/v1/sessions/{sid}/stop")
+    final = _wait_terminal(client, sid)
+    assert final["state"] == "stopped"
+    assert "reconnecting" in _state_events(client, sid)
+
+
+def test_session_rtsp_reconnect_midstream(client, fake_rtsp):
+    from opal_look.capture import StreamError
+
+    fake_rtsp.frames_per_open = [2, None]  # 2 frames, then error, then infinite
+    fake_rtsp.stream_error = StreamError("lost")
+    fake_rtsp.frame_delay = 0.01
+    _rtsp_source(client)
+    sid = _create(client, source_id="cam", reconnect=_FAST_RECONNECT).json()["session_id"]
+    row = _wait_frames(client, sid, 4)
+    assert row["frames_analyzed"] >= 4
+    assert row["tracking_epoch"] == 1
+    client.post(f"/api/v1/sessions/{sid}/stop")
+    _wait_terminal(client, sid)
+    assert "reconnecting" in _state_events(client, sid)
+
+
+def test_session_rtsp_reconnect_exhaustion_fails(client, fake_rtsp):
+    fake_rtsp.open_error = CaptureError("still down")
+    _rtsp_source(client)
+    sid = _create(
+        client, source_id="cam",
+        reconnect={"enabled": True, "max_attempts": 2,
+                   "initial_delay_ms": 100, "max_delay_ms": 100},
+    ).json()["session_id"]
+    final = _wait_terminal(client, sid)
+    assert final["state"] == "failed"
+    assert final["error"]["code"] == "source_disconnected"
+    assert len(fake_rtsp.open_calls) == 3  # initial + 2 retries
+    assert "reconnecting" in _state_events(client, sid)
+
+
+def test_session_rtsp_stop_during_backoff(client, fake_rtsp):
+    fake_rtsp.open_error = CaptureError("down")
+    _rtsp_source(client)
+    sid = _create(
+        client, source_id="cam",
+        reconnect={"enabled": True, "max_attempts": 10,
+                   "initial_delay_ms": 500, "max_delay_ms": 500},
+    ).json()["session_id"]
+    _wait_state(client, sid, ("reconnecting",))
+    client.post(f"/api/v1/sessions/{sid}/stop")
+    final = _wait_terminal(client, sid)
+    assert final["state"] == "stopped"
 
 
 def test_session_idempotency_deleted_409(client, media_source):

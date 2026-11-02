@@ -11,6 +11,7 @@ from fastapi import FastAPI
 from . import constants
 from .access_log import AccessLogMiddleware
 from .correlation import CorrelationMiddleware
+from .capture import load_capture_plugins
 from .engines import ensure_default_model, ensure_engines, load_plugin_adapters
 from .errors import register_error_handlers
 from .framecache import FrameCache
@@ -52,6 +53,7 @@ def create_app(data_dir: Path | str | None = None, store: Store | None = None) -
     from .store import sweep_expired
     app.state.swept = sweep_expired(app.state.store)
     load_plugin_adapters()
+    load_capture_plugins()
     ensure_engines(app.state.store)
     ensure_default_model(app.state.store)
 

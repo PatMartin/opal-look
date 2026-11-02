@@ -20,6 +20,16 @@ interface; do not serve a generated spec). Python 3.12+ / FastAPI / SQLite.
   (`StoreDep`); handlers inject the store rather than reaching app.state.
 - Engines: `EngineAdapter` Protocol + `ENGINE_REGISTRY` (factory/registry,
   `opal_look.engines` entry-point hook via `load_plugin_adapters()`).
+- Capture: `CaptureAdapter` Protocol + `CAPTURE_REGISTRY` in
+  `src/opal_look/capture.py` (`opal_look.capture` entry-point hook via
+  `load_capture_plugins()`). `RtspAvAdapter` (`capture_rtsp.py`) decodes
+  via PyAV. `credential_ref` resolves to env `OPAL_LOOK_CRED_<REF>`
+  ("user:pass") and is injected into the connect URL only — never stored
+  or echoed. Session workers consume frames through a drop-oldest
+  `LiveFramePump` (fresh-frame priority; evictions -> frames_dropped).
+- SQLite: single connection shared by loop + threadpool threads; all
+  statements serialize through `Store._lock` (`_LockedConnection` proxy),
+  and `write_txn()` holds it for the whole transaction.
 - DTOs: pydantic models in `src/opal_look/schemas.py` + `settings.py`.
 - Middleware: `CorrelationMiddleware` (outer correlation/validation),
   `AccessLogMiddleware` (outermost, logs all requests).
@@ -51,14 +61,14 @@ interface; do not serve a generated spec). Python 3.12+ / FastAPI / SQLite.
 | settings (map GET/PATCH + per-key GET/PUT/DELETE, If-Match/ETag) | verified |
 | engines (list/get/patch/validate; synthetic adapter) | verified |
 | models (list+filters/create/get/patch/delete/validate) | verified |
-| sources (CRUD+validate, per-type locator/option adapters) | verified |
+| sources (CRUD+validate, per-type locator/option adapters, rtsp live probe) | verified |
 | profiles (CRUD+activate+validate, resolved settings) | verified |
 | devices/cameras (empty discovery; no adapters yet) | verified |
 | media (upload JPEG/PNG+EXIF, cursor list, get/delete/content, expiry) | verified |
 | analyze (selection resolution, media/source frame inputs, all 5 tasks, filters, persistence) | verified |
 | results (search filters, cursor+budget, get/delete), ephemeral frame cache | verified |
 | snapshots (exact-frame capture, annotate, retain, CRUD+content) | verified |
-| sessions (admission/state machine/worker/stop/delete/latest) | verified |
+| sessions (admission/state machine/reconnect/worker/stop/delete/latest) | verified |
 | SSE events stream (result+end events, heartbeat), MJPEG preview | verified |
 | backup (export/import/validate + managed create/list/download/restore/delete) | verified |
 | event bus (pyzmq PUSH two-frame, allowlist+rate+drop counters) | verified |
@@ -71,6 +81,6 @@ interface; do not serve a generated spec). Python 3.12+ / FastAPI / SQLite.
 | CI (GitHub Actions pytest) | verified |
 
 Deferred (documented): video decoder (media/host_video -> 415/503 until
-installed), live-source capture adapters, reconnect policy runtime
-behavior, SSE replay-window edge cases (replay_expired/stream_overflow),
-health event-publication counter surface.
+installed), camera/http capture adapters (rtsp implemented), SSE
+replay-window edge cases (replay_expired/stream_overflow), health
+event-publication counter surface.

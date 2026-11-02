@@ -57,7 +57,26 @@ opal-look-cli analyze run --body '{"media_id":"YOUR_MEDIA_ID","model_id":"synthe
 
 Alternatively, explore uploads, analysis, and results using the [web app](http://127.0.0.1:8000/app/).
 
-### 4. Run the tests
+### 4. Try an RTSP camera (optional)
+
+RTSP sources decode through PyAV (bundled FFmpeg — no system install needed). Register a camera, validate connectivity, then open a live analysis session:
+
+```bash
+opal-look-cli sources add --body '{"source_id":"driveway","name":"Driveway","type":"rtsp","locator":"rtsp://192.168.1.50:554/stream1"}'
+opal-look-cli sources validate driveway
+opal-look-cli sessions add --body '{"source_id":"driveway","model_id":"synthetic-vision","task":"detection"}'
+```
+
+For authenticated cameras, provision credentials out of band before starting the service — never in the locator:
+
+```bash
+export OPAL_LOOK_CRED_DRIVEWAY=camera-user:camera-pass
+opal-look-cli sources update driveway --body '{"credential_ref":"driveway"}'
+```
+
+Live sessions honor `settings.max_fps` analysis pacing and the `reconnect` policy (exponential backoff; exhaustion fails the session). MJPEG preview and SSE result events work the same as for media sessions.
+
+### 5. Run the tests
 
 ```bash
 python -m pytest
@@ -131,6 +150,7 @@ For configuration collections, common verbs include `list`, `show`, `add`, `upda
 | `OPAL_LOOK_PORT` | `8000` | API port |
 | `OPAL_LOOK_DATA_DIR` | `./data` | Persistent application data directory |
 | `OPAL_LOOK_EVENT_TRANSPORT` | Unset | Provisioned ZeroMQ event transport configuration |
+| `OPAL_LOOK_CRED_<REF>` | Unset | `user:pass` credentials for a source `credential_ref` (e.g. `OPAL_LOOK_CRED_DRIVEWAY`) |
 
 For example:
 
@@ -154,8 +174,7 @@ The implementation uses repository abstractions for persistence, an engine adapt
 ## Current limitations
 
 - The built-in synthetic engine demonstrates flows but does not perform real trained-model inference. Additional engine adapters are needed for real model inference.
-- Live-source capture and camera discovery require working device/source adapters; configuring an RTSP source does not by itself guarantee a live feed.
-- Some video decoding paths are intentionally deferred and may return an unsupported/unavailable response.
+- RTSP sources are supported through the PyAV capture adapter (with live sessions, reconnect backoff, and single-frame analyze). Camera devices, HTTP/MJPEG feeds, and host_video decoding still require additional source adapters; configuring such a source does not by itself guarantee a usable feed.
 - Some SSE replay-window edge cases and operational counters remain deferred.
 
 Refer to [`AGENTS.md`](AGENTS.md) for the latest implementation-coverage notes.

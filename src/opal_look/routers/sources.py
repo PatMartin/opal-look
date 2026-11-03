@@ -149,6 +149,9 @@ def get_api_v1_devices_cameras(request: Request) -> list:
 # never bump the revision, and never leak credentialed locators.
 
 
+CRLF = bytes([13, 10])
+
+
 def _jpeg_bytes(image) -> bytes:
     import io
 
@@ -295,3 +298,113 @@ def get_api_v1_sources_source_id_frame(request: Request, store: StoreDep, source
     if kind == "camera":
         raise ApiError(503, "No camera capture adapter installed.")
     raise ApiError(503, f"No frame capture path for source kind {kind!r}.")
+
+
+# -- v1.5 raw ephemeral MJPEG view (step 13) ------------------------------------
+
+@router.get("/api/v1/sources/{source_id}/stream")
+async def get_api_v1_sources_source_id_stream(
+    request: Request, store: StoreDep, source_id: str,
+    pipeline_id: str | None = None, annotations: bool | None = None,
+    classes: str | None = None, min_confidence: float | None = None,
+    target_fps: float | None = None, width: int | None = None,
+    height: int | None = None, quality: int | None = None,
+    show_boxes: bool | None = None, show_labels: bool | None = None,
+    show_confidence: bool | None = None,
+    presentation_filter: str | None = None,
+):
+    """Raw MJPEG view: no pipeline, no inference, ephemeral frames only."""
+    import asyncio
+
+    from fastapi.responses import StreamingResponse
+
+    from ..capture import (
+        CaptureError, CredentialUnavailable, LiveFramePump,
+        capture_adapter_for, credentialed_locator,
+    )
+    from ..settings import effective_settings
+
+    row = _get_source_or_404(store, source_id)
+    kind = row["type"]
+
+    # Query params that require a pipeline; raw view rejects them explicitly.
+    if pipeline_id is not None:
+        raise ApiError(422, "pipeline viewing is not yet supported (step 14).")
+    if annotations:
+        raise ApiError(422, "annotations require a pipeline (step 14).")
+    if kind not in ("rtsp", "http", "camera"):
+        raise ApiError(422, f"Source kind {kind!r} is not a live stream.")
+    if not row["enabled"]:
+        raise ApiError(503, "Source is disabled.")
+    adapter = capture_adapter_for(kind)
+    if adapter is None:
+        raise ApiError(503, f"No capture adapter installed for {kind!r} sources.")
+    installed, message = adapter.installed()
+    if not installed:
+        raise ApiError(503, f"Capture backend unavailable: {message}")
+
+    app_settings = effective_settings(store)
+    # viewer quota: per-process bounded viewer registry
+    viewers = request.app.state.viewer_counts
+    lock = request.app.state.viewer_lock
+    with lock:
+        current = sum(viewers.values())
+        if current >= (app_settings.max_viewers or 8):
+            raise ApiError(429, "Viewer quota exceeded.", retryable=True)
+        viewers[source_id] = viewers.get(source_id, 0) + 1
+
+    try:
+        credentialed = credentialed_locator(row["locator"], row["credential_ref"])
+    except CredentialUnavailable as exc:
+        with lock:
+            viewers[source_id] = max(0, viewers.get(source_id, 1) - 1)
+        raise ApiError(503, f"Credential unavailable: {exc}")
+    try:
+        stream = adapter.open_stream(
+            row["locator"], json.loads(row["source_options"]), credentialed)
+    except CaptureError as exc:
+        with lock:
+            viewers[source_id] = max(0, viewers.get(source_id, 1) - 1)
+        raise ApiError(503, f"Could not open source stream: {exc}")
+
+    pump = LiveFramePump(stream).start()
+    fps = min(target_fps or app_settings.max_preview_fps,
+              app_settings.max_preview_fps)
+    q = min(max(quality or 80, 1), 100)
+
+    async def frames():
+        import io
+        from PIL import Image  # noqa
+        last_yield = 0.0
+        try:
+            while True:
+                if await request.is_disconnected():
+                    break
+                try:
+                    frame = await asyncio.to_thread(pump.get, 2.0)
+                except Exception:
+                    break  # stream ended/closed/error
+                if frame is None:
+                    break
+                now = asyncio.get_event_loop().time()
+                wait = (1.0 / fps) - (now - last_yield)
+                if wait > 0:
+                    await asyncio.sleep(wait)
+                img = frame
+                if width or height:
+                    img = frame.resize((width or frame.width,
+                                        height or frame.height))
+                buf = io.BytesIO()
+                img.convert("RGB").save(buf, format="JPEG", quality=q)
+                yield (b"--frame" + CRLF + b"Content-Type: image/jpeg"
+                       + CRLF + CRLF + buf.getvalue() + CRLF)
+                last_yield = asyncio.get_event_loop().time()
+        finally:
+            try:
+                pump.close()
+            finally:
+                with lock:
+                    viewers[source_id] = max(0, viewers.get(source_id, 1) - 1)
+
+    return StreamingResponse(
+        frames(), media_type="multipart/x-mixed-replace; boundary=frame")

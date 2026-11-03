@@ -215,3 +215,68 @@ def test_frame_does_not_persist(client):
     # no implicit retention: config revision untouched, no new media/results
     assert client.get("/api/v1/sources/").headers["etag"] == etag_before
     assert len(client.get("/api/v1/media/").json()["items"]) == 1
+
+
+# -- raw MJPEG view (step 13) ---------------------------------------------------
+
+def test_stream_mjpeg_parts(client, fake_rtsp):
+    fake_rtsp.frames_per_open = [3]
+    fake_rtsp.frame_delay = 0.01
+    client.post("/api/v1/sources/", json=RTSP, headers={"If-Match": "*"})
+    with client.stream("GET", "/api/v1/sources/cam/stream") as resp:
+        assert resp.status_code == 200
+        assert resp.headers["content-type"].startswith("multipart/x-mixed-replace")
+        assert resp.headers["x-opal-request-id"]
+        body = b""
+        for chunk in resp.iter_bytes(4096):
+            body += chunk
+            if body.count(b"--frame") >= 3:
+                break
+        assert body.startswith(b"--frame")
+        assert b"Content-Type: image/jpeg" in body
+
+
+def test_stream_unknown_404(client):
+    assert client.get("/api/v1/sources/nope/stream").status_code == 404
+
+
+def test_stream_finite_kind_422(client):
+    client.post("/api/v1/sources/", json={
+        "id": "img", "name": "I", "kind": "image", "locator": "/x.png"},
+        headers={"If-Match": "*"})
+    assert client.get("/api/v1/sources/img/stream").status_code == 422
+
+
+def test_stream_disabled_503(client, fake_rtsp):
+    client.post("/api/v1/sources/", json={**RTSP, "enabled": False},
+                headers={"If-Match": "*"})
+    assert client.get("/api/v1/sources/cam/stream").status_code == 503
+
+
+def test_stream_pipeline_id_rejected_422(client, fake_rtsp):
+    client.post("/api/v1/sources/", json=RTSP, headers={"If-Match": "*"})
+    assert client.get("/api/v1/sources/cam/stream",
+                      params={"pipeline_id": "p"}).status_code == 422
+
+
+def test_stream_viewer_quota_429(client, fake_rtsp):
+    fake_rtsp.frames_per_open = [None]
+    fake_rtsp.frame_delay = 0.05
+    client.put("/api/v1/settings/max_viewers",
+               json={"value": 1}, headers={"If-Match": "*"})
+    client.post("/api/v1/sources/", json=RTSP, headers={"If-Match": "*"})
+    with client.stream("GET", "/api/v1/sources/cam/stream") as first:
+        for _ in first.iter_bytes(2048):
+            break  # keep the first viewer alive
+        assert client.get("/api/v1/sources/cam/stream").status_code == 429
+
+
+def test_stream_releases_viewer_on_disconnect(client, fake_rtsp):
+    fake_rtsp.frames_per_open = [None]
+    fake_rtsp.frame_delay = 0.01
+    client.post("/api/v1/sources/", json=RTSP, headers={"If-Match": "*"})
+    with client.stream("GET", "/api/v1/sources/cam/stream") as r:
+        next(r.iter_bytes(2048), None)
+    # second connect works after the first released its slot
+    with client.stream("GET", "/api/v1/sources/cam/stream") as r2:
+        assert r2.status_code == 200

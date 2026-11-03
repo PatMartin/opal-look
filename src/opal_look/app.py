@@ -56,6 +56,9 @@ def create_app(
     if token is not None and not token.strip():
         raise ValueError("auth_token must be non-empty")
     app.state.auth_token = token.strip() if token else None
+    app.state.viewer_counts = {}
+    import threading as _th
+    app.state.viewer_lock = _th.Lock()
     app.state.frame_cache = FrameCache()
     app.state.session_runtimes = SessionRuntimeRegistry()
     app.state.store.sessions.fail_interrupted(

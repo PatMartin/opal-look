@@ -210,6 +210,8 @@ class AnalyzeRequest(BaseModel):
     settings: AnalysisSettings | None = Field(default=None)
     input: FrameInput
     store_result: bool = Field(default=True)
+    # Interim until the step-10 schema swap: route through a stored pipeline.
+    pipeline_id: str | None = Field(default=None, pattern=IDENTIFIER_PATTERN)
 
     @model_validator(mode="after")
     def _no_explicit_nulls(self) -> "AnalyzeRequest":

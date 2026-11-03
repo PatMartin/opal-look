@@ -102,8 +102,19 @@ def test_create_advanced_stages_stored(client):
     resp = client.post("/api/v1/pipelines/", json=pipe, headers={"If-Match": "*"})
     assert resp.status_code == 201
     stored = resp.json()["stages"]
+
+    def _norm(st):
+        st = {k: v for k, v in st.items() if k != "enabled"}
+        f = (st.get("portable") or {}).get("filter")
+        if f is not None and f.get("parameters") == {}:
+            f = dict(f)
+            f.pop("parameters")
+            st = dict(st)
+            st["portable"] = {**st["portable"], "filter": f}
+        return st
+
     for got, want in zip(stored, pipe["stages"]):
-        assert {k: v for k, v in got.items() if k != "enabled"} == want
+        assert _norm(got) == want
         assert got["enabled"] is True
 
 

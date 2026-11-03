@@ -249,6 +249,8 @@ def apply_filters(payload: dict, task: str, settings: dict) -> dict:
 
 async def run_analysis(store: Store, req: AnalyzeRequest, frame_cache=None) -> dict[str, Any]:
     app_settings = effective_settings(store)
+    if req.pipeline_id is not None:
+        return await _run_pipeline_analysis(store, req, app_settings)
     sel = resolve_selection(store, req)
     frame = await asyncio.to_thread(
         acquire_frame, store, req.input, app_settings.max_image_pixels)
@@ -337,3 +339,28 @@ async def run_analysis(store: Store, req: AnalyzeRequest, frame_cache=None) -> d
             result_id, frame.image, result, app_settings.frame_cache_seconds
         )
     return result
+
+
+async def _run_pipeline_analysis(store: Store, req: AnalyzeRequest, app_settings) -> dict[str, Any]:
+    """v1.5 path: stored pipeline -> DAG executor -> observations."""
+    from .correlation import current_ids
+    from .pipeline_exec import run_pipeline
+
+    row = store.pipelines.get(req.pipeline_id)
+    if row is None:
+        raise ApiError(404, f"Unknown pipeline: {req.pipeline_id!r}")
+    frame = await asyncio.to_thread(
+        acquire_frame, store, req.input, app_settings.max_image_pixels)
+    ids = current_ids()
+    result = await asyncio.to_thread(
+        run_pipeline, store, row, frame.image,
+        source_id=frame.source_id, media_id=frame.media_id,
+        frame_index=0, transaction_id=ids.transaction_id,
+        request_id=ids.request_id, motion_states=None)
+    return {
+        "observations": result["observations"],
+        "processing_ms": result["processing_ms"],
+        "media_id": None,
+        "_trace": result["trace"],
+        "warnings": result["warnings"],
+    }

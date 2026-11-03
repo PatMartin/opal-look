@@ -418,3 +418,19 @@ class AnalyzeSubmission(BaseModel):
             if getattr(self, name) is None and name != "source":
                 raise ValueError(f"explicit null is not allowed for {name}")
         return self
+
+
+class ImageAnalyzeOptions(BaseModel):
+    """v1.5 JSON 'request' part for POST /api/v1/analyze/image."""
+    model_config = ConfigDict(strict=True, extra="forbid")
+
+    pipeline_id: str | None = Field(default=None, pattern=IDENTIFIER_PATTERN)
+    options: InferenceOptions | None = Field(default=None)
+    retention: RetentionOptions | None = Field(default=None)
+
+    @model_validator(mode="after")
+    def _no_explicit_nulls(self) -> "ImageAnalyzeOptions":
+        for name in self.model_fields_set:
+            if getattr(self, name) is None:
+                raise ValueError(f"explicit null is not allowed for {name}")
+        return self

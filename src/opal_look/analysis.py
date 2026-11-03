@@ -414,43 +414,9 @@ async def run_analysis_v15(store: Store, body, frame_cache=None) -> dict[str, An
         transaction_id=ids.transaction_id, request_id=ids.request_id,
         motion_states=None)
 
-    # --- request-level option tightening: score/class filters on items ---
-    opts = body.options
-    if opts is not None:
-        for obs in result["observations"]:
-            if opts.confidence_threshold is not None:
-                obs["items"] = [it for it in obs["items"]
-                                if it.get("score") is None
-                                or it["score"] >= opts.confidence_threshold]
-            if opts.classes:
-                allowed = set(opts.classes)
-                obs["items"] = [it for it in obs["items"]
-                                if it.get("label") is None or it["label"] in allowed]
-
-    # --- retained output image (opt-in only) ---
-    out_media_id = None
-    if retention and (retention.save_raw_frames or retention.save_annotated_frames):
-        import io as _io
-        out_img = result["presentation"]["image"] if (
-            retention.save_annotated_frames
-            and result["presentation"]["image"] is not None) else image
-        buf = _io.BytesIO()
-        out_img.save(buf, format="JPEG", quality=90)
-        data = buf.getvalue()
-        out_media_id = f"media-{_secrets.token_hex(8)}"
-        path = media_dir(store.data_dir) / out_media_id
-        path.write_bytes(data)
-        ttl = retention.ttl_seconds or app_settings.media_retention_hours * 3600
-        expires = iso(parse_iso(now_iso()) + timedelta(seconds=ttl))
-        with store.write_txn():
-            store.media.insert({
-                "media_id": out_media_id, "filename": "pipeline-output.jpg",
-                "kind": "image", "content_type": "image/jpeg",
-                "size_bytes": len(data), "path": str(path),
-                "width": out_img.width, "height": out_img.height,
-                "duration_ms": None, "created_at": now_iso(),
-                "expires_at": expires,
-            })
+    _tighten_items(result["observations"], body.options)
+    out_media_id = _retain_output(
+        store, retention, result, image, app_settings) if retention else None
 
     observations = result["observations"]
     for obs in observations:
@@ -459,4 +425,89 @@ async def run_analysis_v15(store: Store, body, frame_cache=None) -> dict[str, An
         "observations": observations,
         "processing_ms": result["processing_ms"],
         "media_id": out_media_id,
+    }
+
+
+def _tighten_items(observations: list[dict], opts) -> None:
+    """Request InferenceOptions: score/class filters on emitted items."""
+    if opts is None:
+        return
+    for obs in observations:
+        if opts.confidence_threshold is not None:
+            obs["items"] = [it for it in obs["items"]
+                            if it.get("score") is None
+                            or it["score"] >= opts.confidence_threshold]
+        if opts.classes:
+            allowed = set(opts.classes)
+            obs["items"] = [it for it in obs["items"]
+                            if it.get("label") is None or it["label"] in allowed]
+
+
+def _retain_output(store: Store, retention, result, image, app_settings) -> str | None:
+    """save_raw/save_annotated -> write a retained Media row, return media_id."""
+    import secrets as _secrets
+    from .media import media_dir
+
+    if not (retention.save_raw_frames or retention.save_annotated_frames):
+        return None
+    out_img = result["presentation"]["image"] if (
+        retention.save_annotated_frames
+        and result["presentation"]["image"] is not None) else image
+    buf = io.BytesIO()
+    out_img.save(buf, format="JPEG", quality=90)
+    data = buf.getvalue()
+    media_id = f"media-{_secrets.token_hex(8)}"
+    path = media_dir(store.data_dir) / media_id
+    path.write_bytes(data)
+    ttl = retention.ttl_seconds or app_settings.media_retention_hours * 3600
+    expires = iso(parse_iso(now_iso()) + timedelta(seconds=ttl))
+    with store.write_txn():
+        store.media.insert({
+            "media_id": media_id, "filename": "pipeline-output.jpg",
+            "kind": "image", "content_type": "image/jpeg",
+            "size_bytes": len(data), "path": str(path),
+            "width": out_img.width, "height": out_img.height,
+            "duration_ms": None, "created_at": now_iso(),
+            "expires_at": expires,
+        })
+    return media_id
+
+
+async def run_image_analysis(store: Store, image, options, request_id: str,
+                             transaction_id: str, app_settings) -> dict[str, Any]:
+    """POST /api/v1/analyze/image core: decoded image + ImageAnalyzeOptions."""
+    from .pipeline_exec import run_pipeline
+
+    pipeline_id = options.pipeline_id or app_settings.default_pipeline_id
+    if pipeline_id is None:
+        raise ApiError(422, "pipeline_id is required when "
+                            "settings.default_pipeline_id is not configured.")
+    pipeline_row = store.pipelines.get(pipeline_id)
+    if pipeline_row is None:
+        raise ApiError(404, f"Unknown pipeline: {pipeline_id!r}")
+
+    warnings: list[str] = []
+    if options.retention and options.retention.persist_observations:
+        warnings.append("observation persistence is not yet available (step 12)")
+    if options.retention and options.retention.ttl_seconds is not None:
+        cap = app_settings.result_retention_hours * 3600
+        if options.retention.ttl_seconds > cap:
+            raise ApiError(422, f"retention ttl_seconds "
+                                f"{options.retention.ttl_seconds} exceeds cap {cap}")
+
+    result = await asyncio.to_thread(
+        run_pipeline, store, pipeline_row, image,
+        source_id=None, media_id=None, frame_index=None,
+        transaction_id=transaction_id, request_id=request_id,
+        motion_states=None)
+    _tighten_items(result["observations"], options.options)
+    out_media_id = _retain_output(store, options.retention, result, image,
+                                  app_settings) if options.retention else None
+    for obs in result["observations"]:
+        obs["warnings"] = list(obs["warnings"]) + warnings
+    return {
+        "observations": result["observations"],
+        "processing_ms": result["processing_ms"],
+        "media_id": out_media_id,
+        "_presentation": result["presentation"]["image"],
     }

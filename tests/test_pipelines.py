@@ -94,7 +94,8 @@ def test_create_mode_violation_422(client):
 
 def test_create_advanced_stages_stored(client):
     pipe = {"id": "adv", "name": "A",
-            "stages": [{"id": "s1", "kind": "filter"},
+            "stages": [{"id": "s1", "kind": "filter",
+                        "portable": {"filter": {"type": "grayscale"}}},
                        {"id": "s2", "kind": "inference",
                         "model_id": "synthetic-vision", "task": "detection",
                         "inputs": ["s1"]}]}
@@ -128,7 +129,8 @@ def test_patch_mode_switch(client):
     # null model_id + null task + stages -> advanced
     resp = client.patch("/api/v1/pipelines/p1",
                         json={"model_id": None, "task": None,
-                              "stages": [{"id": "s1", "kind": "filter"}]},
+                              "stages": [{"id": "s1", "kind": "filter",
+                                          "portable": {"filter": {"type": "grayscale"}}}]},
                         headers={"If-Match": "*"})
     assert resp.status_code == 200
     assert "stages" in resp.json()

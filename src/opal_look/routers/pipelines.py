@@ -48,33 +48,41 @@ def _get_or_404(store: Store, pipeline_id: str):
     return row
 
 
-def _validate_simple(store: Store, model_id: str, task: str, options) -> list[str]:
-    """Return validation issue strings (404/422 raised by callers)."""
-    issues: list[str] = []
+def _issue(path: str, code: str, message: str) -> dict:
+    return {"path": path, "code": code, "message": message, "severity": "error"}
+
+
+def _validate_simple(store: Store, model_id: str, task: str, options) -> list[dict]:
+    """Return ValidationIssue dicts (404/422 raised by callers)."""
+    issues: list[dict] = []
     row = store.models.get(model_id)
     if row is None:
-        issues.append(f"model {model_id!r} is not registered")
+        issues.append(_issue("model_id", "unknown_model",
+                             f"model {model_id!r} is not registered"))
         return issues
     runtime = model_runtime(store, row)
     if not runtime["enabled"] or not runtime["available"]:
-        issues.append(f"model {model_id!r} is not currently available")
+        issues.append(_issue("model_id", "model_unavailable",
+                             f"model {model_id!r} is not currently available"))
     if task not in runtime["tasks"]:
-        issues.append(f"task {task!r} is not supported by model {model_id!r}")
+        issues.append(_issue("task", "unsupported_task",
+                             f"task {task!r} is not supported by model {model_id!r}"))
     if options and options.engine_options:
         adapter = ENGINE_REGISTRY.get(runtime["engine_id"])
         if adapter is not None:
-            issues += adapter.validate_engine_options(options.engine_options)
+            issues += [_issue("options.engine_options", "invalid_engine_option", e)
+                       for e in adapter.validate_engine_options(options.engine_options)]
     return issues
 
 
-def _check_retention(store: Store, retention) -> list[str]:
-    issues: list[str] = []
+def _check_retention(store: Store, retention) -> list[dict]:
+    issues: list[dict] = []
     if retention and retention.ttl_seconds is not None:
         cap = effective_settings(store).result_retention_hours * 3600
         if retention.ttl_seconds > cap:
-            issues.append(
-                f"retention ttl_seconds {retention.ttl_seconds} exceeds cap {cap}"
-            )
+            issues.append(_issue(
+                "retention.ttl_seconds", "retention_exceeds_cap",
+                f"retention ttl_seconds {retention.ttl_seconds} exceeds cap {cap}"))
     return issues
 
 
@@ -120,19 +128,10 @@ def post_api_v1_pipelines(request: Request, store: StoreDep, pipe: PipelineCreat
     )
 
 
-def _check_stages(store: Store, stages) -> list[str]:
-    """Structural checks only; DAG semantics land in step 08."""
-    issues: list[str] = []
-    ids = [s.id for s in stages]
-    if len(ids) != len(set(ids)):
-        issues.append("stage ids must be unique")
-    for s in stages:
-        if s.kind == "inference":
-            if s.model_id is None or s.task is None:
-                issues.append(f"stage {s.id!r}: inference needs model_id and task")
-            elif store.models.get(s.model_id) is None:
-                issues.append(f"stage {s.id!r}: model {s.model_id!r} is not registered")
-    return issues
+def _check_stages(store: Store, stages) -> list[dict]:
+    from ..pipeline_validation import validate_stages
+
+    return validate_stages(store, stages)
 
 
 @router.get("/api/v1/pipelines/{pipeline_id}")
@@ -225,16 +224,10 @@ def _pipeline_refs(store: Store, pipeline_id: str) -> int:
 
 @router.post("/api/v1/pipelines/validate")
 def post_api_v1_pipelines_validate(request: Request, store: StoreDep, pipe: PipelineCreate) -> dict:
-    issues: list[str] = []
+    issues: list[dict] = []
     if pipe.model_id is not None:
-        if store.models.get(pipe.model_id) is None:
-            issues.append(f"model {pipe.model_id!r} is not registered")
-        else:
-            issues += _validate_simple(store, pipe.model_id, pipe.task, pipe.options)
+        issues += _validate_simple(store, pipe.model_id, pipe.task, pipe.options)
     else:
         issues += _check_stages(store, pipe.stages)
     issues += _check_retention(store, pipe.retention)
-    return {
-        "valid": not issues,
-        "issues": [{"severity": "error", "message": m, "path": ""} for m in issues],
-    }
+    return {"valid": not issues, "issues": issues}

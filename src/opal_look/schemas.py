@@ -268,6 +268,45 @@ class RetentionOptions(BaseModel):
     ttl_seconds: int | None = Field(default=None, ge=0)
 
 
+class FilterSpec(BaseModel):
+    """v1.5 FilterSpec; per-type parameter bounds validated semantically."""
+    model_config = ConfigDict(strict=True, extra="forbid")
+
+    type: Literal["grayscale", "brightness_contrast", "blur", "sharpen",
+                  "threshold", "edges", "rotate", "flip", "crop", "resize", "motion"]
+    parameters: dict[str, Any] = Field(default_factory=dict)
+
+
+class MotionGateOptions(BaseModel):
+    model_config = ConfigDict(strict=True, extra="forbid")
+
+    motion_stage_id: str = Field(pattern=IDENTIFIER_PATTERN)
+    sample_every_n_frames: int = Field(default=30, ge=1)
+    on_unknown: Literal["run_inference", "skip"] = Field(default="run_inference")
+
+
+class AnnotationOptions(BaseModel):
+    model_config = ConfigDict(strict=True, extra="forbid")
+
+    enabled: bool = Field(default=True)
+    show_boxes: bool = Field(default=True)
+    show_labels: bool = Field(default=True)
+    show_confidence: bool = Field(default=True)
+    show_track_ids: bool = Field(default=False)
+    show_zones: bool = Field(default=False)
+    classes: list[str] | None = Field(default=None)
+    min_confidence: float | None = Field(default=None, ge=0, le=1)
+
+
+class VideoProcessingOptions(BaseModel):
+    model_config = ConfigDict(strict=True, extra="forbid")
+
+    target_fps: float | None = Field(default=None, ge=0.1)
+    width: int | None = Field(default=None, ge=1)
+    height: int | None = Field(default=None, ge=1)
+    quality: int | None = Field(default=None, ge=1, le=100)
+
+
 class InferenceOptions(BaseModel):
     model_config = ConfigDict(strict=True, extra="forbid")
 
@@ -275,10 +314,20 @@ class InferenceOptions(BaseModel):
     max_frames: int | None = Field(default=None, ge=1)
     confidence_threshold: float | None = Field(default=None, ge=0, le=1)
     classes: list[str] | None = Field(default=None)
-    roi: dict[str, Any] | None = Field(default=None)
+    roi: list[Point] | None = Field(default=None, min_length=3)
     engine_options: dict[str, Any] | None = Field(default=None)
-    video: dict[str, Any] | None = Field(default=None)
-    annotations: dict[str, Any] | None = Field(default=None)
+    video: VideoProcessingOptions | None = Field(default=None)
+    annotations: AnnotationOptions | None = Field(default=None)
+
+
+
+class ProcessingStageOptions(BaseModel):
+    model_config = ConfigDict(strict=True, extra="forbid")
+
+    filter: FilterSpec | None = Field(default=None)
+    gate: MotionGateOptions | None = Field(default=None)
+    annotation: AnnotationOptions | None = Field(default=None)
+    video: VideoProcessingOptions | None = Field(default=None)
 
 
 class PipelineStage(BaseModel):
@@ -291,7 +340,7 @@ class PipelineStage(BaseModel):
     inputs: list[str] | None = Field(default=None)
     options: dict[str, Any] | None = Field(default=None)
     enabled: bool = Field(default=True)
-    portable: dict[str, Any] | None = Field(default=None)
+    portable: ProcessingStageOptions | None = Field(default=None)
     phase: Literal["inference_input", "presentation"] | None = Field(default=None)
 
 

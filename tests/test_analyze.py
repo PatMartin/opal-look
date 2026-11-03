@@ -152,18 +152,18 @@ def test_analyze_unknown_model_404(client, media_id):
     assert resp.status_code == 404
 
 
-def test_analyze_disabled_model_422(client, media_id):
+def test_analyze_engine_disabled_503(client, media_id):
     client.patch(
-        "/api/v1/models/synthetic-vision", json={"enabled": False}, headers={"If-Match": "*"}
+        "/api/v1/engines/synthetic", json={"enabled": False}, headers={"If-Match": "*"}
     )
     resp = _analyze(client, media_id)
-    assert resp.status_code == 422
+    assert resp.status_code == 503
 
 
 def test_analyze_engine_unavailable_503(client, media_id):
     client.patch(
         "/api/v1/engines/synthetic",
-        json={"config": {"force_unavailable": True}},
+        json={"options": {"force_unavailable": True}},
         headers={"If-Match": "*"},
     )
     resp = _analyze(client, media_id)

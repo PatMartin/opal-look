@@ -18,7 +18,7 @@ from .errors import register_error_handlers
 from .framecache import FrameCache
 from .sessions import SessionRuntimeRegistry
 from .routers import (
-    analyze, backup, engines, health, media, models, profiles, results,
+    analyze, backup, capabilities, engines, health, media, models, profiles, results,
     sessions as sessions_router, settings, snapshots, sources,
 )
 from .store import Store
@@ -73,6 +73,7 @@ def create_app(
     app.add_middleware(AccessLogMiddleware)
     register_error_handlers(app)
     app.include_router(health.router)
+    app.include_router(capabilities.router)
     app.include_router(settings.router)
     app.include_router(engines.router)
     app.include_router(models.router)

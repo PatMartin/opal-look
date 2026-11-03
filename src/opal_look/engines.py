@@ -87,6 +87,7 @@ class EngineAdapter(Protocol):
 
     def capabilities(self) -> dict[str, Any]: ...
     def probe(self, config: dict[str, Any], enabled: bool) -> tuple[bool, str | None]: ...
+    def options_schema(self) -> dict[str, Any]: ...
     def validate_config(self, config: dict[str, Any]) -> list[str]: ...
     def metadata(self) -> dict[str, Any]: ...
     def describe_model(self, resource: dict[str, Any]) -> dict[str, Any]: ...
@@ -116,9 +117,22 @@ class SyntheticAdapter:
         return {
             "tasks": list(TASKS),
             "tracking": True,
+            "device_types": ["cpu"],
             "source_types": list(SOURCE_TYPES),
             "max_concurrent_sessions": None,
         }
+
+    _OPTIONS_SCHEMA = {
+        "type": "object",
+        "additionalProperties": False,
+        "properties": {
+            "seed": {"type": "integer"},
+            "force_unavailable": {"type": "boolean"},
+        },
+    }
+
+    def options_schema(self) -> dict[str, Any]:
+        return dict(self._OPTIONS_SCHEMA)
 
     def probe(self, config: dict[str, Any], enabled: bool) -> tuple[bool, str | None]:
         if not enabled:
@@ -342,7 +356,8 @@ def ensure_default_model(store: Store) -> None:
         )
 
 
-def engine_read(store: Store, row: sqlite3.Row) -> dict[str, Any]:
+def engine_runtime(store: Store, row: sqlite3.Row) -> dict[str, Any]:
+    """Internal rich engine view (probe, config, capabilities) for services."""
     adapter = ENGINE_REGISTRY.get(row["engine_id"])
     config = json.loads(row["config"])
     enabled = bool(row["enabled"])
@@ -360,7 +375,8 @@ def engine_read(store: Store, row: sqlite3.Row) -> dict[str, Any]:
     }
 
 
-def model_read(store: Store, row: sqlite3.Row) -> dict[str, Any]:
+def model_runtime(store: Store, row: sqlite3.Row) -> dict[str, Any]:
+    """Internal rich model view (adapter description + availability)."""
     adapter = ENGINE_REGISTRY.get(row["engine_id"])
     engine_row = store.engines.get(row["engine_id"])
     config = json.loads(engine_row["config"])
@@ -381,4 +397,51 @@ def model_read(store: Store, row: sqlite3.Row) -> dict[str, Any]:
         "keypoints": description["keypoints"],
         "skeleton": description["skeleton"],
         "metadata": description["metadata"],
+    }
+
+
+def engine_read(store: Store, row: sqlite3.Row) -> dict[str, Any]:
+    """Contract Engine resource (v1.5 shape)."""
+    adapter = ENGINE_REGISTRY.get(row["engine_id"])
+    config = json.loads(row["config"])
+    enabled = bool(row["enabled"])
+    available, _ = adapter.probe(config, enabled)
+    capabilities = adapter.capabilities()
+    metadata = adapter.metadata()
+    return {
+        "id": row["engine_id"],
+        "name": row["name"],
+        "version": str(metadata.get("version", "0.0.0")),
+        "enabled": enabled,
+        "state": "disabled" if not enabled else ("ready" if available else "unavailable"),
+        "tasks": list(capabilities.get("tasks", [])),
+        "device_types": list(capabilities.get("device_types", [])),
+        "options_schema": adapter.options_schema(),
+    }
+
+
+def model_read(store: Store, row: sqlite3.Row) -> dict[str, Any]:
+    """Contract Model resource (v1.5 shape)."""
+    adapter = ENGINE_REGISTRY.get(row["engine_id"])
+    engine_row = store.engines.get(row["engine_id"])
+    engine_enabled = bool(engine_row["enabled"]) if engine_row is not None else False
+    engine_available = False
+    if adapter is not None and engine_row is not None:
+        engine_available, _ = adapter.probe(json.loads(engine_row["config"]), engine_enabled)
+    enabled = bool(row["enabled"])
+    declared = json.loads(row["tasks"]) if row["tasks"] else []
+    if not declared and adapter is not None:
+        declared = adapter.describe_model(json.loads(row["resource"]))["tasks"]
+    return {
+        "id": row["model_id"],
+        "engine_id": row["engine_id"],
+        "display_name": row["name"],
+        "tasks": declared,
+        "state": (
+            "disabled" if not enabled
+            else "unavailable" if not engine_available
+            else "ready"
+        ),
+        "resource_label": row["resource_ref"],
+        "created_at": row["created_at"],
     }

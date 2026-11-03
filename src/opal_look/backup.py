@@ -10,7 +10,7 @@ from typing import Any
 
 from .engines import ENGINE_REGISTRY
 from .errors import ApiError
-from .schemas import AnalysisSettings, ModelCreate, SourceCreate
+from .schemas import AnalysisSettings, SourceCreate
 from .settings import ServiceSettings, effective_settings
 from .sources import check_locator
 from .store import Store
@@ -70,21 +70,21 @@ def validate_config(store: Store, payload: dict[str, Any]) -> tuple[list[str], l
     model_ids: set[str] = set()
     model_tasks: dict[str, list[str]] = {}
     for m in payload.get("models") or []:
-        try:
-            mc = ModelCreate.model_validate(m)
-        except Exception as exc:
-            errors.append(f"model: {exc}")
+        # Legacy export shape: {model_id, name, engine_id, resource, enabled}.
+        mc = m if isinstance(m, dict) and {"model_id", "name", "engine_id", "resource"} <= set(m) else None
+        if mc is None:
+            errors.append("model: missing required fields (model_id/name/engine_id/resource)")
             continue
-        if mc.model_id in model_ids:
-            errors.append(f"duplicate model_id {mc.model_id!r}")
-        model_ids.add(mc.model_id)
-        adapter = ENGINE_REGISTRY.get(mc.engine_id)
+        if mc["model_id"] in model_ids:
+            errors.append(f"duplicate model_id {mc['model_id']!r}")
+        model_ids.add(mc["model_id"])
+        adapter = ENGINE_REGISTRY.get(mc["engine_id"])
         if adapter is None:
-            errors.append(f"model {mc.model_id!r}: engine {mc.engine_id!r} not installed")
+            errors.append(f"model {mc['model_id']!r}: engine {mc['engine_id']!r} not installed")
         else:
-            e2, _ = adapter.validate_model(mc.resource)
-            errors.extend(f"model {mc.model_id!r}: {x}" for x in e2)
-            model_tasks[mc.model_id] = adapter.describe_model(mc.resource)["tasks"]
+            e2, _ = adapter.validate_model(mc["resource"])
+            errors.extend(f"model {mc['model_id']!r}: {x}" for x in e2)
+            model_tasks[mc["model_id"]] = adapter.describe_model(mc["resource"])["tasks"]
 
     source_ids: set[str] = set()
     for s in payload.get("sources") or []:

@@ -19,7 +19,7 @@ from datetime import timedelta
 from pathlib import Path
 from typing import Any
 
-from .engines import ENGINE_REGISTRY, EngineUnavailable, model_read
+from .engines import ENGINE_REGISTRY, EngineUnavailable, model_runtime
 from .errors import ApiError
 from .media import is_expired as media_is_expired
 from .profiles import profile_errors
@@ -87,7 +87,7 @@ def resolve_selection(store: Store, req: AnalyzeRequest) -> Selection:
     if settings.get("tracking"):
         raise ApiError(422, "Tracking is not supported for single-frame analysis.")
 
-    read = model_read(store, model_row)
+    read = model_runtime(store, model_row)
     if not read["enabled"]:
         raise ApiError(422, f"Model {model_id!r} is disabled.")
     engine_row = store.engines.get(read["engine_id"])
@@ -255,7 +255,7 @@ async def run_analysis(store: Store, req: AnalyzeRequest, frame_cache=None) -> d
     captured_at = now_iso()
 
     adapter = ENGINE_REGISTRY.get(sel.engine_id)
-    desc = model_read(store, sel.model_row)
+    desc = model_runtime(store, sel.model_row)
     options = dict(sel.settings.get("engine_options") or {})
     if sel.task == "segmentation":
         options["segmentation_kind"] = sel.settings.get("segmentation_kind", "instance")

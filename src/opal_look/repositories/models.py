@@ -10,7 +10,9 @@ from typing import Any, Protocol
 class ModelRepository(Protocol):
     def list(self, engine_id=None, enabled=None) -> list[sqlite3.Row]: ...
     def get(self, model_id: str) -> sqlite3.Row | None: ...
-    def insert(self, model_id: str, name: str, engine_id: str, resource: dict, enabled: bool) -> None: ...
+    def insert(self, model_id: str, name: str, engine_id: str, resource: dict,
+               enabled: bool, tasks: list[str] | None = None,
+               options: dict | None = None, resource_ref: str | None = None) -> None: ...
     def seed(self, model_id: str, name: str, engine_id: str, resource: dict) -> None: ...
     def update(self, model_id: str, fields: dict[str, Any]) -> None: ...
     def delete(self, model_id: str) -> None: ...
@@ -41,18 +43,30 @@ class SqliteModelRepository:
         ).fetchone()
 
     def insert(
-        self, model_id: str, name: str, engine_id: str, resource: dict, enabled: bool
+        self, model_id: str, name: str, engine_id: str, resource: dict,
+        enabled: bool, tasks: list[str] | None = None,
+        options: dict | None = None, resource_ref: str | None = None,
     ) -> None:
+        from ..timeutil import now_iso
+
+        if resource_ref is None:
+            resource_ref = resource.get("ref") or resource.get("path") or json.dumps(resource)
         self._conn.execute(
-            "INSERT INTO models (model_id, name, engine_id, resource, enabled) VALUES (?, ?, ?, ?, ?)",
-            (model_id, name, engine_id, json.dumps(resource), int(enabled)),
+            "INSERT INTO models (model_id, name, engine_id, resource, enabled, "
+            "created_at, tasks, options, resource_ref) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (model_id, name, engine_id, json.dumps(resource), int(enabled),
+             now_iso(), json.dumps(tasks or []), json.dumps(options or {}),
+             resource_ref),
         )
 
     def seed(self, model_id: str, name: str, engine_id: str, resource: dict) -> None:
+        from ..timeutil import now_iso
+
+        ref = resource.get("ref") or resource.get("path") or json.dumps(resource)
         self._conn.execute(
-            "INSERT OR IGNORE INTO models (model_id, name, engine_id, resource, enabled) "
-            "VALUES (?, ?, ?, ?, 1)",
-            (model_id, name, engine_id, json.dumps(resource)),
+            "INSERT OR IGNORE INTO models (model_id, name, engine_id, resource, enabled, "
+            "created_at, resource_ref) VALUES (?, ?, ?, ?, 1, ?, ?)",
+            (model_id, name, engine_id, json.dumps(resource), now_iso(), ref),
         )
 
     def update(self, model_id: str, fields: dict[str, Any]) -> None:

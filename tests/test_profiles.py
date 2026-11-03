@@ -49,12 +49,13 @@ def test_create_unknown_model_404(client):
     assert resp.status_code == 404
 
 
-def test_create_disabled_model_422(client):
+def test_create_profile_for_unavailable_model_201(client):
+    # v1.5 has no model.enabled; engine-unavailable is a warning, not an error.
     client.patch(
-        "/api/v1/models/synthetic-vision", json={"enabled": False}, headers={"If-Match": "*"}
+        "/api/v1/engines/synthetic", json={"enabled": False}, headers={"If-Match": "*"}
     )
     resp = _create(client)
-    assert resp.status_code == 422
+    assert resp.status_code == 201
 
 
 def test_tracking_on_ocr_422(client):
@@ -177,7 +178,7 @@ def test_profile_validate_unavailable_model_warns(client):
     pid = _create(client).json()["profile_id"]
     client.patch(
         "/api/v1/engines/synthetic",
-        json={"config": {"force_unavailable": True}},
+        json={"options": {"force_unavailable": True}},
         headers={"If-Match": "*"},
     )
     resp = client.post(f"/api/v1/profiles/{pid}/validate")
@@ -187,15 +188,15 @@ def test_profile_validate_unavailable_model_warns(client):
     assert any("unavailable" in w for w in body["warnings"])
 
 
-def test_profile_validate_disabled_model_errors(client):
+def test_profile_validate_disabled_engine_warns(client):
     pid = _create(client).json()["profile_id"]
     client.patch(
-        "/api/v1/models/synthetic-vision", json={"enabled": False}, headers={"If-Match": "*"}
+        "/api/v1/engines/synthetic", json={"enabled": False}, headers={"If-Match": "*"}
     )
     resp = client.post(f"/api/v1/profiles/{pid}/validate")
     body = resp.json()
-    assert body["valid"] is False
-    assert any("disabled" in e for e in body["errors"])
+    assert body["valid"] is True
+    assert any("unavailable" in w for w in body["warnings"])
 
 
 def test_activate_requires_if_match(client):
@@ -204,11 +205,11 @@ def test_activate_requires_if_match(client):
     assert resp.status_code == 428
 
 
-def test_activate_blocked_by_disabled_model(client):
+def test_activate_allowed_when_model_unavailable(client):
     first = _create(client).json()["profile_id"]
     second = _create(client, name="Other").json()["profile_id"]
     client.patch(
-        "/api/v1/models/synthetic-vision", json={"enabled": False}, headers={"If-Match": "*"}
+        "/api/v1/engines/synthetic", json={"enabled": False}, headers={"If-Match": "*"}
     )
     resp = client.post(f"/api/v1/profiles/{second}/activate", headers={"If-Match": "*"})
-    assert resp.status_code == 422
+    assert resp.status_code == 200

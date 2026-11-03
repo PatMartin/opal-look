@@ -107,7 +107,11 @@ class Store:
                 name TEXT NOT NULL,
                 engine_id TEXT NOT NULL,
                 resource TEXT NOT NULL,
-                enabled INTEGER NOT NULL DEFAULT 1
+                enabled INTEGER NOT NULL DEFAULT 1,
+                created_at TEXT NOT NULL DEFAULT '',
+                tasks TEXT NOT NULL DEFAULT '[]',
+                options TEXT NOT NULL DEFAULT '{}',
+                resource_ref TEXT
             );
             CREATE TABLE IF NOT EXISTS sources (
                 source_id TEXT PRIMARY KEY,
@@ -203,12 +207,40 @@ class Store:
             );
             """
         )
+        self._migrate()
         if self._conn.execute(
             "SELECT value FROM meta WHERE key = 'config_revision'"
         ).fetchone() is None:
             self._conn.execute(
                 "INSERT INTO meta (key, value) VALUES ('config_revision', ?)",
                 (new_revision(),),
+            )
+
+    def _migrate(self) -> None:
+        """Idempotent column adds for pre-v1.5 databases."""
+        import json as _json
+
+        from .timeutil import now_iso
+
+        cols = {r["name"] for r in self._conn.execute("PRAGMA table_info(models)")}
+        for col, ddl in (
+            ("created_at", "TEXT NOT NULL DEFAULT ''"),
+            ("tasks", "TEXT NOT NULL DEFAULT '[]'"),
+            ("options", "TEXT NOT NULL DEFAULT '{}'"),
+            ("resource_ref", "TEXT"),
+        ):
+            if col not in cols:
+                self._conn.execute(f"ALTER TABLE models ADD COLUMN {col} {ddl}")
+        self._conn.execute("UPDATE models SET created_at = ? WHERE created_at = ''",
+                           (now_iso(),))
+        for row in self._conn.execute(
+            "SELECT model_id, resource FROM models WHERE resource_ref IS NULL"
+        ).fetchall():
+            res = _json.loads(row["resource"])
+            ref = res.get("ref") or res.get("path") or _json.dumps(res)
+            self._conn.execute(
+                "UPDATE models SET resource_ref = ? WHERE model_id = ?",
+                (ref, row["model_id"]),
             )
 
     def ping(self) -> bool:

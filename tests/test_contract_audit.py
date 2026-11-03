@@ -62,7 +62,7 @@ def test_audit_classifies_routes_honestly(app):
     missing = {(op.method, op.path) for op in report.missing}
     assert ("GET", "/api/v1/pipelines/") in missing
     assert ("POST", "/api/v1/monitors/") in missing
-    assert ("GET", "/api/v1/capabilities/") in missing
+    assert ("GET", "/api/v1/jobs/") in missing
     # v1.4-only surface is flagged as legacy, never counted as covered.
     legacy = set(report.legacy_only)
     assert ("GET", "/api/v1/profiles/") in legacy

@@ -1,9 +1,8 @@
 NEW_MODEL = {
-    "model_id": "test-model",
-    "name": "Test model",
+    "id": "test-model",
     "engine_id": "synthetic",
-    "resource": {"path": "/opt/models/test.bin"},
-    "enabled": True,
+    "resource_ref": "/opt/models/test.bin",
+    "tasks": ["detection", "ocr"],
 }
 
 
@@ -11,7 +10,7 @@ def test_list_models_includes_seed(client):
     resp = client.get("/api/v1/models/")
     assert resp.status_code == 200
     assert resp.headers["etag"].startswith('"')
-    ids = [m["model_id"] for m in resp.json()]
+    ids = [m["id"] for m in resp.json()]
     assert "synthetic-vision" in ids
 
 
@@ -33,12 +32,13 @@ def test_create_model(client):
     assert resp.headers["location"] == "/api/v1/models/test-model"
     assert resp.headers["etag"].startswith('"')
     body = resp.json()
-    for field in ("model_id", "name", "engine_id", "resource", "enabled",
-                  "available", "tasks", "tracking", "classes", "keypoints",
-                  "skeleton", "metadata"):
+    for field in ("id", "engine_id", "display_name", "tasks", "state",
+                  "resource_label", "created_at"):
         assert field in body
-    assert body["available"] is True
-    assert body["tracking"] is True
+    assert body["state"] == "ready"
+    assert body["display_name"] == "test-model"
+    assert body["tasks"] == ["detection", "ocr"]
+    assert body["resource_label"] == "/opt/models/test.bin"
 
 
 def test_create_model_requires_if_match(client):
@@ -55,7 +55,7 @@ def test_create_model_duplicate_409(client):
 def test_create_model_unknown_engine_404(client):
     resp = client.post(
         "/api/v1/models/",
-        json={**NEW_MODEL, "model_id": "m2", "engine_id": "ghost"},
+        json={**NEW_MODEL, "id": "m2", "engine_id": "ghost"},
         headers={"If-Match": "*"},
     )
     assert resp.status_code == 404
@@ -64,7 +64,7 @@ def test_create_model_unknown_engine_404(client):
 def test_create_model_empty_resource_422(client):
     resp = client.post(
         "/api/v1/models/",
-        json={**NEW_MODEL, "model_id": "m2", "resource": {}},
+        json={**NEW_MODEL, "id": "m2", "resource_ref": ""},
         headers={"If-Match": "*"},
     )
     assert resp.status_code == 422
@@ -73,7 +73,7 @@ def test_create_model_empty_resource_422(client):
 def test_create_model_bad_identifier_422(client):
     resp = client.post(
         "/api/v1/models/",
-        json={**NEW_MODEL, "model_id": "-bad"},
+        json={**NEW_MODEL, "id": "-bad"},
         headers={"If-Match": "*"},
     )
     assert resp.status_code == 422
@@ -82,7 +82,7 @@ def test_create_model_bad_identifier_422(client):
 def test_get_model(client):
     resp = client.get("/api/v1/models/synthetic-vision")
     assert resp.status_code == 200
-    assert resp.json()["model_id"] == "synthetic-vision"
+    assert resp.json()["id"] == "synthetic-vision"
     assert resp.headers["etag"].startswith('"')
 
 
@@ -94,39 +94,38 @@ def test_patch_model(client):
     client.post("/api/v1/models/", json=NEW_MODEL, headers={"If-Match": "*"})
     resp = client.patch(
         "/api/v1/models/test-model",
-        json={"name": "Renamed", "enabled": False},
+        json={"display_name": "Renamed"},
         headers={"If-Match": "*"},
     )
     assert resp.status_code == 200
     body = resp.json()
-    assert body["name"] == "Renamed"
-    assert body["enabled"] is False
-    assert body["available"] is False
+    assert body["display_name"] == "Renamed"
 
 
 def test_patch_model_requires_if_match(client):
-    resp = client.patch("/api/v1/models/synthetic-vision", json={"name": "x"})
+    resp = client.patch("/api/v1/models/synthetic-vision", json={"display_name": "x"})
     assert resp.status_code == 428
 
 
 def test_patch_unknown_model_404(client):
-    resp = client.patch("/api/v1/models/nope", json={"name": "x"}, headers={"If-Match": "*"})
+    resp = client.patch("/api/v1/models/nope", json={"display_name": "x"}, headers={"If-Match": "*"})
     assert resp.status_code == 404
 
 
-def test_patch_model_unknown_engine_404(client):
+def test_patch_model_extra_field_422(client):
+    # engine_id/resource are immutable in v1.5; unknown patch keys are rejected.
     resp = client.patch(
         "/api/v1/models/synthetic-vision",
         json={"engine_id": "ghost"},
         headers={"If-Match": "*"},
     )
-    assert resp.status_code == 404
+    assert resp.status_code == 422
 
 
 def test_patch_model_null_rejected(client):
     resp = client.patch(
         "/api/v1/models/synthetic-vision",
-        json={"enabled": None},
+        json={"display_name": None},
         headers={"If-Match": "*"},
     )
     assert resp.status_code == 422
@@ -158,9 +157,9 @@ def test_model_validate_ok(client):
     assert body["details"]["engine_id"] == "synthetic"
 
 
-def test_model_validate_disabled_valid_false(client):
+def test_model_validate_unavailable_valid_false(client):
     client.patch(
-        "/api/v1/models/synthetic-vision",
+        "/api/v1/engines/synthetic",
         json={"enabled": False},
         headers={"If-Match": "*"},
     )
@@ -168,7 +167,7 @@ def test_model_validate_disabled_valid_false(client):
     assert resp.status_code == 200
     body = resp.json()
     assert body["valid"] is False
-    assert any("disabled" in e for e in body["errors"])
+    assert body["errors"]
 
 
 def test_model_validate_unknown_404(client):

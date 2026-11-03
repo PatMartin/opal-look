@@ -38,6 +38,11 @@ stays as historical reference — do not edit either contract file.
   statements serialize through `Store._lock` (`_LockedConnection` proxy),
   and `write_txn()` holds it for the whole transaction.
 - DTOs: pydantic models in `src/opal_look/schemas.py` + `settings.py`.
+- v1.5 resource reads vs internals: `engine_read`/`model_read` return the
+  contract Engine/Model shapes; `engine_runtime`/`model_runtime` are the
+  richer internal views (probe/config/adapter description) used by
+  services. Models store `created_at/tasks/options/resource_ref` columns
+  (auto-migrated in `Store._migrate`).
 - Middleware: `CorrelationMiddleware` (outer correlation/validation),
   `AccessLogMiddleware` (outermost, logs all requests).
 - All errors use the OpalError envelope (`src/opal_look/errors.py`,

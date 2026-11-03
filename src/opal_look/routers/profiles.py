@@ -9,7 +9,7 @@ from fastapi import APIRouter, Path, Request, Response
 from fastapi.responses import JSONResponse
 
 from ..dependencies import StoreDep
-from ..engines import model_read
+from ..engines import model_runtime
 from ..errors import ApiError
 from ..precondition import check_if_match, require_if_match
 from ..profiles import (
@@ -162,7 +162,7 @@ def post_api_v1_profiles_profile_id_validate(
         "warnings": warnings,
         "details": {
             "model_id": read["model_id"],
-            "engine_id": model_read(store, model_row)["engine_id"],
+            "engine_id": model_runtime(store, model_row)["engine_id"],
             "task": read["task"],
         },
     }

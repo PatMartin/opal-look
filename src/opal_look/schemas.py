@@ -24,30 +24,31 @@ def reject_null_fields(supplied: dict[str, Any]) -> None:
         raise ApiError(422, "Explicit null values are not allowed in updates.")
 
 
-class EngineUpdate(BaseModel):
+class EnginePatch(BaseModel):
+    """v1.5 EnginePatch: enabled and/or engine options (validated by adapter)."""
     model_config = ConfigDict(strict=True, extra="forbid")
 
     enabled: bool | None = Field(default=None)
-    config: dict[str, Any] | None = Field(default=None)
+    options: dict[str, Any] | None = Field(default=None)
 
 
 class ModelCreate(BaseModel):
+    """v1.5 ModelCreate: registers an already-provisioned resource."""
     model_config = ConfigDict(strict=True, extra="forbid")
 
-    model_id: str = Field(pattern=IDENTIFIER_PATTERN)
-    name: str = Field(min_length=1)
+    id: str = Field(pattern=IDENTIFIER_PATTERN)
     engine_id: str = Field(pattern=IDENTIFIER_PATTERN)
-    resource: dict[str, Any]
-    enabled: bool = Field(default=True)
+    resource_ref: str = Field(min_length=1)
+    tasks: list[str] = Field(min_length=1)
+    options: dict[str, Any] | None = Field(default=None)
 
 
-class ModelUpdate(BaseModel):
+class ModelPatch(BaseModel):
+    """v1.5 ModelPatch: metadata/options only."""
     model_config = ConfigDict(strict=True, extra="forbid")
 
-    name: str | None = Field(default=None, min_length=1)
-    engine_id: str | None = Field(default=None, pattern=IDENTIFIER_PATTERN)
-    resource: dict[str, Any] | None = Field(default=None)
-    enabled: bool | None = Field(default=None)
+    display_name: str | None = Field(default=None, min_length=1)
+    options: dict[str, Any] | None = Field(default=None)
 
 
 # -- sources ----------------------------------------------------------------

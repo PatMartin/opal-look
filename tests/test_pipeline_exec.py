@@ -206,8 +206,8 @@ def test_executor_via_http_pipeline_id(client):
             {"id": "i", "kind": "inference", "model_id": "synthetic-vision",
              "task": "detection"}]},
         headers={"If-Match": "*"})
-    resp = client.post("/api/v1/analyze", json={
-        "pipeline_id": "p", "input": {"kind": "media", "media_id": mid}})
+    resp = client.post("/api/v1/analyze/", json={
+        "pipeline_id": "p", "source": {"media_id": mid}})
     assert resp.status_code == 200
     body = resp.json()
     assert body["observations"][0]["pipeline_id"] == "p"
@@ -217,8 +217,8 @@ def test_executor_via_http_pipeline_id(client):
 
 def test_pipeline_id_unknown_404(client):
     mid = _media_id(client)
-    resp = client.post("/api/v1/analyze", json={
-        "pipeline_id": "nope", "input": {"kind": "media", "media_id": mid}})
+    resp = client.post("/api/v1/analyze/", json={
+        "pipeline_id": "nope", "source": {"media_id": mid}})
     assert resp.status_code == 404
 
 
@@ -227,8 +227,8 @@ def test_simple_pipeline_via_pipeline_id(client):
     client.post("/api/v1/pipelines/", json={
         "id": "p", "name": "P", "model_id": "synthetic-vision", "task": "ocr"},
         headers={"If-Match": "*"})
-    resp = client.post("/api/v1/analyze", json={
-        "pipeline_id": "p", "input": {"kind": "media", "media_id": mid}})
+    resp = client.post("/api/v1/analyze/", json={
+        "pipeline_id": "p", "source": {"media_id": mid}})
     assert resp.status_code == 200
     assert resp.json()["observations"][0]["task"] == "ocr"
 

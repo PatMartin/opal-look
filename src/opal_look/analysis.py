@@ -249,8 +249,6 @@ def apply_filters(payload: dict, task: str, settings: dict) -> dict:
 
 async def run_analysis(store: Store, req: AnalyzeRequest, frame_cache=None) -> dict[str, Any]:
     app_settings = effective_settings(store)
-    if req.pipeline_id is not None:
-        return await _run_pipeline_analysis(store, req, app_settings)
     sel = resolve_selection(store, req)
     frame = await asyncio.to_thread(
         acquire_frame, store, req.input, app_settings.max_image_pixels)
@@ -341,26 +339,124 @@ async def run_analysis(store: Store, req: AnalyzeRequest, frame_cache=None) -> d
     return result
 
 
-async def _run_pipeline_analysis(store: Store, req: AnalyzeRequest, app_settings) -> dict[str, Any]:
-    """v1.5 path: stored pipeline -> DAG executor -> observations."""
+async def run_analysis_v15(store: Store, body, frame_cache=None) -> dict[str, Any]:
+    """v1.5 POST /api/v1/analyze/: SourceInput + pipeline + options + retention."""
+    import secrets as _secrets
+
     from .correlation import current_ids
+    from .media import media_dir
     from .pipeline_exec import run_pipeline
 
-    row = store.pipelines.get(req.pipeline_id)
-    if row is None:
-        raise ApiError(404, f"Unknown pipeline: {req.pipeline_id!r}")
-    frame = await asyncio.to_thread(
-        acquire_frame, store, req.input, app_settings.max_image_pixels)
+    app_settings = effective_settings(store)
+
+    # --- pipeline resolution ---
+    pipeline_id = body.pipeline_id
+    if pipeline_id is None:
+        pipeline_id = app_settings.default_pipeline_id
+        if pipeline_id is None:
+            raise ApiError(422, "pipeline_id is required when "
+                                "settings.default_pipeline_id is not configured.")
+    pipeline_row = store.pipelines.get(pipeline_id)
+    if pipeline_row is None:
+        raise ApiError(404, f"Unknown pipeline: {pipeline_id!r}")
+
+    # --- source resolution ---
+    src = body.source
+    if src.frame_at_ms is not None:
+        raise ApiError(422, "frame_at_ms is not supported: media are still images "
+                            "and live sources carry only the current frame.")
+    if src.source_id is not None:
+        row = store.sources.get(src.source_id)
+        if row is None:
+            raise ApiError(404, f"Unknown source: {src.source_id!r}")
+        probed = probe_source(store, row)
+        if not row["enabled"] or not probed["available"]:
+            raise ApiError(503, f"Source {src.source_id!r} is unavailable.")
+        image = _grab_live_frame(row)
+        if image.width * image.height > app_settings.max_image_pixels:
+            raise ApiError(413, "Decoded image exceeds the configured pixel limit.")
+        source_id, media_id = row["source_id"], None
+    else:
+        media_row = store.media.get(src.media_id)
+        if media_row is None:
+            raise ApiError(404, f"Unknown media: {src.media_id!r}")
+        if media_is_expired(media_row):
+            raise ApiError(410, f"Media {src.media_id!r} has expired.", code="gone")
+        try:
+            from PIL import Image, ImageOps
+            import io as _io
+            image = ImageOps.exif_transpose(
+                Image.open(_io.BytesIO(Path(media_row["path"]).read_bytes()))
+            ).convert("RGB")
+        except FileNotFoundError:
+            raise ApiError(503, "Media bytes are missing from storage.")
+        except Exception:
+            raise ApiError(422, "Media bytes could not be decoded.")
+        if image.width * image.height > app_settings.max_image_pixels:
+            raise ApiError(413, "Decoded image exceeds the configured pixel limit.")
+        source_id, media_id = None, media_row["media_id"]
+
+    # --- retention: requested retention may tighten, never exceed caps ---
+    warnings: list[str] = []
+    retention = body.retention
+    if retention is not None and retention.ttl_seconds is not None:
+        cap = app_settings.result_retention_hours * 3600
+        if retention.ttl_seconds > cap:
+            raise ApiError(422, f"retention ttl_seconds {retention.ttl_seconds} "
+                                f"exceeds cap {cap}")
+    if retention and retention.persist_observations:
+        warnings.append("observation persistence is not yet available (step 12)")
+
     ids = current_ids()
     result = await asyncio.to_thread(
-        run_pipeline, store, row, frame.image,
-        source_id=frame.source_id, media_id=frame.media_id,
-        frame_index=0, transaction_id=ids.transaction_id,
-        request_id=ids.request_id, motion_states=None)
+        run_pipeline, store, pipeline_row, image,
+        source_id=source_id, media_id=media_id, frame_index=0,
+        transaction_id=ids.transaction_id, request_id=ids.request_id,
+        motion_states=None)
+
+    # --- request-level option tightening: score/class filters on items ---
+    opts = body.options
+    if opts is not None:
+        for obs in result["observations"]:
+            if opts.confidence_threshold is not None:
+                obs["items"] = [it for it in obs["items"]
+                                if it.get("score") is None
+                                or it["score"] >= opts.confidence_threshold]
+            if opts.classes:
+                allowed = set(opts.classes)
+                obs["items"] = [it for it in obs["items"]
+                                if it.get("label") is None or it["label"] in allowed]
+
+    # --- retained output image (opt-in only) ---
+    out_media_id = None
+    if retention and (retention.save_raw_frames or retention.save_annotated_frames):
+        import io as _io
+        out_img = result["presentation"]["image"] if (
+            retention.save_annotated_frames
+            and result["presentation"]["image"] is not None) else image
+        buf = _io.BytesIO()
+        out_img.save(buf, format="JPEG", quality=90)
+        data = buf.getvalue()
+        out_media_id = f"media-{_secrets.token_hex(8)}"
+        path = media_dir(store.data_dir) / out_media_id
+        path.write_bytes(data)
+        ttl = retention.ttl_seconds or app_settings.media_retention_hours * 3600
+        expires = iso(parse_iso(now_iso()) + timedelta(seconds=ttl))
+        with store.write_txn():
+            store.media.insert({
+                "media_id": out_media_id, "filename": "pipeline-output.jpg",
+                "kind": "image", "content_type": "image/jpeg",
+                "size_bytes": len(data), "path": str(path),
+                "width": out_img.width, "height": out_img.height,
+                "duration_ms": None, "created_at": now_iso(),
+                "expires_at": expires,
+            })
+
+    observations = result["observations"]
+    for obs in observations:
+        obs["warnings"] = list(obs["warnings"]) + warnings
     return {
-        "observations": result["observations"],
+        "observations": observations,
         "processing_ms": result["processing_ms"],
-        "media_id": None,
-        "_trace": result["trace"],
-        "warnings": result["warnings"],
+        "media_id": out_media_id,
     }

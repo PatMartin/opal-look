@@ -210,8 +210,6 @@ class AnalyzeRequest(BaseModel):
     settings: AnalysisSettings | None = Field(default=None)
     input: FrameInput
     store_result: bool = Field(default=True)
-    # Interim until the step-10 schema swap: route through a stored pipeline.
-    pipeline_id: str | None = Field(default=None, pattern=IDENTIFIER_PATTERN)
 
     @model_validator(mode="after")
     def _no_explicit_nulls(self) -> "AnalyzeRequest":
@@ -386,3 +384,37 @@ class PipelinePatch(BaseModel):
     stages: list[PipelineStage] | None = Field(default=None, min_length=1)
     options: InferenceOptions | None = Field(default=None)
     retention: RetentionOptions | None = Field(default=None)
+
+
+# -- v1.5 analyze submission ---------------------------------------------------
+
+class AnalyzeSourceInput(BaseModel):
+    """v1.5 SourceInput: exactly one of source_id | media_id."""
+    model_config = ConfigDict(strict=True, extra="forbid")
+
+    source_id: str | None = Field(default=None, pattern=IDENTIFIER_PATTERN)
+    media_id: str | None = Field(default=None, pattern=IDENTIFIER_PATTERN)
+    frame_at_ms: int | None = Field(default=None, ge=0)
+
+    @model_validator(mode="after")
+    def _one_input(self) -> "AnalyzeSourceInput":
+        if (self.source_id is None) == (self.media_id is None):
+            raise ValueError("exactly one of source_id or media_id is required")
+        return self
+
+
+class AnalyzeSubmission(BaseModel):
+    """v1.5 POST /api/v1/analyze/ body."""
+    model_config = ConfigDict(strict=True, extra="forbid")
+
+    source: AnalyzeSourceInput
+    pipeline_id: str | None = Field(default=None, pattern=IDENTIFIER_PATTERN)
+    options: InferenceOptions | None = Field(default=None)
+    retention: RetentionOptions | None = Field(default=None)
+
+    @model_validator(mode="after")
+    def _no_explicit_nulls(self) -> "AnalyzeSubmission":
+        for name in self.model_fields_set:
+            if getattr(self, name) is None and name != "source":
+                raise ValueError(f"explicit null is not allowed for {name}")
+        return self

@@ -19,6 +19,7 @@ from .repositories import (
     SqliteMediaRepository,
     SqliteMetaRepository,
     SqliteModelRepository,
+    SqliteObservationRepository,
     SqlitePipelineRepository,
     SqliteProfileRepository,
     SqliteResultRepository,
@@ -78,6 +79,7 @@ class Store:
         self.engines = SqliteEngineRepository(self._conn)
         self.models = SqliteModelRepository(self._conn)
         self.pipelines = SqlitePipelineRepository(self._conn)
+        self.observations = SqliteObservationRepository(self._conn)
         self.sources = SqliteSourceRepository(self._conn)
         self.profiles = SqliteProfileRepository(self._conn)
         self.media = SqliteMediaRepository(self._conn)
@@ -124,6 +126,21 @@ class Store:
                 enabled INTEGER NOT NULL DEFAULT 1,
                 source_options TEXT NOT NULL DEFAULT '{}',
                 zones TEXT NOT NULL DEFAULT '[]'
+            );
+            CREATE TABLE IF NOT EXISTS observations (
+                observation_id TEXT PRIMARY KEY,
+                created_at TEXT NOT NULL,
+                observed_at TEXT NOT NULL,
+                source_id TEXT,
+                media_id TEXT,
+                monitor_id TEXT,
+                job_id TEXT,
+                pipeline_id TEXT,
+                stage_id TEXT,
+                task TEXT NOT NULL,
+                labels TEXT NOT NULL DEFAULT '[]',
+                expires_at TEXT,
+                body TEXT NOT NULL
             );
             CREATE TABLE IF NOT EXISTS pipelines (
                 pipeline_id TEXT PRIMARY KEY,
@@ -367,7 +384,8 @@ def sweep_expired(store: "Store") -> dict[str, int]:
     counts = {}
     now = now_iso()
     for table, col in (("media", "expires_at"), ("results", "expires_at"),
-                       ("snapshots", "expires_at"), ("idempotency_keys", "expires_at")):
+                       ("snapshots", "expires_at"), ("idempotency_keys", "expires_at"),
+                       ("observations", "expires_at")):
         cur = store._conn.execute(
             f"DELETE FROM {table} WHERE {col} IS NOT NULL AND {col} <= ?", (now,))
         counts[table] = cur.rowcount

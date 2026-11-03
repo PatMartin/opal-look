@@ -404,8 +404,11 @@ async def run_analysis_v15(store: Store, body, frame_cache=None) -> dict[str, An
         if retention.ttl_seconds > cap:
             raise ApiError(422, f"retention ttl_seconds {retention.ttl_seconds} "
                                 f"exceeds cap {cap}")
-    if retention and retention.persist_observations:
-        warnings.append("observation persistence is not yet available (step 12)")
+    # pipeline-level retention is the default; request may tighten, not loosen
+    pipe_retention = __import__("json").loads(pipeline_row["retention"] or "{}")
+    persist = bool(
+        (retention and retention.persist_observations)
+        or pipe_retention.get("persist_observations"))
 
     ids = current_ids()
     result = await asyncio.to_thread(
@@ -421,11 +424,27 @@ async def run_analysis_v15(store: Store, body, frame_cache=None) -> dict[str, An
     observations = result["observations"]
     for obs in observations:
         obs["warnings"] = list(obs["warnings"]) + warnings
+    if persist:
+        _persist_observations(store, observations, retention, app_settings)
     return {
         "observations": observations,
         "processing_ms": result["processing_ms"],
         "media_id": out_media_id,
     }
+
+
+def _persist_observations(store: Store, observations: list[dict], retention,
+                          app_settings) -> None:
+    """Opt-in retention: rows are immutable and TTL-bounded."""
+    ttl = None
+    if retention is not None and retention.ttl_seconds is not None:
+        ttl = retention.ttl_seconds
+    else:
+        ttl = app_settings.result_retention_hours * 3600
+    expires = iso(parse_iso(now_iso()) + timedelta(seconds=ttl)) if ttl else None
+    with store.write_txn():
+        for obs in observations:
+            store.observations.insert(obs, expires)
 
 
 def _tighten_items(observations: list[dict], opts) -> None:
@@ -487,8 +506,10 @@ async def run_image_analysis(store: Store, image, options, request_id: str,
         raise ApiError(404, f"Unknown pipeline: {pipeline_id!r}")
 
     warnings: list[str] = []
-    if options.retention and options.retention.persist_observations:
-        warnings.append("observation persistence is not yet available (step 12)")
+    pipe_retention = __import__("json").loads(pipeline_row["retention"] or "{}")
+    persist = bool(
+        (options.retention and options.retention.persist_observations)
+        or pipe_retention.get("persist_observations"))
     if options.retention and options.retention.ttl_seconds is not None:
         cap = app_settings.result_retention_hours * 3600
         if options.retention.ttl_seconds > cap:
@@ -505,6 +526,9 @@ async def run_image_analysis(store: Store, image, options, request_id: str,
                                   app_settings) if options.retention else None
     for obs in result["observations"]:
         obs["warnings"] = list(obs["warnings"]) + warnings
+    if persist:
+        _persist_observations(store, result["observations"], options.retention,
+                              app_settings)
     return {
         "observations": result["observations"],
         "processing_ms": result["processing_ms"],

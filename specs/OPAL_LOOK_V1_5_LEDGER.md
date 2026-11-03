@@ -79,4 +79,5 @@ the tools, not estimates — see "How to reproduce".
 | Step | Commit | Covered /62 | Notes |
 |---|---|---|---|
 | 01 baseline | 4472e87 | 26 | contract pinned, audit+tests added, no API changes |
-| 02 shared cross-cutting | (this commit) | 26 | errors/correlation/precondition normalized: details always object, retryable emitted for 429/503/504, 401/403/416 codes mapped, unhandled-500 keeps correlation IDs+headers, two-phase If-Match (early require_if_match + atomic in-txn check), nested write_txn via SAVEPOINT, backup import now atomic + bumps revision, Idempotency-Key bounds per contract (1..128) |
+| 02 shared cross-cutting | 6ae4e5a | 26 | errors/correlation/precondition normalized: details always object, retryable emitted for 429/503/504, 401/403/416 codes mapped, unhandled-500 keeps correlation IDs+headers, two-phase If-Match (early require_if_match + atomic in-txn check), nested write_txn via SAVEPOINT, backup import now atomic + bumps revision, Idempotency-Key bounds per contract (1..128) |
+| 03 security boundary | (this commit) | 26 | opaque BearerAuth on /api/v1 when OPAL_LOOK_TOKEN set (401 missing/malformed/invalid + WWW-Authenticate, OpalError envelope, X-Opal headers preserved); non-loopback bind refused without token; CLI sends OPAL_LOOK_TOKEN; token never logged/exported/echoed; dev mode stays open |

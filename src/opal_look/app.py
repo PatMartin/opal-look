@@ -10,6 +10,7 @@ from fastapi import FastAPI
 
 from . import constants
 from .access_log import AccessLogMiddleware
+from .auth import BearerAuthMiddleware, env_token
 from .correlation import CorrelationMiddleware
 from .capture import load_capture_plugins
 from .engines import ensure_default_model, ensure_engines, load_plugin_adapters
@@ -27,7 +28,11 @@ def default_data_dir() -> Path:
     return Path(os.environ.get("OPAL_LOOK_DATA_DIR", "data"))
 
 
-def create_app(data_dir: Path | str | None = None, store: Store | None = None) -> FastAPI:
+def create_app(
+    data_dir: Path | str | None = None,
+    store: Store | None = None,
+    auth_token: str | None = None,
+) -> FastAPI:
     @asynccontextmanager
     async def lifespan(app: FastAPI):
         yield
@@ -46,6 +51,11 @@ def create_app(data_dir: Path | str | None = None, store: Store | None = None) -
     app.state.store = store if store is not None else Store(Path(data_dir) if data_dir else default_data_dir())
     # Event transport is provisioned out of band; absence blocks events_enabled=true.
     app.state.event_transport = os.environ.get("OPAL_LOOK_EVENT_TRANSPORT") or None
+    # Bearer token is provisioned out of band; absence = loopback dev mode.
+    token = auth_token if auth_token is not None else env_token()
+    if token is not None and not token.strip():
+        raise ValueError("auth_token must be non-empty")
+    app.state.auth_token = token.strip() if token else None
     app.state.frame_cache = FrameCache()
     app.state.session_runtimes = SessionRuntimeRegistry()
     app.state.store.sessions.fail_interrupted(
@@ -57,6 +67,8 @@ def create_app(data_dir: Path | str | None = None, store: Store | None = None) -
     ensure_engines(app.state.store)
     ensure_default_model(app.state.store)
 
+    # Outermost first: access log -> correlation -> bearer gate -> routes.
+    app.add_middleware(BearerAuthMiddleware)
     app.add_middleware(CorrelationMiddleware)
     app.add_middleware(AccessLogMiddleware)
     register_error_handlers(app)

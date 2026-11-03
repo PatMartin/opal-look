@@ -53,6 +53,12 @@ stays as historical reference — do not edit either contract file.
   `idempotency.request_idempotency_key` (contract bounds 1..128).
 - `events_enabled=true` requires `OPAL_LOOK_EVENT_TRANSPORT` env
   (provisioned out of band); otherwise 422.
+- Bearer auth: `OPAL_LOOK_TOKEN` (env, opaque). Set -> all `/api/v1`
+  requests need `Authorization: Bearer <token>` (401 +
+  `WWW-Authenticate: Bearer`, enforced by `BearerAuthMiddleware` inside
+  Correlation so 401s keep X-Opal headers). Unset -> loopback dev mode;
+  `main.py` refuses non-loopback binds without it. Never log/export/echo
+  the token or accept it in query strings. CLI sends it automatically.
 - Planned clients (later phases): `opal-look-cli` (Typer, REST-only via
   httpx; suite verb taxonomy add/remove/update/list/show + operational
   verbs per upstream x-opal-cli conventions) and a full-coverage SPA

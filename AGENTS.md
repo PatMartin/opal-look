@@ -3,11 +3,18 @@
 Implementation of the `opal_look_v1.4.0.yaml` OpenAPI contract (authoritative
 interface; do not serve a generated spec). Python 3.12+ / FastAPI / SQLite.
 
+**Migration in progress:** branch `feature/opal-look-1.5` targets the pinned
+`opal_look_v1.5.0.yaml` (breaking revision; see
+`specs/OPAL_LOOK_V1_5_MIGRATION.md` + `OPAL_LOOK_V1_5_LEDGER.md`). v1.4.0 YAML
+stays as historical reference — do not edit either contract file.
+
 ## Commands
 
 - Setup: `python -m venv .venv && .venv/Scripts/pip install -e .[dev]`
 - Test: `.venv/Scripts/pytest`
 - Run: `.venv/Scripts/opal-look` or `uvicorn opal_look.app:create_app --factory`
+- Contract audit: `.venv/Scripts/python -m opal_look.contract_audit`
+  (`--strict` = Step-28 pass/fail gate, `--json` = machine-readable)
 - Data dir: `OPAL_LOOK_DATA_DIR` (default `./data`)
 
 ## Conventions / design patterns

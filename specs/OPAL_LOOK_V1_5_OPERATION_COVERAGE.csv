@@ -1,0 +1,63 @@
+step,method,path,operation_id,summary
+04,GET,/api/v1/capabilities/,capabilities_show,"Discover supported tasks, inputs and limits"
+04,GET,/api/v1/engines/,engines_list,List installed inference engines
+04,GET,/api/v1/engines/{engine_id},engines_show,Inspect installed engine
+04,PATCH,/api/v1/engines/{engine_id},engines_update,Configure installed inference engine
+04,GET,/api/v1/models/,models_list,List registered models
+04,POST,/api/v1/models/,models_add,Register provisioned model
+04,DELETE,/api/v1/models/{model_id},models_remove,Unregister model when unused
+04,GET,/api/v1/models/{model_id},models_show,Show model
+04,PATCH,/api/v1/models/{model_id},models_update,Update model metadata/options
+05,GET,/api/v1/sources/,sources_list,List registered input sources
+05,POST,/api/v1/sources/,sources_add,"Register camera, file or stream"
+05,DELETE,/api/v1/sources/{source_id},sources_remove,Remove unreferenced source
+05,GET,/api/v1/sources/{source_id},sources_show,Inspect source including named zones
+05,PATCH,/api/v1/sources/{source_id},sources_update,Update source including its zone collection
+06,GET,/api/v1/sources/{source_id}/frame,sources_frame,Get current JPEG without inference
+06,POST,/api/v1/sources/{source_id}/probe,sources_probe,Read-only source connectivity test
+06,GET,/api/v1/sources/{source_id}/status,sources_status,Connectivity and last frame status
+07,GET,/api/v1/pipelines/,pipelines_list,List reusable pipelines
+07,POST,/api/v1/pipelines/,pipelines_add,Define simple or advanced pipeline
+07,DELETE,/api/v1/pipelines/{pipeline_id},pipelines_remove,Remove unreferenced pipeline
+07,GET,/api/v1/pipelines/{pipeline_id},pipelines_show,Inspect resolved pipeline and defaults
+07,PATCH,/api/v1/pipelines/{pipeline_id},pipelines_update,Modify pipeline under strong ETag
+08,POST,/api/v1/pipelines/validate,pipelines_validate,Dry-run validation of pipeline definition
+10,POST,/api/v1/analyze/,analyze_run,Analyze one current source frame or stored image synchronously
+11,POST,/api/v1/analyze/image,analyze_image,Upload and analyze one still image directly
+12,GET,/api/v1/observations/,observations_list,Query explicitly persisted observations
+12,GET,/api/v1/observations/{observation_id},observations_show,Get a retained immutable observation
+14,GET,/api/v1/sources/{source_id}/stream,sources_view,View ephemeral source MJPEG; optional analysis and overlays
+15,GET,/api/v1/sources/{source_id}/observations/stream,sources_observe,Receive ephemeral analysis observations over SSE
+16,GET,/api/v1/media/,media_list,List uploaded or derived media
+16,POST,/api/v1/media/,media_upload,Upload a finite image or video input
+16,DELETE,/api/v1/media/{media_id},media_remove,Delete media if not referenced by active work
+16,GET,/api/v1/media/{media_id},media_show,Get unified media metadata
+16,GET,/api/v1/media/{media_id}/content,media_download,Download exact image/video bytes
+17,POST,/api/v1/sources/{source_id}/capture,sources_capture,Retain exact current source frame as Media
+18,GET,/api/v1/monitors/,monitors_list,List durable monitors
+18,POST,/api/v1/monitors/,monitors_add,Create persistent source monitor and conditions
+18,DELETE,/api/v1/monitors/{monitor_id},monitors_remove,Remove monitor and stop managed worker
+18,GET,/api/v1/monitors/{monitor_id},monitors_show,Inspect monitor desired/runtime state
+18,PATCH,/api/v1/monitors/{monitor_id},monitors_update,Enable/disable or change monitor and conditions
+20,GET,/api/v1/monitors/{monitor_id}/observations/stream,monitors_stream,Subscribe to monitor observations and matched conditions (SSE)
+22,GET,/api/v1/jobs/,jobs_list,List finite processing jobs
+22,POST,/api/v1/jobs/,jobs_submit,Submit finite video processing or export job
+22,GET,/api/v1/jobs/{job_id},jobs_show,"Inspect status, progress and output media"
+22,POST,/api/v1/jobs/{job_id}/cancel,jobs_cancel,Request cancellation of finite job
+23,GET,/api/v1/recordings/,recordings_list,List independent recordings
+23,POST,/api/v1/recordings/,recordings_start,Start explicitly requested live recording
+23,GET,/api/v1/recordings/{recording_id},recordings_show,Inspect recording lifecycle and resulting Media ID
+23,POST,/api/v1/recordings/{recording_id}/stop,recordings_stop,Stop recording and finalize media
+24,GET,/api/v1/configuration/export,configuration_export,Export portable configuration without secrets
+24,POST,/api/v1/configuration/import,configuration_import,Atomically replace portable configuration
+24,POST,/api/v1/configuration/validate,configuration_validate,Validate portable config before import
+24,GET,/api/v1/settings/,settings_list,Read typed portable service settings
+24,PATCH,/api/v1/settings/,settings_patch,Atomically update portable settings
+24,DELETE,/api/v1/settings/{key},settings_reset,Reset setting to schema default
+24,GET,/api/v1/settings/{key},settings_show,Read one typed setting leaf
+24,PUT,/api/v1/settings/{key},settings_update,Replace one setting leaf
+25,GET,/api/v1/events/status,events_status,Event bus publisher health and drops
+25,GET,/api/v1/health/,health_show,Service health and component diagnostics
+25,GET,/api/v1/health/live,health_live,Liveness probe
+25,GET,/api/v1/health/ready,health_ready,Readiness probe
+25,GET,/api/v1/metrics/,metrics_show,"Operational counters, backpressure and latency"

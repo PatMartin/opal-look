@@ -255,3 +255,83 @@ class SessionCreate(BaseModel):
         if self.end_position_ms is not None and self.end_position_ms <= self.start_position_ms:
             raise ValueError("end_position_ms must exceed start_position_ms")
         return self
+
+
+# -- pipelines (v1.5) ----------------------------------------------------------
+
+class RetentionOptions(BaseModel):
+    model_config = ConfigDict(strict=True, extra="forbid")
+
+    persist_observations: bool = Field(default=False)
+    save_raw_frames: bool = Field(default=False)
+    save_annotated_frames: bool = Field(default=False)
+    ttl_seconds: int | None = Field(default=None, ge=0)
+
+
+class InferenceOptions(BaseModel):
+    model_config = ConfigDict(strict=True, extra="forbid")
+
+    target_fps: float | None = Field(default=None, ge=0.1)
+    max_frames: int | None = Field(default=None, ge=1)
+    confidence_threshold: float | None = Field(default=None, ge=0, le=1)
+    classes: list[str] | None = Field(default=None)
+    roi: dict[str, Any] | None = Field(default=None)
+    engine_options: dict[str, Any] | None = Field(default=None)
+    video: dict[str, Any] | None = Field(default=None)
+    annotations: dict[str, Any] | None = Field(default=None)
+
+
+class PipelineStage(BaseModel):
+    model_config = ConfigDict(strict=True, extra="forbid")
+
+    id: str = Field(pattern=IDENTIFIER_PATTERN)
+    kind: Literal["preprocess", "inference", "tracker", "filter", "transform", "annotate"]
+    model_id: str | None = Field(default=None, pattern=IDENTIFIER_PATTERN)
+    task: str | None = Field(default=None)
+    inputs: list[str] | None = Field(default=None)
+    options: dict[str, Any] | None = Field(default=None)
+    enabled: bool = Field(default=True)
+    portable: dict[str, Any] | None = Field(default=None)
+    phase: Literal["inference_input", "presentation"] | None = Field(default=None)
+
+
+def _pipeline_mode_error() -> ValueError:
+    return ValueError(
+        "exactly one mode required: simple (model_id + task, no stages) "
+        "or advanced (stages, no model_id/task)"
+    )
+
+
+class PipelineCreate(BaseModel):
+    model_config = ConfigDict(strict=True, extra="forbid")
+
+    id: str = Field(pattern=IDENTIFIER_PATTERN)
+    name: str = Field(min_length=1)
+    description: str | None = Field(default=None)
+    model_id: str | None = Field(default=None, pattern=IDENTIFIER_PATTERN)
+    task: str | None = Field(default=None)
+    stages: list[PipelineStage] | None = Field(default=None, min_length=1)
+    options: InferenceOptions | None = Field(default=None)
+    retention: RetentionOptions | None = Field(default=None)
+
+    @model_validator(mode="after")
+    def _one_mode(self) -> "PipelineCreate":
+        simple = self.model_id is not None and self.task is not None
+        if (self.model_id is None) != (self.task is None):
+            raise _pipeline_mode_error()
+        if simple == (self.stages is not None):
+            raise _pipeline_mode_error()
+        return self
+
+
+class PipelinePatch(BaseModel):
+    """Merge-patch; explicit null clears model_id/task/stages for mode switch."""
+    model_config = ConfigDict(strict=True, extra="forbid")
+
+    name: str | None = Field(default=None, min_length=1)
+    description: str | None = Field(default=None)
+    model_id: str | None = Field(default=None, pattern=IDENTIFIER_PATTERN)
+    task: str | None = Field(default=None)
+    stages: list[PipelineStage] | None = Field(default=None, min_length=1)
+    options: InferenceOptions | None = Field(default=None)
+    retention: RetentionOptions | None = Field(default=None)

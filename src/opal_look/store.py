@@ -19,6 +19,7 @@ from .repositories import (
     SqliteMediaRepository,
     SqliteMetaRepository,
     SqliteModelRepository,
+    SqlitePipelineRepository,
     SqliteProfileRepository,
     SqliteResultRepository,
     SqliteSessionRepository,
@@ -76,6 +77,7 @@ class Store:
         self.settings = SqliteSettingsRepository(self._conn)
         self.engines = SqliteEngineRepository(self._conn)
         self.models = SqliteModelRepository(self._conn)
+        self.pipelines = SqlitePipelineRepository(self._conn)
         self.sources = SqliteSourceRepository(self._conn)
         self.profiles = SqliteProfileRepository(self._conn)
         self.media = SqliteMediaRepository(self._conn)
@@ -122,6 +124,18 @@ class Store:
                 enabled INTEGER NOT NULL DEFAULT 1,
                 source_options TEXT NOT NULL DEFAULT '{}',
                 zones TEXT NOT NULL DEFAULT '[]'
+            );
+            CREATE TABLE IF NOT EXISTS pipelines (
+                pipeline_id TEXT PRIMARY KEY,
+                name TEXT NOT NULL,
+                description TEXT,
+                model_id TEXT,
+                task TEXT,
+                stages TEXT NOT NULL DEFAULT '[]',
+                options TEXT NOT NULL DEFAULT '{}',
+                retention TEXT NOT NULL DEFAULT '{}',
+                revision INTEGER NOT NULL DEFAULT 1,
+                created_at TEXT NOT NULL
             );
             CREATE TABLE IF NOT EXISTS profiles (
                 profile_id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -238,6 +252,7 @@ class Store:
         if "zones" not in scols:
             self._conn.execute("ALTER TABLE sources ADD COLUMN zones TEXT NOT NULL DEFAULT '[]'")
         self._conn.execute("UPDATE sources SET type = 'file' WHERE type = 'host_video'")
+        self._migrate_profiles_to_pipelines()
         for row in self._conn.execute(
             "SELECT model_id, resource FROM models WHERE resource_ref IS NULL"
         ).fetchall():
@@ -246,6 +261,44 @@ class Store:
             self._conn.execute(
                 "UPDATE models SET resource_ref = ? WHERE model_id = ?",
                 (ref, row["model_id"]),
+            )
+
+    def _migrate_profiles_to_pipelines(self) -> None:
+        """One-shot: profiles with model_id+task become simple pipelines.
+
+        Not all profile data maps onto pipelines (activation state, resolved
+        profile settings); only model_id/task/name plus engine options are
+        carried. Guarded by a meta flag so it runs exactly once.
+        """
+        import json as _json
+
+        from .timeutil import now_iso
+
+        row = self._conn.execute(
+            "SELECT value FROM meta WHERE key = 'profiles_migrated'"
+        ).fetchone()
+        if row is not None:
+            return
+        self._conn.execute(
+            "INSERT INTO meta (key, value) VALUES ('profiles_migrated', '1')"
+        )
+        for p in self._conn.execute(
+            "SELECT * FROM profiles WHERE model_id IS NOT NULL AND task IS NOT NULL"
+        ).fetchall():
+            pid = f"profile-{p['profile_id']}"
+            settings = _json.loads(p["settings"]) if p["settings"] else {}
+            opts = {k: v for k, v in {
+                "target_fps": settings.get("max_fps"),
+                "confidence_threshold": settings.get("confidence_threshold"),
+                "classes": settings.get("class_labels"),
+                "engine_options": settings.get("engine_options"),
+            }.items() if v is not None}
+            self._conn.execute(
+                "INSERT OR IGNORE INTO pipelines (pipeline_id, name, description, "
+                "model_id, task, stages, options, retention, revision, created_at) "
+                "VALUES (?, ?, ?, ?, ?, '[]', ?, '{}', 1, ?)",
+                (pid, p["name"], "migrated from profile", p["model_id"], p["task"],
+                 _json.dumps(opts), now_iso()),
             )
 
     def ping(self) -> bool:

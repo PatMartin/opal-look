@@ -22,6 +22,7 @@ DEFAULTS = {
     ],
     "max_analysis_events_per_second": 5,
     "event_queue_capacity": 256,
+    "default_pipeline_id": None,
 }
 
 

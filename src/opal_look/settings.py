@@ -41,6 +41,7 @@ class ServiceSettings(BaseModel):
     event_topics_allowlist: list[Topic] = Field(default_factory=lambda: list(EVENT_TOPICS))
     max_analysis_events_per_second: float = Field(default=5, gt=0)
     event_queue_capacity: int = Field(default=256, ge=1)
+    default_pipeline_id: str | None = Field(default=None)
 
     @field_validator("event_topics_allowlist")
     @classmethod
@@ -69,6 +70,7 @@ class ServiceSettingsPatch(BaseModel):
     event_topics_allowlist: list[Topic] | None = Field(default=None)
     max_analysis_events_per_second: float | None = Field(default=None, gt=0)
     event_queue_capacity: int | None = Field(default=None, ge=1)
+    default_pipeline_id: str | None = Field(default=None)
 
     @field_validator("event_topics_allowlist")
     @classmethod

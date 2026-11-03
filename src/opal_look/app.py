@@ -18,7 +18,7 @@ from .errors import register_error_handlers
 from .framecache import FrameCache
 from .sessions import SessionRuntimeRegistry
 from .routers import (
-    analyze, backup, capabilities, engines, health, media, models, profiles, results,
+    analyze, backup, capabilities, engines, health, media, models, pipelines, profiles, results,
     sessions as sessions_router, settings, snapshots, sources,
 )
 from .store import Store
@@ -79,6 +79,7 @@ def create_app(
     app.include_router(models.router)
     app.include_router(sources.router)
     app.include_router(profiles.router)
+    app.include_router(pipelines.router)
     app.include_router(media.router)
     app.include_router(analyze.router)
     app.include_router(results.router)

@@ -142,3 +142,156 @@ def post_api_v1_sources_source_id_validate(request: Request, store: StoreDep, so
 @router.get("/api/v1/devices/cameras/")
 def get_api_v1_devices_cameras(request: Request) -> list:
     return discover_cameras()
+
+
+# -- v1.5 runtime surfaces: status / probe / frame -----------------------------
+# These are read-only operational endpoints: they never mutate configuration,
+# never bump the revision, and never leak credentialed locators.
+
+
+def _jpeg_bytes(image) -> bytes:
+    import io
+
+    buf = io.BytesIO()
+    image.convert("RGB").save(buf, format="JPEG")
+    return buf.getvalue()
+
+
+@router.get("/api/v1/sources/{source_id}/status")
+def get_api_v1_sources_source_id_status(request: Request, store: StoreDep, source_id: str) -> dict:
+    _get_source_or_404(store, source_id)
+    from ..sessions import TERMINAL
+    from ..timeutil import now_iso
+
+    rows = store.sessions.page(now_iso(), 10**9, {"source_id": source_id}, None, 1000)
+    active = [r for r in rows if r["state"] not in TERMINAL]
+    return {
+        "source_id": source_id,
+        "connected": bool(active),
+        "last_frame_at": None,
+        "dropped_frames": sum(r["frames_dropped"] or 0 for r in rows),
+    }
+
+
+@router.post("/api/v1/sources/{source_id}/probe")
+def post_api_v1_sources_source_id_probe(request: Request, store: StoreDep, source_id: str) -> dict:
+    import os
+
+    from ..capture import (
+        CredentialUnavailable,
+        capture_adapter_for,
+        credentialed_locator,
+    )
+    from ..refs import media_exists
+
+    row = _get_source_or_404(store, source_id)
+    kind = row["type"]
+    locator = row["locator"]
+    warnings: list[str] = []
+    details: dict = {}
+    reachable = False
+
+    if not row["enabled"]:
+        warnings.append("source is disabled")
+    elif kind == "rtsp":
+        adapter = capture_adapter_for("rtsp")
+        if adapter is None:
+            warnings.append("no rtsp capture adapter installed")
+        else:
+            try:
+                credentialed = credentialed_locator(locator, row["credential_ref"])
+            except CredentialUnavailable:
+                warnings.append("credential reference is not provisioned")
+            else:
+                result = adapter.probe_stream(
+                    locator, json.loads(row["source_options"]), credentialed
+                )
+                reachable = bool(result.get("available"))
+                details = {k: v for k, v in result.items() if k != "available"}
+    elif kind == "media":
+        reachable = media_exists(store, locator)
+        details = {"media_id": locator}
+    elif kind == "file":
+        reachable = os.path.isfile(locator)
+        if reachable:
+            warnings.append("no video decoder installed")
+    elif kind == "image":
+        if not os.path.isfile(locator):
+            details = {"message": "host path not found"}
+        else:
+            try:
+                from PIL import Image
+
+                with Image.open(locator) as im:
+                    im.verify()
+                reachable = True
+            except Exception:
+                details = {"message": "image file is not readable"}
+    elif kind == "camera":
+        warnings.append("no camera capture adapter installed")
+    elif kind == "http":
+        warnings.append("http sources are not probed")
+    else:
+        warnings.append(f"unknown source kind {kind!r}")
+    return {
+        "source_id": source_id,
+        "reachable": reachable,
+        "details": details,
+        "warnings": warnings,
+    }
+
+
+@router.get("/api/v1/sources/{source_id}/frame")
+def get_api_v1_sources_source_id_frame(request: Request, store: StoreDep, source_id: str) -> Response:
+    import io
+    import os
+
+    from PIL import Image
+
+    from ..capture import (
+        CaptureError,
+        CredentialUnavailable,
+        capture_adapter_for,
+        credentialed_locator,
+    )
+    from ..refs import media_exists
+
+    row = _get_source_or_404(store, source_id)
+    if not row["enabled"]:
+        raise ApiError(503, "Source is disabled.")
+    kind = row["type"]
+    locator = row["locator"]
+
+    if kind == "rtsp":
+        adapter = capture_adapter_for("rtsp")
+        if adapter is None:
+            raise ApiError(503, "No rtsp capture adapter installed.")
+        try:
+            credentialed = credentialed_locator(locator, row["credential_ref"])
+        except CredentialUnavailable as exc:
+            raise ApiError(503, f"Credential unavailable: {exc}")
+        try:
+            image = adapter.grab(locator, json.loads(row["source_options"]), credentialed)
+        except CaptureError as exc:
+            raise ApiError(503, f"Frame capture failed: {exc}")
+        return Response(_jpeg_bytes(image), media_type="image/jpeg")
+    if kind == "media":
+        if not media_exists(store, locator):
+            raise ApiError(503, "Referenced media is unavailable.")
+        media_row = store.media.get(locator)
+        image = Image.open(media_row["path"])
+        return Response(_jpeg_bytes(image), media_type="image/jpeg")
+    if kind == "image":
+        if not os.path.isfile(locator):
+            raise ApiError(503, "Host path not found.")
+        try:
+            image = Image.open(locator)
+            image.load()
+        except Exception:
+            raise ApiError(503, "Image file is not readable.")
+        return Response(_jpeg_bytes(image), media_type="image/jpeg")
+    if kind == "file":
+        raise ApiError(503, "No video decoder installed for file sources.")
+    if kind == "camera":
+        raise ApiError(503, "No camera capture adapter installed.")
+    raise ApiError(503, f"No frame capture path for source kind {kind!r}.")

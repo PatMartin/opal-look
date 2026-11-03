@@ -120,7 +120,8 @@ class Store:
                 locator TEXT NOT NULL,
                 credential_ref TEXT,
                 enabled INTEGER NOT NULL DEFAULT 1,
-                source_options TEXT NOT NULL DEFAULT '{}'
+                source_options TEXT NOT NULL DEFAULT '{}',
+                zones TEXT NOT NULL DEFAULT '[]'
             );
             CREATE TABLE IF NOT EXISTS profiles (
                 profile_id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -233,6 +234,10 @@ class Store:
                 self._conn.execute(f"ALTER TABLE models ADD COLUMN {col} {ddl}")
         self._conn.execute("UPDATE models SET created_at = ? WHERE created_at = ''",
                            (now_iso(),))
+        scols = {r["name"] for r in self._conn.execute("PRAGMA table_info(sources)")}
+        if "zones" not in scols:
+            self._conn.execute("ALTER TABLE sources ADD COLUMN zones TEXT NOT NULL DEFAULT '[]'")
+        self._conn.execute("UPDATE sources SET type = 'file' WHERE type = 'host_video'")
         for row in self._conn.execute(
             "SELECT model_id, resource FROM models WHERE resource_ref IS NULL"
         ).fetchall():

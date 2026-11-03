@@ -10,9 +10,9 @@ from typing import Any
 
 from .engines import ENGINE_REGISTRY
 from .errors import ApiError
-from .schemas import AnalysisSettings, SourceCreate
+from .schemas import AnalysisSettings
 from .settings import ServiceSettings, effective_settings
-from .sources import check_locator
+from .sources import check_locator, redact_locator
 from .store import Store
 from .timeutil import iso, now_iso
 
@@ -35,7 +35,8 @@ def export_config(store: Store) -> dict[str, Any]:
         ],
         "sources": [
             {"source_id": r["source_id"], "name": r["name"], "type": r["type"],
-             "locator": r["locator"], "credential_ref": r["credential_ref"],
+             "redacted_locator": redact_locator(r["type"], r["locator"]),
+             "credential_ref": r["credential_ref"],
              "enabled": bool(r["enabled"]),
              "source_options": json.loads(r["source_options"])}
             for r in store.sources.list()
@@ -88,18 +89,25 @@ def validate_config(store: Store, payload: dict[str, Any]) -> tuple[list[str], l
 
     source_ids: set[str] = set()
     for s in payload.get("sources") or []:
-        try:
-            sc = SourceCreate.model_validate(s)
-        except Exception as exc:
-            errors.append(f"source: {exc}")
+        # Legacy export shape: {source_id, name, type, locator, ...}; the
+        # v1.5 shape {id, kind} is also accepted for forward-compat.
+        if isinstance(s, dict) and {"id", "kind", "locator"} <= set(s):
+            sc = {"source_id": s["id"], "name": s.get("name", s["id"]),
+                  "type": s["kind"], "locator": s.get("locator") or s.get("redacted_locator", ""),
+                  "credential_ref": s.get("secret_ref"),
+                  "source_options": s.get("options") or {}}
+        elif isinstance(s, dict) and {"source_id", "type", "locator"} <= set(s):
+            sc = dict(s)
+        else:
+            errors.append("source: missing required fields")
             continue
-        if sc.source_id in source_ids:
-            errors.append(f"duplicate source_id {sc.source_id!r}")
-        source_ids.add(sc.source_id)
-        errors.extend(f"source {sc.source_id!r}: {x}"
-                      for x in check_locator(sc.type, sc.locator))
-        if sc.type == "media" and store.media.get(sc.locator) is None:
-            warnings.append(f"source {sc.source_id!r}: media {sc.locator!r} unavailable")
+        if sc["source_id"] in source_ids:
+            errors.append(f"duplicate source_id {sc['source_id']!r}")
+        source_ids.add(sc["source_id"])
+        errors.extend(f"source {sc['source_id']!r}: {x}"
+                      for x in check_locator(sc["type"], sc["locator"]))
+        if sc["type"] == "media" and store.media.get(sc["locator"]) is None:
+            warnings.append(f"source {sc['source_id']!r}: media {sc['locator']!r} unavailable")
 
     profiles = payload.get("profiles") or []
     pids, actives = set(), 0
@@ -157,10 +165,13 @@ def import_config(store: Store, payload: dict[str, Any]) -> list[str]:
                                 m["resource"], bool(m.get("enabled", True)))
         for s in payload.get("sources") or []:
             store.sources.insert({
-                "source_id": s["source_id"], "name": s["name"], "type": s["type"],
-                "locator": s["locator"], "credential_ref": s.get("credential_ref"),
+                "source_id": s.get("source_id") or s.get("id"),
+                "name": s["name"], "type": s.get("type") or s.get("kind"),
+                "locator": s.get("locator") or s.get("redacted_locator"),
+                "credential_ref": s.get("credential_ref") or s.get("secret_ref"),
                 "enabled": int(bool(s.get("enabled", True))),
-                "source_options": s.get("source_options") or {}})
+                "source_options": s.get("source_options") or s.get("options") or {},
+                "zones": s.get("zones") or []})
         for p in payload.get("profiles") or []:
             store.profiles.insert_explicit({
                 "profile_id": p["profile_id"], "name": p["name"],

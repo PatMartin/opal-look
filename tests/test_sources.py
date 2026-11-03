@@ -1,7 +1,7 @@
 RTSP = {
-    "source_id": "cam-1",
+    "id": "cam-1",
     "name": "Yard camera",
-    "type": "rtsp",
+    "kind": "rtsp",
     "locator": "rtsp://192.168.1.50:554/stream1",
     "enabled": True,
 }
@@ -19,11 +19,12 @@ def test_create_rtsp_source(client):
     assert resp.status_code == 201
     assert resp.headers["location"] == "/api/v1/sources/cam-1"
     body = resp.json()
-    assert body["live"] is True
-    # Capture adapter installed -> available (connectivity is not probed on read).
-    assert body["available"] is True
+    assert body["state"] == "ready"
     assert body["enabled"] is True
-    assert body["width"] is None and body["duration_ms"] is None
+    assert body["zones"] == []
+    # locator is redacted: scheme://authority only, no path/userinfo.
+    assert body["redacted_locator"] == "rtsp://192.168.1.50:554/…"
+    assert "stream1" not in body["redacted_locator"]
 
 
 def test_create_source_requires_if_match(client):
@@ -56,7 +57,7 @@ def test_rtsp_wrong_scheme_422(client):
 def test_camera_url_locator_422(client):
     resp = client.post(
         "/api/v1/sources/",
-        json={**RTSP, "type": "camera", "locator": "usb://cam0"},
+        json={**RTSP, "kind": "camera", "locator": "usb://cam0"},
         headers={"If-Match": "*"},
     )
     assert resp.status_code == 422
@@ -65,7 +66,7 @@ def test_camera_url_locator_422(client):
 def test_media_source_unknown_media_404(client):
     resp = client.post(
         "/api/v1/sources/",
-        json={**RTSP, "type": "media", "locator": "media-1"},
+        json={**RTSP, "kind": "media", "locator": "media-1"},
         headers={"If-Match": "*"},
     )
     assert resp.status_code == 404
@@ -77,39 +78,38 @@ def test_host_video_source(client, tmp_path):
     resp = client.post(
         "/api/v1/sources/",
         json={
-            "source_id": "file-1",
+            "id": "file-1",
             "name": "File",
-            "type": "host_video",
+            "kind": "file",
             "locator": str(video),
         },
         headers={"If-Match": "*"},
     )
     assert resp.status_code == 201
     body = resp.json()
-    assert body["live"] is False
     # No video decoder installed -> resource exists but is not usable.
-    assert body["available"] is False
+    assert body["state"] == "unavailable"
 
 
 def test_host_video_missing_path_still_registers(client):
     resp = client.post(
         "/api/v1/sources/",
         json={
-            "source_id": "gone",
+            "id": "gone",
             "name": "Gone",
-            "type": "host_video",
+            "kind": "file",
             "locator": "/nonexistent/clip.mp4",
         },
         headers={"If-Match": "*"},
     )
     assert resp.status_code == 201
-    assert resp.json()["available"] is False
+    assert resp.json()["state"] in ("unavailable", "disabled")
 
 
 def test_unknown_source_option_422(client):
     resp = client.post(
         "/api/v1/sources/",
-        json={**RTSP, "source_options": {"bogus": 1}},
+        json={**RTSP, "options": {"bogus": 1}},
         headers={"If-Match": "*"},
     )
     assert resp.status_code == 422
@@ -118,7 +118,7 @@ def test_unknown_source_option_422(client):
 def test_known_source_option_ok(client):
     resp = client.post(
         "/api/v1/sources/",
-        json={**RTSP, "source_options": {"transport": "tcp"}},
+        json={**RTSP, "options": {"transport": "tcp"}},
         headers={"If-Match": "*"},
     )
     assert resp.status_code == 201
@@ -128,7 +128,7 @@ def test_get_source(client):
     client.post("/api/v1/sources/", json=RTSP, headers={"If-Match": "*"})
     resp = client.get("/api/v1/sources/cam-1")
     assert resp.status_code == 200
-    assert resp.json()["source_id"] == "cam-1"
+    assert resp.json()["id"] == "cam-1"
 
 
 def test_get_unknown_source_404(client):
@@ -205,7 +205,7 @@ def test_validate_source_unresolved_credential(client, fake_rtsp, monkeypatch):
     monkeypatch.delenv("OPAL_LOOK_CRED_DRIVEWAY", raising=False)
     client.post(
         "/api/v1/sources/",
-        json={**RTSP, "credential_ref": "driveway"},
+        json={**RTSP, "secret_ref": "driveway"},
         headers={"If-Match": "*"},
     )
     resp = client.post("/api/v1/sources/cam-1/validate")
@@ -219,7 +219,7 @@ def test_validate_source_credential_injected(client, fake_rtsp, monkeypatch):
     monkeypatch.setenv("OPAL_LOOK_CRED_DRIVEWAY", "alice:s3cret")
     client.post(
         "/api/v1/sources/",
-        json={**RTSP, "credential_ref": "driveway"},
+        json={**RTSP, "secret_ref": "driveway"},
         headers={"If-Match": "*"},
     )
     resp = client.post("/api/v1/sources/cam-1/validate")
@@ -231,7 +231,7 @@ def test_rtsp_invalid_option_values_422(client):
     for options in ({"transport": "sctp"}, {"timeout_ms": 0}, {"timeout_ms": "x"}):
         resp = client.post(
             "/api/v1/sources/",
-            json={**RTSP, "source_options": options},
+            json={**RTSP, "options": options},
             headers={"If-Match": "*"},
         )
         assert resp.status_code == 422
@@ -251,10 +251,64 @@ def test_sources_list_enabled_filter(client):
     client.post("/api/v1/sources/", json=RTSP, headers={"If-Match": "*"})
     client.post(
         "/api/v1/sources/",
-        json={**RTSP, "source_id": "cam-2", "enabled": False},
+        json={**RTSP, "id": "cam-2", "enabled": False},
         headers={"If-Match": "*"},
     )
     enabled = client.get("/api/v1/sources/", params={"enabled": "true"}).json()
     disabled = client.get("/api/v1/sources/", params={"enabled": "false"}).json()
-    assert [s["source_id"] for s in enabled] == ["cam-1"]
-    assert [s["source_id"] for s in disabled] == ["cam-2"]
+    assert [s["id"] for s in enabled] == ["cam-1"]
+    assert [s["id"] for s in disabled] == ["cam-2"]
+
+
+ZONES = [{
+    "id": "front", "name": "Front", "kind": "polygon",
+    "points": [{"x": 0.1, "y": 0.1}, {"x": 0.9, "y": 0.1}, {"x": 0.5, "y": 0.9}],
+    "enabled": True,
+}]
+
+
+def test_create_source_with_zones_roundtrip(client):
+    resp = client.post("/api/v1/sources/", json={**RTSP, "zones": ZONES},
+                       headers={"If-Match": "*"})
+    assert resp.status_code == 201
+    assert resp.json()["zones"] == ZONES
+    assert client.get("/api/v1/sources/cam-1").json()["zones"] == ZONES
+
+
+def test_zone_validation(client):
+    # duplicate ids -> 422
+    resp = client.post("/api/v1/sources/",
+                       json={**RTSP, "zones": ZONES + [dict(ZONES[0], name="B")]},
+                       headers={"If-Match": "*"})
+    assert resp.status_code == 422
+    # polygon with 2 points -> 422; line with 3 -> 422
+    resp = client.post("/api/v1/sources/",
+                       json={**RTSP, "zones": [dict(ZONES[0], points=ZONES[0]["points"][:2])]},
+                       headers={"If-Match": "*"})
+    assert resp.status_code == 422
+    resp = client.post(
+        "/api/v1/sources/",
+        json={**RTSP, "zones": [{"id": "l", "name": "L", "kind": "line",
+                                 "points": [{"x": 0, "y": 0}, {"x": 1, "y": 1}, {"x": 0, "y": 1}]}]},
+        headers={"If-Match": "*"})
+    assert resp.status_code == 422
+    # non-normalized point -> 422
+    resp = client.post("/api/v1/sources/",
+                       json={**RTSP, "zones": [dict(ZONES[0], points=[{"x": 2, "y": 0},
+                                                                       {"x": 0, "y": 0},
+                                                                       {"x": 0, "y": 1}])]},
+                       headers={"If-Match": "*"})
+    assert resp.status_code == 422
+
+
+def test_patch_zones_replaces_atomically(client):
+    client.post("/api/v1/sources/", json={**RTSP, "zones": ZONES}, headers={"If-Match": "*"})
+    line = [{"id": "l1", "name": "Line", "kind": "line",
+             "points": [{"x": 0, "y": 0}, {"x": 1, "y": 1}]}]
+    resp = client.patch("/api/v1/sources/cam-1", json={"zones": line},
+                        headers={"If-Match": "*"})
+    assert resp.status_code == 200
+    assert resp.json()["zones"] == line  # whole collection replaced
+    resp = client.patch("/api/v1/sources/cam-1", json={"zones": []},
+                        headers={"If-Match": "*"})
+    assert resp.json()["zones"] == []

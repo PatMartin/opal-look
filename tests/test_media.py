@@ -139,17 +139,17 @@ def test_media_backed_source_lifecycle(client):
     resp = client.post(
         "/api/v1/sources/",
         json={
-            "source_id": "vid-src",
+            "id": "vid-src",
             "name": "Video",
-            "type": "media",
+            "kind": "media",
             "locator": mid,
         },
         headers={"If-Match": "*"},
     )
     assert resp.status_code == 201
-    assert resp.json()["available"] is True
-    assert resp.json()["live"] is False
+    assert resp.json()["state"] == "ready"
+    assert "redacted_locator" in resp.json()
 
     client.delete(f"/api/v1/media/{mid}")
     src = client.get("/api/v1/sources/vid-src").json()
-    assert src["available"] is False
+    assert src["state"] == "unavailable"

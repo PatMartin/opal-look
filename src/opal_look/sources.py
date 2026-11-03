@@ -13,20 +13,22 @@ import os
 import re
 import sqlite3
 from typing import Any
+from urllib.parse import urlsplit
 
 from .refs import media_exists
 from .store import Store
 
 LIVE_TYPES = {"camera", "rtsp", "http"}
-FINITE_TYPES = {"host_video", "media"}
+FINITE_TYPES = {"file", "media", "image"}
 
 # Adapter-known source_options keys per type; unknown keys are rejected.
 SOURCE_OPTION_KEYS: dict[str, frozenset[str]] = {
     "camera": frozenset({"width", "height", "fps", "backend"}),
     "rtsp": frozenset({"transport", "timeout_ms"}),
     "http": frozenset({"timeout_ms"}),
-    "host_video": frozenset(),
+    "file": frozenset(),
     "media": frozenset(),
+    "image": frozenset(),
 }
 
 _URL_CREDENTIALS = re.compile(r"^[a-z][a-z0-9+.-]*://[^/@\s]+@", re.IGNORECASE)
@@ -50,6 +52,9 @@ def check_locator(source_type: str, locator: str) -> list[str]:
 
         if not re.match(IDENTIFIER_PATTERN, locator):
             return ["media locator must be an uploaded media_id"]
+    elif source_type in ("file", "image"):
+        if "://" in locator:
+            return [f"{source_type} locator must be a host filesystem path, not a URL"]
     return []
 
 
@@ -95,10 +100,20 @@ def probe(store: Store, row: sqlite3.Row) -> dict[str, Any]:
         return _probe_result(installed, message)
     if source_type == "http":
         return _probe_result(False, "network source not yet probed")
-    if source_type == "host_video":
+    if source_type == "file":
         if not os.path.isfile(locator):
             return _probe_result(False, "host path not found")
         return _probe_result(False, "no video decoder installed")
+    if source_type == "image":
+        if not os.path.isfile(locator):
+            return _probe_result(False, "host path not found")
+        try:
+            from PIL import Image
+            with Image.open(locator) as im:
+                im.verify()
+        except Exception:
+            return _probe_result(False, "image file is not readable")
+        return _probe_result(True, None)
     if source_type == "media":
         if media_exists(store, locator):
             return _probe_result(True, None)
@@ -117,28 +132,55 @@ def _probe_result(available: bool, message: str | None) -> dict[str, Any]:
     }
 
 
+def redact_locator(kind: str, locator: str) -> str:
+    """Privacy redaction for locators on GET/export.
+
+    userinfo cannot exist (rejected at write). URL kinds keep
+    scheme://authority only (path/query can embed sensitive names);
+    media keeps its opaque media_id (needed to fetch content);
+    device/path locators are masked entirely.
+    """
+    if kind in ("rtsp", "http"):
+        parts = urlsplit(locator)
+        host = parts.hostname or ""
+        if ":" in host:
+            host = f"[{host}]"
+        if parts.port:
+            host += f":{parts.port}"
+        return f"{parts.scheme}://{host}/…"
+    if kind == "media":
+        return locator
+    return "…"
+
+
 def source_read(store: Store, row: sqlite3.Row) -> dict[str, Any]:
+    """Contract Source resource (v1.5 shape); locator is redacted."""
     probed = probe(store, row)
+    enabled = bool(row["enabled"])
     return {
-        "source_id": row["source_id"],
+        "id": row["source_id"],
+        "kind": row["type"],
         "name": row["name"],
-        "type": row["type"],
-        "locator": row["locator"],
-        "credential_ref": row["credential_ref"],
-        "enabled": bool(row["enabled"]),
-        "source_options": json.loads(row["source_options"]),
-        "available": probed["available"],
-        "live": row["type"] in LIVE_TYPES,
-        "width": probed["width"],
-        "height": probed["height"],
-        "fps": probed["fps"],
-        "duration_ms": probed["duration_ms"],
-        "message": probed["message"],
+        "enabled": enabled,
+        "state": (
+            "disabled" if not enabled
+            else "ready" if probed["available"]
+            else "unavailable"
+        ),
+        "redacted_locator": redact_locator(row["type"], row["locator"]),
+        "last_frame_at": None,
+        "zones": json.loads(row["zones"]),
     }
 
 
 def validate_source(store: Store, row: sqlite3.Row) -> dict[str, Any]:
-    read = source_read(store, row)
+    probed = probe(store, row)
+    read = {
+        "type": row["type"], "locator": row["locator"], "enabled": bool(row["enabled"]),
+        "source_options": json.loads(row["source_options"]),
+        "available": probed["available"], "live": row["type"] in LIVE_TYPES,
+        "message": probed["message"], "credential_ref": row["credential_ref"],
+    }
     errors = check_locator(read["type"], read["locator"])
     errors += check_source_options(read["type"], read["source_options"])
     ref = missing_reference(store, read["type"], read["locator"])

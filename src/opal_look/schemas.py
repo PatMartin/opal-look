@@ -13,7 +13,7 @@ IDENTIFIER_PATTERN = r"^[A-Za-z0-9][A-Za-z0-9._-]{0,199}$"
 Task = Literal["detection", "classification", "segmentation", "pose", "ocr"]
 TASKS = ("detection", "classification", "segmentation", "pose", "ocr")
 
-SOURCE_TYPES = ("camera", "rtsp", "http", "host_video", "media")
+SOURCE_TYPES = ("rtsp", "http", "camera", "file", "media", "image")
 
 Identifier = str
 
@@ -53,30 +53,75 @@ class ModelPatch(BaseModel):
 
 # -- sources ----------------------------------------------------------------
 
-SourceType = Literal["camera", "rtsp", "http", "host_video", "media"]
+SourceType = Literal["rtsp", "http", "camera", "file", "media", "image"]
+
+
+class SourceZone(BaseModel):
+    """v1.5 SourceZone: source-local named region (polygon >=3, line ==2)."""
+    model_config = ConfigDict(strict=True, extra="forbid")
+
+    id: str = Field(pattern=IDENTIFIER_PATTERN)
+    name: str = Field(min_length=1)
+    kind: Literal["polygon", "line"]
+    points: list["Point"] = Field(min_length=2)
+    enabled: bool = Field(default=True)
+
+    @model_validator(mode="after")
+    def _check_geometry(self) -> "SourceZone":
+        if self.kind == "polygon" and len(self.points) < 3:
+            raise ValueError("polygon zones require at least 3 points")
+        if self.kind == "line" and len(self.points) != 2:
+            raise ValueError("line zones require exactly 2 points")
+        return self
+
+
+def _unique_zone_ids(zones: list[SourceZone] | None) -> list[SourceZone] | None:
+    if zones:
+        ids = [z.id for z in zones]
+        if len(ids) != len(set(ids)):
+            raise ValueError("zone ids must be unique within a source")
+    return zones
 
 
 class SourceCreate(BaseModel):
+    """v1.5 SourceCreate."""
     model_config = ConfigDict(strict=True, extra="forbid")
 
-    source_id: str = Field(pattern=IDENTIFIER_PATTERN)
+    id: str = Field(pattern=IDENTIFIER_PATTERN)
+    kind: SourceType
     name: str = Field(min_length=1)
-    type: SourceType
     locator: str = Field(min_length=1)
-    credential_ref: str | None = Field(default=None)
+    secret_ref: str | None = Field(default=None)
+    options: dict[str, Any] = Field(default_factory=dict)
+    zones: list[SourceZone] = Field(default_factory=list)
     enabled: bool = Field(default=True)
-    source_options: dict[str, Any] = Field(default_factory=dict)
+
+    @model_validator(mode="after")
+    def _check(self) -> "SourceCreate":
+        _unique_zone_ids(self.zones)
+        if self.secret_ref is not None and not self.secret_ref.strip():
+            raise ValueError("secret_ref must be non-empty when provided")
+        return self
 
 
-class SourceUpdate(BaseModel):
+class SourcePatch(BaseModel):
+    """v1.5 SourcePatch: zones replaces the complete collection atomically."""
     model_config = ConfigDict(strict=True, extra="forbid")
 
     name: str | None = Field(default=None, min_length=1)
-    type: SourceType | None = Field(default=None)
     locator: str | None = Field(default=None, min_length=1)
-    credential_ref: str | None = Field(default=None)
+    secret_ref: str | None = Field(default=None)
     enabled: bool | None = Field(default=None)
-    source_options: dict[str, Any] | None = Field(default=None)
+    options: dict[str, Any] | None = Field(default=None)
+    zones: list[SourceZone] | None = Field(default=None)
+
+    @model_validator(mode="after")
+    def _check(self) -> "SourcePatch":
+        _unique_zone_ids(self.zones)
+        if "secret_ref" in self.model_fields_set and self.secret_ref is not None \
+                and not self.secret_ref.strip():
+            raise ValueError("secret_ref must be non-empty when provided")
+        return self
 
 
 # -- profiles ---------------------------------------------------------------

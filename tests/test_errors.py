@@ -56,7 +56,7 @@ def test_retryable_flag_on_transient_errors(client):
     """503/429/504 errors are marked retryable; definitive errors omit it."""
     client.post(
         "/api/v1/sources/",
-        json={"source_id": "vid", "name": "V", "type": "host_video",
+        json={"id": "vid", "name": "V", "kind": "file",
               "locator": "Z:/no/such/file.mp4"},
         headers={"If-Match": "*"},
     )

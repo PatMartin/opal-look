@@ -20,7 +20,7 @@ def media_source(client):
     ).json()["media_id"]
     client.post(
         "/api/v1/sources/",
-        json={"source_id": "ms", "name": "M", "type": "media", "locator": mid},
+        json={"id": "ms", "name": "M", "kind": "media", "locator": mid},
         headers={"If-Match": "*"},
     )
     return mid
@@ -90,7 +90,7 @@ def test_session_delete_nonterminal_409(client):
     client.post(
         "/api/v1/sources/",
         json={
-            "source_id": "live", "name": "L", "type": "rtsp",
+            "id": "live", "name": "L", "kind": "rtsp",
             "locator": "rtsp://192.0.2.9/x", "enabled": True,
         },
         headers={"If-Match": "*"},
@@ -110,7 +110,7 @@ def test_session_unavailable_source_503(client):
     client.post(
         "/api/v1/sources/",
         json={
-            "source_id": "down", "name": "D", "type": "rtsp",
+            "id": "down", "name": "D", "kind": "rtsp",
             "locator": "rtsp://192.0.2.9/x", "enabled": False,
         },
         headers={"If-Match": "*"},
@@ -230,7 +230,7 @@ def _rtsp_source(client, source_id="cam"):
     client.post(
         "/api/v1/sources/",
         json={
-            "source_id": source_id, "name": "Cam", "type": "rtsp",
+            "id": source_id, "name": "Cam", "kind": "rtsp",
             "locator": "rtsp://192.0.2.9/x",
         },
         headers={"If-Match": "*"},

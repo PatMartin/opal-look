@@ -11,7 +11,7 @@ from ..dependencies import StoreDep
 from ..errors import ApiError
 from ..precondition import check_if_match, require_if_match
 from ..refs import nonterminal_sessions_referencing
-from ..schemas import IDENTIFIER_PATTERN, SourceCreate, SourceUpdate, reject_null_fields
+from ..schemas import IDENTIFIER_PATTERN, SourceCreate, SourcePatch, reject_null_fields
 from ..sources import (
     check_locator,
     check_source_options,
@@ -58,19 +58,24 @@ def get_api_v1_sources(
 
 @router.post("/api/v1/sources/", status_code=201)
 def post_api_v1_sources(request: Request, store: StoreDep, source: SourceCreate) -> JSONResponse:
-    if store.sources.get(source.source_id) is not None:
-        raise ApiError(409, f"Source {source.source_id!r} already exists.")
-    _check_source_fields(store, source.type, source.locator, source.source_options)
+    if store.sources.get(source.id) is not None:
+        raise ApiError(409, f"Source {source.id!r} already exists.")
+    _check_source_fields(store, source.kind, source.locator, source.options)
 
     with store.write_txn():
         check_if_match(request, store)
-        store.sources.insert(source.model_dump())
+        store.sources.insert({
+            "source_id": source.id, "name": source.name, "type": source.kind,
+            "locator": source.locator, "credential_ref": source.secret_ref,
+            "enabled": source.enabled, "source_options": source.options,
+            "zones": [z.model_dump() for z in source.zones],
+        })
         revision = store.bump_revision()
-    row = store.sources.get(source.source_id)
+    row = store.sources.get(source.id)
     return JSONResponse(
         source_read(store, row),
         status_code=201,
-        headers={"ETag": revision, "Location": f"/api/v1/sources/{source.source_id}"},
+        headers={"ETag": revision, "Location": f"/api/v1/sources/{source.id}"},
     )
 
 
@@ -82,31 +87,34 @@ def get_api_v1_sources_source_id(request: Request, store: StoreDep, source_id: s
 
 @router.patch("/api/v1/sources/{source_id}")
 def patch_api_v1_sources_source_id(
-    request: Request, store: StoreDep, source_id: str, patch: SourceUpdate
+    request: Request, store: StoreDep, source_id: str, patch: SourcePatch
 ) -> JSONResponse:
     supplied = patch.model_dump(exclude_unset=True)
-    reject_null_fields(supplied)
+    reject_null_fields({k: v for k, v in supplied.items() if k != "secret_ref"})
 
+    require_if_match(request)
     row = _get_source_or_404(store, source_id)
     stored_options = row["source_options"]
     if isinstance(stored_options, str):
         stored_options = json.loads(stored_options)
-    if isinstance(stored_options, str):  # tolerate legacy double-encoding
-        stored_options = json.loads(stored_options)
     merged = {
-        "type": supplied.get("type") or row["type"],
         "locator": supplied.get("locator") or row["locator"],
-        "source_options": supplied.get("source_options")
-        if "source_options" in supplied
-        else stored_options,
+        "options": supplied.get("options") if "options" in supplied else stored_options,
     }
-    _check_source_fields(store, merged["type"], merged["locator"], merged["source_options"])
+    _check_source_fields(store, row["type"], merged["locator"], merged["options"])
     _session_refs(store, source_id)
 
+    fields = {}
+    for api, col in (("name", "name"), ("locator", "locator"),
+                     ("secret_ref", "credential_ref"), ("enabled", "enabled"),
+                     ("options", "source_options"), ("zones", "zones")):
+        if api in supplied:
+            fields[col] = supplied[api]  # model_dump already yields plain dicts
+    # zones replaces the whole collection atomically inside the txn.
     with store.write_txn():
         check_if_match(request, store)
-        if supplied:
-            store.sources.update(source_id, supplied)
+        if fields:
+            store.sources.update(source_id, fields)
         revision = store.bump_revision()
     row = store.sources.get(source_id)
     return JSONResponse(source_read(store, row), headers={"ETag": revision})

@@ -54,7 +54,7 @@ def test_cli_backup_export(cli):
 def test_cli_sources_add_and_list(cli, tmp_path):
     body = tmp_path / "src.json"
     body.write_text(
-        '{"source_id": "cli-src", "name": "CLI", "type": "rtsp", '
+        '{"id": "cli-src", "name": "CLI", "kind": "rtsp", '
         '"locator": "rtsp://192.0.2.10/x"}')
     result = cli.invoke(cli_app, ["sources", "add", "--file", str(body)])
     assert result.exit_code == 0, result.output
@@ -86,7 +86,7 @@ def test_cli_sessions_add_202(cli, tmp_path):
     mid = json.loads(result.output)["media_id"]
     result = cli.invoke(cli_app, [
         "sources", "add", "--body",
-        f'{{"source_id": "ms", "name": "M", "type": "media", "locator": "{mid}"}}'])
+        f'{{"id": "ms", "name": "M", "kind": "media", "locator": "{mid}"}}'])
     assert result.exit_code == 0
     result = cli.invoke(cli_app, [
         "sessions", "add", "--body",

@@ -102,7 +102,7 @@ def test_internal_session_ids_never_leak_into_x_opal_header(client):
     ).json()["media_id"]
     client.post(
         "/api/v1/sources/",
-        json={"source_id": "ms", "name": "M", "type": "media", "locator": mid},
+        json={"id": "ms", "name": "M", "kind": "media", "locator": mid},
         headers={"If-Match": "*"},
     )
     resp = client.post(

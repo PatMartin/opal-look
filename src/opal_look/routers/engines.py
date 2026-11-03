@@ -8,7 +8,7 @@ from fastapi.responses import JSONResponse
 from ..dependencies import StoreDep
 from ..engines import ENGINE_REGISTRY, engine_read
 from ..errors import ApiError
-from ..precondition import check_if_match
+from ..precondition import check_if_match, require_if_match
 from ..refs import nonterminal_sessions_referencing
 from ..schemas import EngineUpdate, reject_null_fields
 from ..store import Store
@@ -48,7 +48,7 @@ def patch_api_v1_engines_engine_id(
     supplied = patch.model_dump(exclude_unset=True)
     reject_null_fields(supplied)
 
-    check_if_match(request, store)
+    require_if_match(request)
     _get_engine_or_404(store, engine_id)
     adapter = ENGINE_REGISTRY.get(engine_id)
 

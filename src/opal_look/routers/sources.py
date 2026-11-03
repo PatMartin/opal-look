@@ -9,7 +9,7 @@ from fastapi.responses import JSONResponse
 
 from ..dependencies import StoreDep
 from ..errors import ApiError
-from ..precondition import check_if_match
+from ..precondition import check_if_match, require_if_match
 from ..refs import nonterminal_sessions_referencing
 from ..schemas import IDENTIFIER_PATTERN, SourceCreate, SourceUpdate, reject_null_fields
 from ..sources import (
@@ -116,7 +116,7 @@ def patch_api_v1_sources_source_id(
 def delete_api_v1_sources_source_id(
     request: Request, response: Response, store: StoreDep, source_id: str
 ) -> None:
-    check_if_match(request, store)
+    require_if_match(request)
     _get_source_or_404(store, source_id)
     _session_refs(store, source_id)
     with store.write_txn():

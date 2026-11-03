@@ -8,7 +8,7 @@ from fastapi.responses import JSONResponse
 from ..dependencies import StoreDep
 from ..engines import ENGINE_REGISTRY, model_read
 from ..errors import ApiError
-from ..precondition import check_if_match
+from ..precondition import check_if_match, require_if_match
 from ..refs import (
     media_dependencies,
     nonterminal_sessions_referencing,
@@ -105,7 +105,7 @@ def patch_api_v1_models_model_id(
     supplied = patch.model_dump(exclude_unset=True)
     reject_null_fields(supplied)
 
-    check_if_match(request, store)
+    require_if_match(request)
     _get_model_or_404(store, model_id)
     if "engine_id" in supplied:
         _engine_or_404(store, supplied["engine_id"])
@@ -129,7 +129,7 @@ def patch_api_v1_models_model_id(
 def delete_api_v1_models_model_id(
     request: Request, response: Response, store: StoreDep, model_id: str
 ) -> None:
-    check_if_match(request, store)
+    require_if_match(request)
     _get_model_or_404(store, model_id)
     _delete_refs(store, model_id)
     with store.write_txn():

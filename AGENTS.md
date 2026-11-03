@@ -45,8 +45,12 @@ stays as historical reference — do not edit either contract file.
 - X-Opal-* correlation headers handled by `CorrelationMiddleware`; never
   trust them for authz.
 - Config mutations require If-Match vs global config revision:
-  `check_if_match(request, store)` inside `store.write_txn()`
-  (src/opal_look/precondition.py). All config writes bump the revision.
+  `require_if_match(request)` early (428 missing / 422 malformed) +
+  `check_if_match(request, store)` inside `store.write_txn()` (412 stale,
+  atomic with the write; src/opal_look/precondition.py). All config writes
+  bump the revision; runtime activity must not. `write_txn()` nests via
+  SAVEPOINT. Idempotency-Key admissions use
+  `idempotency.request_idempotency_key` (contract bounds 1..128).
 - `events_enabled=true` requires `OPAL_LOOK_EVENT_TRANSPORT` env
   (provisioned out of band); otherwise 422.
 - Planned clients (later phases): `opal-look-cli` (Typer, REST-only via

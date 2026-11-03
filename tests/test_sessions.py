@@ -149,12 +149,13 @@ def test_media_pinned_by_session_409(client, media_source):
 
 
 def test_session_bad_idempotency_key_422(client, media_source):
+    # v1.5 contract bounds are length-only (1..128); charset is unrestricted.
     resp = client.post(
         "/api/v1/sessions/",
         json={
             "source_id": "ms", "model_id": "synthetic-vision", "task": "detection",
         },
-        headers={"Idempotency-Key": "bad key with spaces"},
+        headers={"Idempotency-Key": "x" * 129},
     )
     assert resp.status_code == 422
 

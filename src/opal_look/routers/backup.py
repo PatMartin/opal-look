@@ -14,7 +14,7 @@ from ..backup import (
 )
 from ..dependencies import StoreDep
 from ..errors import ApiError
-from ..precondition import check_if_match
+from ..precondition import check_if_match, require_if_match
 
 router = APIRouter()
 
@@ -26,13 +26,16 @@ def get_api_v1_backup_export(request: Request, store: StoreDep) -> JSONResponse:
 
 
 def _import_common(request, store, payload) -> JSONResponse:
-    warnings = import_config(store, payload)
+    with store.write_txn():
+        check_if_match(request, store)
+        warnings = import_config(store, payload)
+        revision = store.bump_revision()
     return JSONResponse(
         {"success": True,
          "validation": {"valid": True, "errors": [], "warnings": warnings,
                         "details": {}},
          "message": "Configuration imported."},
-        headers={"ETag": store.config_revision()},
+        headers={"ETag": revision},
     )
 
 
@@ -49,7 +52,7 @@ def _require_export(body) -> dict:
 @router.post("/api/v1/backup/import")
 def post_api_v1_backup_import(request: Request, store: StoreDep, body: dict) -> JSONResponse:
     payload = _require_export(body)
-    check_if_match(request, store)
+    require_if_match(request)
     return _import_common(request, store, payload)
 
 
@@ -112,7 +115,7 @@ def post_api_v1_backup_restore_filename(request: Request, store: StoreDep, filen
     except json.JSONDecodeError:
         raise ApiError(422, "Backup file is not valid JSON.")
     _require_export(payload)
-    check_if_match(request, store)
+    require_if_match(request)
     return _import_common(request, store, payload)
 
 

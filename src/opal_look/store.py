@@ -68,6 +68,7 @@ class Store:
         raw.row_factory = sqlite3.Row
         raw.execute("PRAGMA journal_mode=WAL")
         self._lock = threading.RLock()
+        self._txn_state = threading.local()
         self._conn = _LockedConnection(raw, self._lock)
         self._init_schema()
 
@@ -219,16 +220,43 @@ class Store:
 
     @contextmanager
     def write_txn(self) -> Iterator["Store"]:
-        """Exclusive write transaction for atomic check-and-mutate."""
+        """Exclusive write transaction for atomic check-and-mutate.
+
+        Nestable: an inner write_txn on the same thread becomes a SAVEPOINT,
+        so service helpers may open their own unit of work inside a
+        handler-level transaction (e.g. an atomic check + multi-step import).
+        An inner failure rolls back only to its savepoint; an outer failure
+        rolls back everything. Transactions never nest across threads — the
+        store lock serializes them.
+        """
         with self._lock:
-            self._conn.execute("BEGIN IMMEDIATE")
-            try:
-                yield self
-            except BaseException:
-                self._conn.execute("ROLLBACK")
-                raise
+            depth = getattr(self._txn_state, "depth", 0)
+            if depth == 0:
+                self._txn_state.depth = 1
+                self._conn.execute("BEGIN IMMEDIATE")
+                try:
+                    yield self
+                except BaseException:
+                    self._conn.execute("ROLLBACK")
+                    raise
+                else:
+                    self._conn.execute("COMMIT")
+                finally:
+                    self._txn_state.depth = 0
             else:
-                self._conn.execute("COMMIT")
+                savepoint = f"opal_sp_{depth}"
+                self._txn_state.depth = depth + 1
+                self._conn.execute(f"SAVEPOINT {savepoint}")
+                try:
+                    yield self
+                except BaseException:
+                    self._conn.execute(f"ROLLBACK TO SAVEPOINT {savepoint}")
+                    self._conn.execute(f"RELEASE SAVEPOINT {savepoint}")
+                    raise
+                else:
+                    self._conn.execute(f"RELEASE SAVEPOINT {savepoint}")
+                finally:
+                    self._txn_state.depth = depth
 
     # Revision facade (cross-cutting; delegates to meta repository).
     def config_revision(self) -> str:

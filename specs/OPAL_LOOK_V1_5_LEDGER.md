@@ -78,4 +78,5 @@ the tools, not estimates — see "How to reproduce".
 
 | Step | Commit | Covered /62 | Notes |
 |---|---|---|---|
-| 01 baseline | (this commit) | 26 | contract pinned, audit+tests added, no API changes |
+| 01 baseline | 4472e87 | 26 | contract pinned, audit+tests added, no API changes |
+| 02 shared cross-cutting | (this commit) | 26 | errors/correlation/precondition normalized: details always object, retryable emitted for 429/503/504, 401/403/416 codes mapped, unhandled-500 keeps correlation IDs+headers, two-phase If-Match (early require_if_match + atomic in-txn check), nested write_txn via SAVEPOINT, backup import now atomic + bumps revision, Idempotency-Key bounds per contract (1..128) |

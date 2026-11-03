@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import asyncio
-import re
 import secrets
 
 from fastapi import APIRouter, Query, Request
@@ -12,6 +11,7 @@ from fastapi.responses import JSONResponse
 from ..analysis import resolve_selection
 from ..dependencies import StoreDep
 from ..errors import ApiError
+from ..idempotency import request_idempotency_key
 from ..pagination import decode_cursor, encode_cursor, filter_key
 from ..schemas import SessionCreate
 from ..sessions import TERMINAL, _worker, session_read
@@ -21,14 +21,10 @@ from ..timeutil import now_iso
 
 router = APIRouter()
 
-_IDEMPOTENCY_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,199}$")
-
 
 @router.post("/api/v1/sessions/", status_code=202)
 async def post_api_v1_sessions(request: Request, store: StoreDep, body: SessionCreate):
-    idem = request.headers.get("idempotency-key")
-    if idem is not None and not _IDEMPOTENCY_RE.match(idem):
-        raise ApiError(422, "Invalid Idempotency-Key header.")
+    idem = request_idempotency_key(request)
     if idem is not None:
         import hashlib
         import json as _json

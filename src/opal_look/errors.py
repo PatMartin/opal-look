@@ -1,7 +1,10 @@
 """OpalError envelope and exception-to-status mapping.
 
 Every error response uses the suite OpalError shape:
-error.{code,message,request_id,transaction_id,session_id,causation_id,details?}.
+error.{code,message,request_id,transaction_id,session_id,causation_id,retryable?,details?}.
+The canonical envelope builder lives in correlation.py (this module's
+handlers depend on request correlation state; correlation must not depend
+on errors).
 """
 
 from __future__ import annotations
@@ -13,10 +16,14 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
-from .correlation import CorrelationIds, current_ids
+from .correlation import CorrelationIds, current_ids, envelope
+
+__all__ = ["ApiError", "default_code", "envelope", "register_error_handlers"]
 
 _STATUS_CODES = {
     400: "invalid_request",
+    401: "unauthorized",
+    403: "forbidden",
     404: "not_found",
     405: "method_not_allowed",
     409: "conflict",
@@ -24,6 +31,7 @@ _STATUS_CODES = {
     412: "precondition_failed",
     413: "payload_too_large",
     415: "unsupported_media_type",
+    416: "range_not_satisfiable",
     422: "invalid_request",
     428: "precondition_required",
     429: "capacity_exceeded",
@@ -32,29 +40,12 @@ _STATUS_CODES = {
     504: "analysis_timeout",
 }
 
+# Transient statuses: the client may retry the same request later.
+_RETRYABLE_STATUSES = frozenset({429, 503, 504})
+
 
 def default_code(status_code: int) -> str:
     return _STATUS_CODES.get(status_code, "operation_failed")
-
-
-def envelope(
-    ids: CorrelationIds,
-    *,
-    code: str,
-    message: str,
-    details: Any = None,
-) -> dict[str, Any]:
-    error: dict[str, Any] = {
-        "code": code,
-        "message": message,
-        "request_id": ids.request_id,
-        "transaction_id": ids.transaction_id,
-        "session_id": ids.session_id,
-        "causation_id": ids.causation_id,
-    }
-    if details is not None:
-        error["details"] = details
-    return {"error": error}
 
 
 class ApiError(Exception):
@@ -67,6 +58,7 @@ class ApiError(Exception):
         *,
         code: str | None = None,
         details: Any = None,
+        retryable: bool | None = None,
         headers: dict[str, str] | None = None,
     ) -> None:
         super().__init__(message)
@@ -74,6 +66,7 @@ class ApiError(Exception):
         self.code = code or default_code(status_code)
         self.message = message
         self.details = details
+        self.retryable = retryable
         self.headers = headers
 
 
@@ -83,9 +76,20 @@ def _ids_for(request: Request) -> CorrelationIds:
 
 
 async def _api_error_handler(request: Request, exc: ApiError) -> JSONResponse:
+    retryable = (
+        exc.retryable
+        if exc.retryable is not None
+        else (True if exc.status_code in _RETRYABLE_STATUSES else None)
+    )
     return JSONResponse(
         status_code=exc.status_code,
-        content=envelope(_ids_for(request), code=exc.code, message=exc.message, details=exc.details),
+        content=envelope(
+            _ids_for(request),
+            code=exc.code,
+            message=exc.message,
+            details=exc.details,
+            retryable=retryable,
+        ),
         headers=exc.headers,
     )
 
@@ -94,7 +98,12 @@ async def _http_exception_handler(request: Request, exc: StarletteHTTPException)
     message = exc.detail if isinstance(exc.detail, str) else "HTTP error"
     return JSONResponse(
         status_code=exc.status_code,
-        content=envelope(_ids_for(request), code=default_code(exc.status_code), message=message),
+        content=envelope(
+            _ids_for(request),
+            code=default_code(exc.status_code),
+            message=message,
+            retryable=True if exc.status_code in _RETRYABLE_STATUSES else None,
+        ),
         headers=getattr(exc, "headers", None),
     )
 

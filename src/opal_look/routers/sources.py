@@ -327,11 +327,55 @@ async def get_api_v1_sources_source_id_stream(
     row = _get_source_or_404(store, source_id)
     kind = row["type"]
 
-    # Query params that require a pipeline; raw view rejects them explicitly.
+    # Pipeline-scoped view: resolve + validate execution upfront.
+    pipeline_row = None
+    pres_filter = None
+    ann_opts = None
+    ann_enabled = False
     if pipeline_id is not None:
-        raise ApiError(422, "pipeline viewing is not yet supported (step 14).")
-    if annotations:
-        raise ApiError(422, "annotations require a pipeline (step 14).")
+        pipeline_row = store.pipelines.get(pipeline_id)
+        if pipeline_row is None:
+            raise ApiError(404, f"Unknown pipeline: {pipeline_id!r}")
+        from ..engines import ENGINE_REGISTRY, model_runtime
+        from ..pipeline_exec import _stage_list
+        for st in _stage_list(store, pipeline_row):
+            if st.kind != "inference":
+                continue
+            mrow = store.models.get(st.model_id)
+            if mrow is None:
+                raise ApiError(422, f"Pipeline stage {st.id!r}: model "
+                                    f"{st.model_id!r} is not registered.")
+            rt = model_runtime(store, mrow)
+            if not rt["enabled"] or not rt["available"]:
+                raise ApiError(503, f"Pipeline stage {st.id!r}: model "
+                                    f"{st.model_id!r} is unavailable.")
+            if st.task not in rt["tasks"]:
+                raise ApiError(422, f"Pipeline stage {st.id!r}: task "
+                                    f"{st.task!r} unsupported by model.")
+            if ENGINE_REGISTRY.get(rt["engine_id"]) is None:
+                raise ApiError(503, f"Pipeline stage {st.id!r}: engine "
+                                    f"{rt['engine_id']!r} is not installed.")
+        ann_enabled = True if annotations is None else annotations
+        if pres_filter is None and presentation_filter is not None:
+            import json as _json
+            from ..schemas import FilterSpec as _FS
+            try:
+                pres_filter = _FS.model_validate(_json.loads(presentation_filter))
+            except Exception as exc:
+                raise ApiError(422, f"Invalid presentation_filter: {exc}")
+        from ..schemas import AnnotationOptions as _AO
+        ann_opts = _AO(
+            enabled=True,
+            show_boxes=True if show_boxes is None else show_boxes,
+            show_labels=True if show_labels is None else show_labels,
+            show_confidence=True if show_confidence is None else show_confidence,
+            classes=classes.split(",") if classes else None,
+            min_confidence=min_confidence)
+    else:
+        if annotations:
+            raise ApiError(422, "annotations require a pipeline_id.")
+        if classes is not None or min_confidence is not None                 or presentation_filter is not None:
+            raise ApiError(422, "presentation controls require a pipeline_id.")
     if kind not in ("rtsp", "http", "camera"):
         raise ApiError(422, f"Source kind {kind!r} is not a live stream.")
     if not row["enabled"]:
@@ -368,6 +412,7 @@ async def get_api_v1_sources_source_id_stream(
         raise ApiError(503, f"Could not open source stream: {exc}")
 
     pump = LiveFramePump(stream).start()
+    motion_states: dict = {}  # connection-scoped; released on disconnect
     fps = min(target_fps or app_settings.max_preview_fps,
               app_settings.max_preview_fps)
     q = min(max(quality or 80, 1), 100)
@@ -391,9 +436,28 @@ async def get_api_v1_sources_source_id_stream(
                 if wait > 0:
                     await asyncio.sleep(wait)
                 img = frame
+                if pipeline_row is not None:
+                    from ..pipeline_exec import (_apply_filter, _annotate,
+                                                 run_pipeline)
+                    try:
+                        result = await asyncio.to_thread(
+                            run_pipeline, store, pipeline_row, frame,
+                            source_id=source_id, media_id=None,
+                            frame_index=None,
+                            transaction_id="view", request_id="view",
+                            motion_states=motion_states)
+                    except ApiError:
+                        break
+                    if ann_enabled:
+                        img = frame.copy()
+                        warns: list = []
+                        _annotate(img, result["observations"], ann_opts, warns)
+                    else:
+                        img = result["presentation"]["image"] or frame
+                    if pres_filter is not None:
+                        img = _apply_filter(img, pres_filter)
                 if width or height:
-                    img = frame.resize((width or frame.width,
-                                        height or frame.height))
+                    img = img.resize((width or img.width, height or img.height))
                 buf = io.BytesIO()
                 img.convert("RGB").save(buf, format="JPEG", quality=q)
                 yield (b"--frame" + CRLF + b"Content-Type: image/jpeg"

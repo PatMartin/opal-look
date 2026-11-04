@@ -253,10 +253,10 @@ def test_stream_disabled_503(client, fake_rtsp):
     assert client.get("/api/v1/sources/cam/stream").status_code == 503
 
 
-def test_stream_pipeline_id_rejected_422(client, fake_rtsp):
+def test_stream_pipeline_id_unknown_404(client, fake_rtsp):
     client.post("/api/v1/sources/", json=RTSP, headers={"If-Match": "*"})
     assert client.get("/api/v1/sources/cam/stream",
-                      params={"pipeline_id": "p"}).status_code == 422
+                      params={"pipeline_id": "p"}).status_code == 404
 
 
 def test_stream_viewer_quota_429(client, fake_rtsp):
@@ -280,3 +280,110 @@ def test_stream_releases_viewer_on_disconnect(client, fake_rtsp):
     # second connect works after the first released its slot
     with client.stream("GET", "/api/v1/sources/cam/stream") as r2:
         assert r2.status_code == 200
+
+
+# -- pipeline-scoped MJPEG view (step 14) ---------------------------------------
+
+def _mk_pipeline(client, pid="p", **over):
+    body = {"id": pid, "name": "P", "model_id": "synthetic-vision",
+            "task": "detection", **over}
+    client.post("/api/v1/pipelines/", json=body, headers={"If-Match": "*"})
+
+
+def test_stream_pipeline_annotated(client, fake_rtsp):
+    fake_rtsp.frames_per_open = [3]
+    fake_rtsp.frame_delay = 0.01
+    client.post("/api/v1/sources/", json=RTSP, headers={"If-Match": "*"})
+    _mk_pipeline(client)
+    with client.stream("GET", "/api/v1/sources/cam/stream?pipeline_id=p") as r:
+        assert r.status_code == 200
+        body = b""
+        for ch in r.iter_bytes(4096):
+            body += ch
+            if body.count(b"--frame") >= 2:
+                break
+    assert body.count(b"Content-Type: image/jpeg") >= 2
+
+
+def test_stream_pipeline_annotations_off(client, fake_rtsp):
+    fake_rtsp.frames_per_open = [2]
+    fake_rtsp.frame_delay = 0.01
+    client.post("/api/v1/sources/", json=RTSP, headers={"If-Match": "*"})
+    _mk_pipeline(client)
+    with client.stream("GET",
+                       "/api/v1/sources/cam/stream?pipeline_id=p&annotations=false"
+                       ) as r:
+        assert r.status_code == 200
+        for ch in r.iter_bytes(4096):
+            assert ch
+            break
+
+
+def test_stream_unknown_pipeline_404(client, fake_rtsp):
+    client.post("/api/v1/sources/", json=RTSP, headers={"If-Match": "*"})
+    assert client.get("/api/v1/sources/cam/stream?pipeline_id=ghost"
+                      ).status_code == 404
+
+
+def test_stream_pipeline_engine_down_503(client, fake_rtsp):
+    client.post("/api/v1/sources/", json=RTSP, headers={"If-Match": "*"})
+    _mk_pipeline(client)
+    client.patch("/api/v1/engines/synthetic", json={"enabled": False},
+                 headers={"If-Match": "*"})
+    assert client.get("/api/v1/sources/cam/stream?pipeline_id=p").status_code == 503
+
+
+def test_stream_presentation_params_need_pipeline(client, fake_rtsp):
+    client.post("/api/v1/sources/", json=RTSP, headers={"If-Match": "*"})
+    for q in ("classes=x", "min_confidence=0.5",
+              "presentation_filter={}"):
+        assert client.get(f"/api/v1/sources/cam/stream?{q}").status_code == 422
+
+
+def test_stream_bad_presentation_filter_422(client, fake_rtsp):
+    client.post("/api/v1/sources/", json=RTSP, headers={"If-Match": "*"})
+    _mk_pipeline(client)
+    assert client.get("/api/v1/sources/cam/stream",
+                      params={"pipeline_id": "p",
+                              "presentation_filter": "{bad"}).status_code == 422
+
+
+def test_stream_valid_presentation_filter(client, fake_rtsp):
+    fake_rtsp.frames_per_open = [2]
+    fake_rtsp.frame_delay = 0.01
+    client.post("/api/v1/sources/", json=RTSP, headers={"If-Match": "*"})
+    _mk_pipeline(client)
+    with client.stream("GET", "/api/v1/sources/cam/stream",
+                       params={"pipeline_id": "p",
+                               "presentation_filter": '{"type":"grayscale"}'}) as r:
+        assert r.status_code == 200
+        for ch in r.iter_bytes(4096):
+            assert ch
+            break
+
+
+def test_stream_two_clients_isolated_overlays(client, fake_rtsp):
+    fake_rtsp.frames_per_open = [None]
+    fake_rtsp.frame_delay = 0.02
+    client.post("/api/v1/sources/", json=RTSP, headers={"If-Match": "*"})
+    _mk_pipeline(client)
+    with client.stream("GET", "/api/v1/sources/cam/stream",
+                       params={"pipeline_id": "p", "classes": "nope"}) as r1:
+        first = next(r1.iter_bytes(8192), b"")
+        with client.stream("GET", "/api/v1/sources/cam/stream",
+                           params={"pipeline_id": "p", "annotations": "false"}) as r2:
+            second = next(r2.iter_bytes(8192), b"")
+    assert first.startswith(b"--frame") and second.startswith(b"--frame")
+
+
+def test_stream_no_implicit_retention(client, fake_rtsp):
+    fake_rtsp.frames_per_open = [2]
+    fake_rtsp.frame_delay = 0.01
+    client.post("/api/v1/sources/", json=RTSP, headers={"If-Match": "*"})
+    _mk_pipeline(client, retention={"persist_observations": True})
+    with client.stream("GET", "/api/v1/sources/cam/stream",
+                       params={"pipeline_id": "p"}) as r:
+        for ch in r.iter_bytes(4096):
+            break
+    # viewers never persist observations even if the pipeline asks for it
+    assert client.get("/api/v1/observations/").json()["items"] == []

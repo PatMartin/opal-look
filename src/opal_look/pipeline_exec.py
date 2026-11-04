@@ -379,6 +379,8 @@ def _annotate(image, observations, opts, warnings: list[str]) -> None:
     draw = ImageDraw.Draw(image)
     show_boxes = opts.show_boxes if opts else True
     show_labels = opts.show_labels if opts else True
+    show_conf = opts.show_confidence if opts else True
+    show_tracks = getattr(opts, "show_track_ids", False) if opts else False
     allowed = set(opts.classes) if opts and opts.classes else None
     min_conf = opts.min_confidence if opts else None
     w, h = image.width, image.height
@@ -395,4 +397,9 @@ def _annotate(image, observations, opts, warnings: list[str]) -> None:
                       (box["x"] + box["width"]) * w, (box["y"] + box["height"]) * h)
                 draw.rectangle(xy, outline=(255, 64, 64), width=2)
                 if show_labels and item.get("label"):
-                    draw.text((xy[0], xy[1]), str(item["label"]), fill=(255, 64, 64))
+                    text = str(item["label"])
+                    if show_conf and item.get("score") is not None:
+                        text += f" {item['score']:.2f}"
+                    if show_tracks and item.get("track_id"):
+                        text += f" #{item['track_id']}"
+                    draw.text((xy[0], xy[1]), text, fill=(255, 64, 64))

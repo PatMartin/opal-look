@@ -1,8 +1,11 @@
-"""opal-look-cli: thin REST client for the OPAL Look API.
+"""opal-look-cli: thin REST client mirroring the v1.5 contract.
 
-Resource verbs: list/show/add/update/remove; operational verbs:
-activate/validate/upload/download/stream/export/import/stop/analyze.
-All logic lives server-side; this client only issues HTTP calls.
+Group/verb layout follows the contract's x-opal-cli metadata:
+add/remove/update/list/show plus operational verbs (view, observe,
+stream, capture, probe, validate, frame, run, image, submit, cancel,
+start, stop, download, export, import, status, live, ready, show).
+All logic lives server-side; this client only issues HTTP calls and
+honestly surfaces streaming/bearer limits.
 """
 
 from __future__ import annotations
@@ -16,12 +19,10 @@ import typer
 
 from .client import ApiClient, unwrap
 
-app = typer.Typer(help="OPAL Look REST CLI (thin client; no business logic).")
+app = typer.Typer(help="OPAL Look v1.5 REST CLI (thin client; no business logic).")
 
-_state: dict = {
-    "url": "http://127.0.0.1:8000", "json_out": False,
-    "transport": None, "inner": None,
-}
+_state: dict = {"url": "http://127.0.0.1:8000", "json_out": False,
+                "transport": None, "inner": None}
 
 
 @app.callback()
@@ -54,8 +55,7 @@ def _body(json_body: Optional[str], file: Optional[Path]) -> dict | None:
     return None
 
 
-def _collection_app(name: str, base: str, rid: str | None = None) -> typer.Typer:
-    """list/show/add/update/remove(+validate) over a config collection."""
+def _crud(name: str, base: str) -> typer.Typer:
     sub = typer.Typer(help=name)
 
     @sub.command("list")
@@ -64,268 +64,269 @@ def _collection_app(name: str, base: str, rid: str | None = None) -> typer.Typer
 
     @sub.command("show")
     def _show(resource_id: str):
-        c = _client()
-        _emit(unwrap(c.get(f"{base}{resource_id}")))
+        _emit(unwrap(_client().get(f"{base}{resource_id}")))
 
     @sub.command("add")
-    def _add(body: str = typer.Option(None, "--body"), file: Path = typer.Option(None, "--file")):
-        c = _client()
-        _emit(unwrap(c.mutate("POST", base, json=_body(body, file))))
+    def _add(body: str = typer.Option(None, "--body"),
+             file: Path = typer.Option(None, "--file")):
+        _emit(unwrap(_client().mutate("POST", base, json=_body(body, file))))
 
     @sub.command("update")
     def _update(resource_id: str, body: str = typer.Option(None, "--body"),
                 file: Path = typer.Option(None, "--file")):
-        c = _client()
-        _emit(unwrap(c.mutate("PATCH", f"{base}{resource_id}",
-                              etag_path=f"{base}{resource_id}", json=_body(body, file))))
+        _emit(unwrap(_client().mutate("PATCH", f"{base}{resource_id}",
+                                      etag_path=f"{base}{resource_id}",
+                                      json=_body(body, file))))
 
     @sub.command("remove")
     def _remove(resource_id: str):
-        c = _client()
-        _emit(unwrap(c.mutate("DELETE", f"{base}{resource_id}",
-                              etag_path=f"{base}{resource_id}")))
-
-    @sub.command("validate")
-    def _validate(resource_id: str):
-        c = _client()
-        _emit(unwrap(c.request("POST", f"{base}{resource_id}/validate")))
+        _emit(unwrap(_client().mutate("DELETE", f"{base}{resource_id}",
+                                      etag_path=f"{base}{resource_id}")))
     return sub
 
 
-app.add_typer(_collection_app("engines", "/api/v1/engines/"), name="engines")
-app.add_typer(_collection_app("models", "/api/v1/models/"), name="models")
-app.add_typer(_collection_app("sources", "/api/v1/sources/"), name="sources")
-
-_profiles_app = _collection_app("profiles", "/api/v1/profiles/")
-
-
-@_profiles_app.command("activate")
-def _profiles_activate(profile_id: str):
-    c = _client()
-    _emit(unwrap(c.mutate("POST", f"/api/v1/profiles/{profile_id}/activate",
-                          etag_path=f"/api/v1/profiles/{profile_id}")))
-
-
-app.add_typer(_profiles_app, name="profiles")
-_results_app = _collection_app("results", "/api/v1/results/")
-
-
-@_results_app.command("snapshot")
-def _results_snapshot(result_id: str, annotated: bool = typer.Option(False, "--annotated"),
-                      retain: bool = typer.Option(False, "--retain"),
-                      out: Path = typer.Option(None, "--out")):
-    data = unwrap(_client().request(
-        "POST", f"/api/v1/results/{result_id}/snapshot",
-        json={"annotated": annotated, "retain": retain}))
-    if retain:
-        _emit(data)
-    else:
-        target = out or Path(f"{result_id}.jpg")
-        Path(target).write_bytes(data)
-        typer.echo(str(target))
+def _stream_get(path: str, out: Path | None, limit_bytes: int,
+                sse: bool = False) -> None:
+    """Streamed GET: write SSE lines or raw bytes progressively — never
+    buffers the whole stream."""
+    with _client().request("GET", path, stream=True) as resp:  # type: ignore[call-arg]
+        if resp.status_code >= 400:
+            raise SystemExit(unwrap(resp))
+        if sse:
+            for line in resp.iter_lines():
+                typer.echo(line)
+        else:
+            target = Path(out or "stream.mjpeg")
+            written = 0
+            with target.open("wb") as fh:
+                for chunk in resp.iter_bytes():
+                    fh.write(chunk)
+                    written += len(chunk)
+                    if limit_bytes and written >= limit_bytes:
+                        break
+            typer.echo(str(target))
 
 
-app.add_typer(_results_app, name="results")
-app.add_typer(_collection_app("snapshots", "/api/v1/snapshots/"), name="snapshots")
+def _post_action(path: str, json_data=None) -> None:
+    _emit(unwrap(_client().request("POST", path, json=json_data)))
 
 
-devices_app = typer.Typer(help="devices")
+# -- CRUD resources -------------------------------------------------------------
+app.add_typer(_crud("engines", "/api/v1/engines/"), name="engines")
+app.add_typer(_crud("models", "/api/v1/models/"), name="models")
+_pipes = _crud("pipelines", "/api/v1/pipelines/")
+_mons = _crud("monitors", "/api/v1/monitors/")
+app.add_typer(_pipes, name="pipelines")
+app.add_typer(_mons, name="monitors")
+app.add_typer(_crud("observations", "/api/v1/observations/"), name="observations")
+
+src = _crud("sources", "/api/v1/sources/")
 
 
-@devices_app.command("cameras")
-def _cameras():
-    _emit(unwrap(_client().get("/api/v1/devices/cameras/")))
+@src.command("status")
+def _src_status(source_id: str):
+    _emit(unwrap(_client().get(f"/api/v1/sources/{source_id}/status")))
 
 
-app.add_typer(devices_app, name="devices")
+@src.command("probe")
+def _src_probe(source_id: str):
+    _post_action(f"/api/v1/sources/{source_id}/probe")
 
 
-settings_app = typer.Typer(help="settings")
+@src.command("frame")
+def _src_frame(source_id: str, out: Path = typer.Option(Path("frame.jpg"), "--out")):
+    data = unwrap(_client().get(f"/api/v1/sources/{source_id}/frame"))
+    Path(out).write_bytes(data)
+    typer.echo(str(out))
 
 
-@settings_app.command("show")
-def _settings_show(key: str = typer.Argument(None)):
-    c = _client()
-    _emit(unwrap(c.get("/api/v1/settings/" + (key or ""))))
+@src.command("view")
+def _src_view(source_id: str, out: Path = typer.Option(None, "--out"),
+              max_bytes: int = typer.Option(5_000_000, "--max-bytes"),
+              pipeline_id: str = typer.Option(None, "--pipeline")):
+    q = f"?pipeline_id={pipeline_id}" if pipeline_id else ""
+    _stream_get(f"/api/v1/sources/{source_id}/stream{q}", out, max_bytes)
 
 
-@settings_app.command("set")
-def _settings_set(key: str, value: str):
-    c = _client()
-    _emit(unwrap(c.mutate("PUT", f"/api/v1/settings/{key}",
-                          json={"value": json.loads(value)})))
+@src.command("observe")
+def _src_observe(source_id: str):
+    _stream_get(f"/api/v1/sources/{source_id}/observations/stream", None, 0,
+                sse=True)
 
 
-@settings_app.command("unset")
-def _settings_unset(key: str):
-    c = _client()
-    _emit(unwrap(c.mutate("DELETE", f"/api/v1/settings/{key}")))
+@src.command("capture")
+def _src_capture(source_id: str, pipeline_id: str = typer.Option(None, "--pipeline"),
+                 annotated: bool = typer.Option(False, "--annotated")):
+    body = {}
+    if pipeline_id:
+        body["pipeline_id"] = pipeline_id
+    if annotated:
+        body["annotated"] = True
+    _emit(unwrap(_client().request("POST",
+                                   f"/api/v1/sources/{source_id}/capture",
+                                   json=body or None)))
 
 
-app.add_typer(settings_app, name="settings")
+app.add_typer(src, name="sources")
+
+@_pipes.command("validate")
+def _pipe_validate(body: str = typer.Option(None, "--body"),
+                   file: Path = typer.Option(None, "--file")):
+    _emit(unwrap(_client().request("POST", "/api/v1/pipelines/validate",
+                                   json=_body(body, file))))
 
 
-media_app = typer.Typer(help="media")
+@_mons.command("stream")
+def _mon_stream(monitor_id: str):
+    _stream_get(f"/api/v1/monitors/{monitor_id}/observations/stream", None, 0,
+                sse=True)
 
 
-@media_app.command("list")
-def _media_list(cursor: str = typer.Option(None, "--cursor")):
-    params = {"cursor": cursor} if cursor else None
-    _emit(unwrap(_client().get("/api/v1/media/", params=params)))
+analyze = typer.Typer(help="analyze")
 
 
-@media_app.command("show")
-def _media_show(media_id: str):
-    _emit(unwrap(_client().get(f"/api/v1/media/{media_id}")))
+@analyze.command("run")
+def _analyze_run(body: str = typer.Option(None, "--body"),
+                 file: Path = typer.Option(None, "--file")):
+    _emit(unwrap(_client().request("POST", "/api/v1/analyze/",
+                                   json=_body(body, file))))
 
 
-@media_app.command("upload")
-def _media_upload(file: Path):
+@analyze.command("image")
+def _analyze_image(file: Path,
+                   request: str = typer.Option(None, "--request")):
+    with open(file, "rb") as fh:
+        parts = {"image": (file.name, fh)}
+        if request:
+            parts["request"] = (None, request)
+        _emit(unwrap(_client().request("POST", "/api/v1/analyze/image",
+                                       files=parts)))
+
+
+app.add_typer(analyze, name="analyze")
+
+jobs = _crud("jobs", "/api/v1/jobs/")
+
+
+@jobs.command("submit")
+def _job_submit(body: str = typer.Option(None, "--body"),
+                file: Path = typer.Option(None, "--file"),
+                idempotency_key: str = typer.Option(None, "--idempotency-key")):
+    headers = {"Idempotency-Key": idempotency_key} if idempotency_key else None
+    _emit(unwrap(_client().request("POST", "/api/v1/jobs/",
+                                   json=_body(body, file), headers=headers)))
+
+
+@jobs.command("cancel")
+def _job_cancel(job_id: str):
+    _post_action(f"/api/v1/jobs/{job_id}/cancel")
+
+
+app.add_typer(jobs, name="jobs")
+
+med = _crud("media", "/api/v1/media/")
+
+
+@med.command("upload")
+def _media_upload(file: Path, ttl_seconds: int = typer.Option(None, "--ttl")):
+    data = {"ttl_seconds": ttl_seconds} if ttl_seconds else None
     with open(file, "rb") as fh:
         _emit(unwrap(_client().request("POST", "/api/v1/media/",
-                                      files={"file": (file.name, fh)})))
+                                       files={"file": (file.name, fh)},
+                                       data=data)))
 
 
-@media_app.command("download")
-def _media_download(media_id: str, out: Path = typer.Option(Path("out.bin"), "--out")):
+@med.command("download")
+def _media_download(media_id: str, out: Path = typer.Option(Path("media.bin"), "--out")):
     data = unwrap(_client().get(f"/api/v1/media/{media_id}/content"))
     Path(out).write_bytes(data)
     typer.echo(str(out))
 
 
-@media_app.command("remove")
-def _media_remove(media_id: str):
-    _emit(unwrap(_client().request("DELETE", f"/api/v1/media/{media_id}")))
+app.add_typer(med, name="media")
+
+rec = _crud("recordings", "/api/v1/recordings/")
 
 
-app.add_typer(media_app, name="media")
+@rec.command("start")
+def _rec_start(source_id: str = typer.Option(..., "--source"),
+               pipeline_id: str = typer.Option(None, "--pipeline"),
+               max_duration_seconds: int = typer.Option(None, "--duration")):
+    body = {"source_id": source_id}
+    if pipeline_id:
+        body["pipeline_id"] = pipeline_id
+    if max_duration_seconds:
+        body["max_duration_seconds"] = max_duration_seconds
+    _emit(unwrap(_client().mutate("POST", "/api/v1/recordings/", json=body)))
 
 
-analyze_app = typer.Typer(help="analyze")
+@rec.command("stop")
+def _rec_stop(recording_id: str):
+    _emit(unwrap(_client().request(
+        "POST", f"/api/v1/recordings/{recording_id}/stop")))
 
 
-@analyze_app.command("run")
-def _analyze_run(body: str = typer.Option(None, "--body"),
-                 file: Path = typer.Option(None, "--file")):
-    _emit(unwrap(_client().request("POST", "/api/v1/analyze", json=_body(body, file))))
+app.add_typer(rec, name="recordings")
+
+settings = _crud("settings", "/api/v1/settings/")
 
 
-app.add_typer(analyze_app, name="analyze")
+@settings.command("set")
+def _settings_set(key: str, value: str):
+    _emit(unwrap(_client().mutate("PUT", f"/api/v1/settings/{key}",
+                                  json={"value": json.loads(value)})))
 
 
-sessions_app = typer.Typer(help="sessions")
+@settings.command("reset")
+def _settings_reset(key: str):
+    _emit(unwrap(_client().mutate("DELETE", f"/api/v1/settings/{key}")))
 
 
-@sessions_app.command("list")
-def _sessions_list(cursor: str = typer.Option(None, "--cursor"),
-                   state: str = typer.Option(None, "--state")):
-    params = {k: v for k, v in {"cursor": cursor, "state": state}.items() if v}
-    _emit(unwrap(_client().get("/api/v1/sessions/", params=params or None)))
+app.add_typer(settings, name="settings")
+
+config = typer.Typer(help="configuration")
 
 
-@sessions_app.command("show")
-def _sessions_show(session_id: str):
-    _emit(unwrap(_client().get(f"/api/v1/sessions/{session_id}")))
+@config.command("export")
+def _cfg_export():
+    _emit(unwrap(_client().get("/api/v1/configuration/export")))
 
 
-@sessions_app.command("add")
-def _sessions_add(body: str = typer.Option(None, "--body"),
-                  file: Path = typer.Option(None, "--file"),
-                  idempotency_key: str = typer.Option(None, "--idempotency-key")):
-    headers = {"Idempotency-Key": idempotency_key} if idempotency_key else None
-    _emit(unwrap(_client().request("POST", "/api/v1/sessions/",
-                                  json=_body(body, file), headers=headers)))
+@config.command("validate")
+def _cfg_validate(file: Path = typer.Option(..., "--file")):
+    _emit(unwrap(_client().request("POST", "/api/v1/configuration/validate",
+                                   json=json.loads(Path(file).read_text()))))
 
 
-@sessions_app.command("stop")
-def _sessions_stop(session_id: str):
-    _emit(unwrap(_client().request("POST", f"/api/v1/sessions/{session_id}/stop")))
+@config.command("import")
+def _cfg_import(file: Path = typer.Option(..., "--file"),
+                bindings: Path = typer.Option(None, "--bindings")):
+    body = {"configuration": json.loads(Path(file).read_text())}
+    if bindings:
+        body["source_bindings"] = json.loads(Path(bindings).read_text())
+    _emit(unwrap(_client().mutate("POST", "/api/v1/configuration/import",
+                                  json=body)))
 
 
-@sessions_app.command("remove")
-def _sessions_remove(session_id: str):
-    _emit(unwrap(_client().request("DELETE", f"/api/v1/sessions/{session_id}")))
+app.add_typer(config, name="configuration")
 
+health = typer.Typer(help="health")
+health.command("show")(lambda: _emit(unwrap(_client().get("/api/v1/health/"))))
+health.command("live")(lambda: _emit(unwrap(_client().get("/api/v1/health/live"))))
+health.command("ready")(lambda: _emit(unwrap(_client().get("/api/v1/health/ready"))))
+app.add_typer(health, name="health")
 
-@sessions_app.command("latest")
-def _sessions_latest(session_id: str):
-    _emit(unwrap(_client().get(f"/api/v1/sessions/{session_id}/results/latest")))
+metrics = typer.Typer(help="metrics")
+metrics.command("show")(lambda: _emit(unwrap(_client().get("/api/v1/metrics/"))))
+app.add_typer(metrics, name="metrics")
 
+events = typer.Typer(help="events")
+events.command("status")(lambda: _emit(unwrap(_client().get("/api/v1/events/status"))))
+app.add_typer(events, name="events")
 
-@sessions_app.command("events")
-def _sessions_events(session_id: str):
-    resp = _client().get(f"/api/v1/sessions/{session_id}/events")
-    typer.echo(resp.text)
-
-
-@sessions_app.command("stream")
-def _sessions_stream(session_id: str):
-    resp = _client().get(f"/api/v1/sessions/{session_id}/results/events")
-    typer.echo(resp.text)
-
-
-app.add_typer(sessions_app, name="sessions")
-
-
-backup_app = typer.Typer(help="backup")
-
-
-@backup_app.command("export")
-def _backup_export():
-    _emit(unwrap(_client().get("/api/v1/backup/export")))
-
-
-@backup_app.command("import")
-def _backup_import(file: Path = typer.Option(..., "--file")):
-    c = _client()
-    _emit(unwrap(c.mutate("POST", "/api/v1/backup/import",
-                          json=json.loads(Path(file).read_text()))))
-
-
-@backup_app.command("validate")
-def _backup_validate(file: Path = typer.Option(None, "--file")):
-    c = _client()
-    if file:
-        _emit(unwrap(c.request("POST", "/api/v1/backup/validate",
-                               json=json.loads(Path(file).read_text()))))
-    else:
-        _emit(unwrap(c.get("/api/v1/backup/validate")))
-
-
-@backup_app.command("list")
-def _backup_list():
-    _emit(unwrap(_client().get("/api/v1/backup/list")))
-
-
-@backup_app.command("create")
-def _backup_create():
-    _emit(unwrap(_client().request("POST", "/api/v1/backup/create")))
-
-
-@backup_app.command("download")
-def _backup_download(filename: str, out: Path = typer.Option(None, "--out")):
-    data = unwrap(_client().get(f"/api/v1/backup/download/{filename}"))
-    target = out or Path(filename)
-    Path(target).write_text(json.dumps(data, indent=2))
-    typer.echo(str(target))
-
-
-@backup_app.command("restore")
-def _backup_restore(filename: str):
-    _emit(unwrap(_client().mutate("POST", f"/api/v1/backup/restore/{filename}")))
-
-
-@backup_app.command("remove")
-def _backup_remove(filename: str):
-    _emit(unwrap(_client().request("DELETE", f"/api/v1/backup/{filename}")))
-
-
-app.add_typer(backup_app, name="backup")
-
-
-@app.command("health")
-def _health():
-    _emit(unwrap(_client().get("/api/v1/health/")))
+caps = typer.Typer(help="capabilities")
+caps.command("show")(lambda: _emit(unwrap(_client().get("/api/v1/capabilities/"))))
+app.add_typer(caps, name="capabilities")
 
 
 @app.command("info")

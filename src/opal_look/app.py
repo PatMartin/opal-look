@@ -18,7 +18,7 @@ from .errors import register_error_handlers
 from .framecache import FrameCache
 from .sessions import SessionRuntimeRegistry
 from .routers import (
-    analyze, backup, capabilities, engines, health, media, jobs, models, monitors, observations, pipelines, profiles, results,
+    analyze, backup, capabilities, engines, health, media, jobs, models, monitors, observations, pipelines, recordings, profiles, results,
     sessions as sessions_router, settings, snapshots, sources,
 )
 from .store import Store
@@ -39,6 +39,8 @@ def create_app(
         jr = getattr(app.state, "job_runtime", None)
         if jr is not None:
             jr.stop_all()
+        for rt in getattr(app.state, "recording_runtimes", {}).values():
+            rt.stop()
         for rt in getattr(app.state, "monitor_runtimes", {}).values():
             rt.stop()
         jr = getattr(app.state, "job_runtime", None)
@@ -69,6 +71,7 @@ def create_app(
     app.state.auth_token = token.strip() if token else None
     from .jobs import JobRuntime
     app.state.job_runtime = JobRuntime(app.state.store, app)
+    app.state.recording_runtimes = {}
     app.state.monitor_runtimes = {}
     app.state.viewer_counts = {}
     import threading as _th
@@ -84,6 +87,8 @@ def create_app(
         app.state.store, app.state.monitor_runtimes, app)
     from .jobs import recover_jobs
     app.state.recovered_jobs = recover_jobs(app.state.store, app)
+    from .recordings import recover_recordings
+    recover_recordings(app.state.store, app.state.recording_runtimes)
     load_plugin_adapters()
     load_capture_plugins()
     ensure_engines(app.state.store)
@@ -105,6 +110,7 @@ def create_app(
     app.include_router(observations.router)
     app.include_router(jobs.router)
     app.include_router(monitors.router)
+    app.include_router(recordings.router)
     app.include_router(media.router)
     app.include_router(analyze.router)
     app.include_router(results.router)

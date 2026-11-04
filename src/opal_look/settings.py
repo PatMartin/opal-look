@@ -47,6 +47,7 @@ class ServiceSettings(BaseModel):
     max_viewers: int = Field(default=8, ge=1)
     max_monitors: int = Field(default=8, ge=1)
     max_jobs: int = Field(default=4, ge=1)
+    recording_max_bytes: int = Field(default=10_485_760, ge=1024)
     default_pipeline_id: str | None = Field(default=None)
 
     @field_validator("event_topics_allowlist")
@@ -79,6 +80,7 @@ class ServiceSettingsPatch(BaseModel):
     max_viewers: int | None = Field(default=None, ge=1)
     max_monitors: int | None = Field(default=None, ge=1)
     max_jobs: int | None = Field(default=None, ge=1)
+    recording_max_bytes: int | None = Field(default=None, ge=1024)
     default_pipeline_id: str | None = Field(default=None)
 
     @field_validator("event_topics_allowlist")

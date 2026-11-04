@@ -558,3 +558,15 @@ class JobCreate(BaseModel):
         if self.kind == "media_export" and self.output is None:
             raise ValueError("media_export requires output options")
         return self
+
+
+# -- recordings (v1.5) ----------------------------------------------------------
+
+class RecordingCreate(BaseModel):
+    model_config = ConfigDict(strict=True, extra="forbid")
+
+    source_id: str = Field(pattern=IDENTIFIER_PATTERN)
+    pipeline_id: str | None = Field(default=None, pattern=IDENTIFIER_PATTERN)
+    include_audio: bool = Field(default=False)
+    max_duration_seconds: int | None = Field(default=None, ge=1)
+    output: ExportOptions | None = Field(default=None)

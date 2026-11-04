@@ -125,6 +125,12 @@ def patch_api_v1_sources_source_id(
     return JSONResponse(source_read(store, row), headers={"ETag": revision})
 
 
+def _active_recording_for(store, source_id):
+    for r in store.recordings.for_source(source_id):
+        return r
+    return None
+
+
 @router.delete("/api/v1/sources/{source_id}", status_code=204)
 def delete_api_v1_sources_source_id(
     request: Request, response: Response, store: StoreDep, source_id: str
@@ -132,6 +138,10 @@ def delete_api_v1_sources_source_id(
     require_if_match(request)
     _get_source_or_404(store, source_id)
     _session_refs(store, source_id)
+    rec = _active_recording_for(store, source_id)
+    if rec is not None:
+        raise ApiError(409, f"Source {source_id!r} is referenced by active "
+                            f"recording {rec['recording_id']!r}.")
     with store.write_txn():
         check_if_match(request, store)
         store.sources.delete(source_id)

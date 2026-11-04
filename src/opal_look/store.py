@@ -20,6 +20,7 @@ from .repositories import (
     SqliteMetaRepository,
     SqliteModelRepository,
     SqliteJobRepository,
+    SqliteRecordingRepository,
     SqliteMonitorRepository,
     SqliteObservationRepository,
     SqlitePipelineRepository,
@@ -84,6 +85,7 @@ class Store:
         self.observations = SqliteObservationRepository(self._conn)
         self.monitors = SqliteMonitorRepository(self._conn)
         self.jobs = SqliteJobRepository(self._conn)
+        self.recordings = SqliteRecordingRepository(self._conn)
         self.sources = SqliteSourceRepository(self._conn)
         self.profiles = SqliteProfileRepository(self._conn)
         self.media = SqliteMediaRepository(self._conn)
@@ -145,6 +147,22 @@ class Store:
                 labels TEXT NOT NULL DEFAULT '[]',
                 expires_at TEXT,
                 body TEXT NOT NULL
+            );
+            CREATE TABLE IF NOT EXISTS recordings (
+                recording_id TEXT PRIMARY KEY,
+                source_id TEXT NOT NULL,
+                pipeline_id TEXT,
+                include_audio INTEGER NOT NULL DEFAULT 0,
+                max_duration_seconds INTEGER,
+                output_json TEXT NOT NULL DEFAULT 'null',
+                state TEXT NOT NULL DEFAULT 'starting',
+                media_id TEXT,
+                failure TEXT,
+                bytes_written INTEGER NOT NULL DEFAULT 0,
+                frames_written INTEGER NOT NULL DEFAULT 0,
+                created_at TEXT NOT NULL,
+                started_at TEXT,
+                finished_at TEXT
             );
             CREATE TABLE IF NOT EXISTS jobs (
                 job_id TEXT PRIMARY KEY,

@@ -26,6 +26,7 @@ DEFAULTS = {
 "max_viewers": 8,
     "max_monitors": 8,
     "max_jobs": 4,
+    "recording_max_bytes": 10485760,
 }
 
 

@@ -570,3 +570,19 @@ class RecordingCreate(BaseModel):
     include_audio: bool = Field(default=False)
     max_duration_seconds: int | None = Field(default=None, ge=1)
     output: ExportOptions | None = Field(default=None)
+
+
+# -- configuration import (v1.5) ------------------------------------------------
+
+class SourceBinding(BaseModel):
+    """Import-time binding only, never exported."""
+    model_config = ConfigDict(strict=True, extra="forbid")
+    locator: str = Field(min_length=1)
+    secret_ref: str | None = Field(default=None)
+
+
+class ConfigurationImport(BaseModel):
+    model_config = ConfigDict(strict=True, extra="forbid")
+    configuration: dict[str, Any]
+    mode: Literal["replace"] = "replace"
+    source_bindings: dict[str, SourceBinding] | None = Field(default=None)

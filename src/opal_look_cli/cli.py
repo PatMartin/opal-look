@@ -89,8 +89,9 @@ def _stream_get(path: str, out: Path | None, limit_bytes: int,
                 sse: bool = False) -> None:
     """Streamed GET: write SSE lines or raw bytes progressively — never
     buffers the whole stream."""
-    with _client().request("GET", path, stream=True) as resp:  # type: ignore[call-arg]
+    with _client().stream("GET", path) as resp:
         if resp.status_code >= 400:
+            resp.read()
             raise SystemExit(unwrap(resp))
         if sse:
             for line in resp.iter_lines():
@@ -332,6 +333,46 @@ app.add_typer(caps, name="capabilities")
 @app.command("info")
 def _info():
     _emit(unwrap(_client().get("/")))
+
+
+@app.command("tree")
+def _tree():
+    """Print the full CLI command tree (options in [])."""
+    import click
+    import typer.main
+
+    root = typer.main.get_command(app)
+
+    def _usage_params(cmd):
+        parts = []
+        for p in cmd.params:
+            if p.name == "help":
+                continue
+            opts = getattr(p, "opts", None) or []
+            is_option = any(o.startswith("-") for o in opts) or \
+                "Option" in type(p).__name__
+            if is_option:
+                name = next((o for o in opts if o.startswith("--")), p.name)
+                meta = p.metavar or p.name.upper().replace("-", "_")
+                val = "" if getattr(p, "is_flag", False) and not getattr(p, "flag_value", None) else f" {meta}"
+                parts.append(f"[{name}{val}]")
+            else:  # positional argument
+                u = p.name.upper()
+                parts.append(u if p.required else f"[{u}]")
+        return (" " + " ".join(parts)) if parts else ""
+
+    def _walk(cmd, prefix):
+        if not hasattr(cmd, "commands"):
+            return
+        items = sorted(cmd.commands.items())
+        for i, (name, sub) in enumerate(items):
+            last = i == len(items) - 1
+            branch = "`-- " if last else "|-- "
+            typer.echo(f"{prefix}{branch}{name}{_usage_params(sub)}")
+            _walk(sub, prefix + ("    " if last else "|   "))
+
+    typer.echo("opal-look-cli")
+    _walk(root, "")
 
 
 def main() -> None:

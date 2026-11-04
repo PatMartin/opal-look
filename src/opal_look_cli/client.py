@@ -27,6 +27,9 @@ class ApiClient:
     def get(self, path: str, **kwargs) -> httpx.Response:
         return self.request("GET", path, **kwargs)
 
+    def stream(self, method: str, path: str, **kwargs):
+        return self._client.stream(method, path, **kwargs)
+
     def etag_for(self, path: str) -> str:
         resp = self.get(path)
         return resp.headers.get("etag", '"*"')

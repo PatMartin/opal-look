@@ -11,16 +11,21 @@ from ..dependencies import StoreDep
 from ..errors import ApiError
 from ..precondition import check_if_match, require_if_match
 from ..refs import nonterminal_sessions_referencing
-from ..schemas import IDENTIFIER_PATTERN, SourceCreate, SourcePatch, reject_null_fields
+from ..schemas import (CaptureRequest, IDENTIFIER_PATTERN, SourceCreate,
+                       SourcePatch, reject_null_fields)
 from ..sources import (
     check_locator,
     check_source_options,
     discover_cameras,
     missing_reference,
+    probe,
     source_read,
     validate_source,
 )
 from ..store import Store
+from ..timeutil import iso, now_iso, parse_iso
+from datetime import timedelta
+from pathlib import Path
 
 router = APIRouter()
 
@@ -612,3 +617,115 @@ async def get_api_v1_sources_source_id_observations_stream(
                     viewers[source_id] = max(0, viewers.get(source_id, 1) - 1)
 
     return StreamingResponse(events(), media_type="text/event-stream")
+
+
+# -- v1.5 exact-frame capture into unified Media (step 17) ----------------------
+
+@router.post("/api/v1/sources/{source_id}/capture", status_code=201)
+def post_api_v1_sources_source_id_capture(
+    request: Request, store: StoreDep, source_id: str, body: CaptureRequest
+):
+    """Retain the exact current frame as Media(kind=snapshot, origin=capture)."""
+    from ..analysis import _grab_live_frame
+    from ..correlation import current_ids
+    from ..engines import ENGINE_REGISTRY, model_runtime
+    from ..media import create_media, media_read
+    from ..pipeline_exec import _annotate, _stage_list, run_pipeline
+    from ..settings import effective_settings
+
+    row = _get_source_or_404(store, source_id)
+    kind = row["type"]
+    if not row["enabled"]:
+        raise ApiError(503, "Source is disabled.")
+
+    app_settings = effective_settings(store)
+
+    # exact frame: freshly grabbed/decoded -- never a substituted cache frame
+    if kind in ("rtsp", "http", "camera"):
+        probed = probe(store, row)
+        if not probed["available"]:
+            raise ApiError(503, f"Source {source_id!r} is unavailable.")
+        image = _grab_live_frame(row)
+    elif kind == "media":
+        mrow = store.media.get(row["locator"])
+        if mrow is None or _expired_row(mrow):
+            raise ApiError(503, f"Source {source_id!r} is unavailable.")
+        image = _decode_bytes(Path(mrow["path"]).read_bytes(),
+                              app_settings.max_image_pixels)
+    elif kind in ("file", "image"):
+        image = _decode_bytes(Path(row["locator"]).read_bytes(),
+                              app_settings.max_image_pixels)
+    else:
+        raise ApiError(422, f"Source kind {kind!r} cannot be captured.")
+    if image.width * image.height > app_settings.max_image_pixels:
+        raise ApiError(413, "Decoded image exceeds the configured pixel limit.")
+
+    pipeline_row = None
+    if body.pipeline_id is not None:
+        pipeline_row = store.pipelines.get(body.pipeline_id)
+        if pipeline_row is None:
+            raise ApiError(404, f"Unknown pipeline: {body.pipeline_id!r}")
+        for st in _stage_list(store, pipeline_row):
+            if st.kind != "inference":
+                continue
+            mrow = store.models.get(st.model_id)
+            if mrow is None:
+                raise ApiError(422, f"Pipeline stage {st.id!r}: model "
+                                    f"{st.model_id!r} is not registered.")
+            rt = model_runtime(store, mrow)
+            if not rt["enabled"] or not rt["available"]:
+                raise ApiError(503, f"Pipeline stage {st.id!r}: model "
+                                    f"{st.model_id!r} is unavailable.")
+            if st.task not in rt["tasks"]:
+                raise ApiError(422, f"Pipeline stage {st.id!r}: task "
+                                    f"{st.task!r} unsupported by model.")
+    elif body.annotated:
+        raise ApiError(422, "annotated capture requires a pipeline_id.")
+
+    ttl = body.ttl_seconds or int(app_settings.media_retention_hours * 3600)
+    cap = int(app_settings.media_retention_hours * 3600)
+    if ttl > cap:
+        raise ApiError(422, f"ttl_seconds {ttl} exceeds the configured cap {cap}.")
+    expires_at = iso(parse_iso(now_iso()) + timedelta(seconds=ttl))
+
+    out_image = image
+    if pipeline_row is not None and (body.annotated or True):
+        ids = current_ids()
+        result = run_pipeline(
+            store, pipeline_row, image, source_id=source_id, media_id=None,
+            frame_index=None, transaction_id=ids.transaction_id,
+            request_id=ids.request_id, motion_states=None)
+        if body.annotated:
+            from ..schemas import AnnotationOptions as _AO
+            out_image = image.copy()
+            warns: list = []
+            _annotate(out_image, result["observations"], _AO(), warns)
+
+    import io as _io
+    buf = _io.BytesIO()
+    out_image.convert("RGB").save(buf, format="JPEG", quality=90)
+    media_id = create_media(
+        store, buf.getvalue(), kind="snapshot", origin="capture",
+        filename=f"snapshot-{source_id}.jpg", content_type="image/jpeg",
+        source_id=source_id, annotated=body.annotated,
+        width=out_image.width, height=out_image.height,
+        expires_at=expires_at)
+    mrow = store.media.get(media_id)
+    from fastapi.responses import JSONResponse as _JR
+    return _JR(media_read(mrow), status_code=201,
+               headers={"Location": f"/api/v1/media/{media_id}"})
+
+
+def _expired_row(row) -> bool:
+    from ..media import is_expired
+    return is_expired(row)
+
+
+def _decode_bytes(data: bytes, max_pixels: int):
+    import io as _io
+    from PIL import Image, ImageOps
+    try:
+        img = ImageOps.exif_transpose(Image.open(_io.BytesIO(data))).convert("RGB")
+    except Exception:
+        raise ApiError(422, "Source bytes could not be decoded.")
+    return img

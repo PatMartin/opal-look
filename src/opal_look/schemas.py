@@ -434,3 +434,19 @@ class ImageAnalyzeOptions(BaseModel):
             if getattr(self, name) is None:
                 raise ValueError(f"explicit null is not allowed for {name}")
         return self
+
+
+class CaptureRequest(BaseModel):
+    """v1.5 POST /sources/{id}/capture: always retains one exact frame."""
+    model_config = ConfigDict(strict=True, extra="forbid")
+
+    pipeline_id: str | None = Field(default=None, pattern=IDENTIFIER_PATTERN)
+    annotated: bool = Field(default=False)
+    ttl_seconds: int | None = Field(default=None, ge=1)
+
+    @model_validator(mode="after")
+    def _no_explicit_nulls(self) -> "CaptureRequest":
+        for name in self.model_fields_set:
+            if getattr(self, name) is None:
+                raise ValueError(f"explicit null is not allowed for {name}")
+        return self

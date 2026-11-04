@@ -584,3 +584,76 @@ def test_media_upload_shape_keys(client):
     mid = _up_media(client)
     page = client.get("/api/v1/media/").json()
     assert set(page) >= {"items", "next_cursor", "has_more"}
+
+
+# -- exact-frame capture (step 17) ----------------------------------------------
+
+def test_capture_snapshot_media(client, fake_rtsp):
+    client.post("/api/v1/sources/", json=RTSP, headers={"If-Match": "*"})
+    resp = client.post("/api/v1/sources/cam/capture", json={},
+                       headers={"If-Match": "*"})
+    assert resp.status_code == 201
+    body = resp.json()
+    assert body["kind"] == "snapshot" and body["origin"] == "capture"
+    assert body["source_id"] == "cam"
+    assert body["mime_type"] == "image/jpeg"
+    assert body["annotated"] is False
+    assert body["id"].startswith("media-")
+    assert resp.headers["location"].endswith(body["id"])
+    # content retrieval returns a decodable JPEG
+    r2 = client.get(f"/api/v1/media/{body['id']}/content")
+    assert r2.status_code == 200
+    import io
+    from PIL import Image
+    img = Image.open(io.BytesIO(r2.content))
+    assert img.format == "JPEG"
+
+
+def test_capture_annotated_pipeline(client, fake_rtsp):
+    client.post("/api/v1/sources/", json=RTSP, headers={"If-Match": "*"})
+    _mk_pipe(client)
+    resp = client.post("/api/v1/sources/cam/capture",
+                       json={"pipeline_id": "p", "annotated": True},
+                       headers={"If-Match": "*"})
+    assert resp.status_code == 201
+    assert resp.json()["annotated"] is True
+
+
+def test_capture_annotated_without_pipeline_422(client, fake_rtsp):
+    client.post("/api/v1/sources/", json=RTSP, headers={"If-Match": "*"})
+    resp = client.post("/api/v1/sources/cam/capture",
+                       json={"annotated": True}, headers={"If-Match": "*"})
+    assert resp.status_code == 422
+
+
+def test_capture_unknown_pipeline_404(client, fake_rtsp):
+    client.post("/api/v1/sources/", json=RTSP, headers={"If-Match": "*"})
+    assert client.post("/api/v1/sources/cam/capture",
+                       json={"pipeline_id": "ghost"},
+                       headers={"If-Match": "*"}).status_code == 404
+
+
+def test_capture_unknown_source_404(client):
+    assert client.post("/api/v1/sources/nope/capture", json={},
+                       headers={"If-Match": "*"}).status_code == 404
+
+
+def test_capture_disabled_source_503(client, fake_rtsp):
+    client.post("/api/v1/sources/", json={**RTSP, "enabled": False},
+                headers={"If-Match": "*"})
+    assert client.post("/api/v1/sources/cam/capture", json={},
+                       headers={"If-Match": "*"}).status_code == 503
+
+
+def test_capture_ttl_cap_422(client, fake_rtsp):
+    client.post("/api/v1/sources/", json=RTSP, headers={"If-Match": "*"})
+    assert client.post("/api/v1/sources/cam/capture",
+                       json={"ttl_seconds": 10**12},
+                       headers={"If-Match": "*"}).status_code == 422
+
+
+def test_capture_no_config_revision_bump(client, fake_rtsp):
+    client.post("/api/v1/sources/", json=RTSP, headers={"If-Match": "*"})
+    etag = client.get("/api/v1/settings/").headers["etag"]
+    client.post("/api/v1/sources/cam/capture", json={}, headers={"If-Match": "*"})
+    assert client.get("/api/v1/settings/").headers["etag"] == etag

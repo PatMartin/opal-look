@@ -514,3 +514,47 @@ class MonitorPatch(BaseModel):
                 if c.event in ("enters_zone", "exits_zone", "line_crosses")                         and not c.zone_id:
                     raise ValueError(f"condition {c.id!r}: zone_id is required")
         return self
+
+
+# -- jobs (v1.5) ---------------------------------------------------------------
+
+class MediaRange(BaseModel):
+    model_config = ConfigDict(strict=True, extra="forbid")
+    start_ms: int = Field(ge=0)
+    end_ms: int = Field(ge=0)
+
+    @model_validator(mode="after")
+    def _end_after_start(self) -> "MediaRange":
+        if self.end_ms <= self.start_ms:
+            raise ValueError("end_ms must be greater than start_ms")
+        return self
+
+
+class ExportOptions(BaseModel):
+    model_config = ConfigDict(strict=True, extra="forbid")
+    format: Literal["mp4", "webm", "jpeg", "png"] = "jpeg"
+    annotated: bool = Field(default=False)
+    include_audio: bool = Field(default=False)
+    quality: int | None = Field(default=None, ge=1, le=100)
+
+
+class JobCreate(BaseModel):
+    """v1.5 JobCreate: exactly one of source_id/media_id."""
+    model_config = ConfigDict(strict=True, extra="forbid")
+
+    kind: Literal["video_analysis", "media_export"]
+    source_id: str | None = Field(default=None, pattern=IDENTIFIER_PATTERN)
+    media_id: str | None = Field(default=None, pattern=IDENTIFIER_PATTERN)
+    pipeline_id: str | None = Field(default=None, pattern=IDENTIFIER_PATTERN)
+    range: MediaRange | None = Field(default=None)
+    options: InferenceOptions | None = Field(default=None)
+    retention: RetentionOptions | None = Field(default=None)
+    output: ExportOptions | None = Field(default=None)
+
+    @model_validator(mode="after")
+    def _validate_shape(self) -> "JobCreate":
+        if (self.source_id is None) == (self.media_id is None):
+            raise ValueError("exactly one of source_id or media_id is required")
+        if self.kind == "media_export" and self.output is None:
+            raise ValueError("media_export requires output options")
+        return self

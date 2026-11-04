@@ -19,6 +19,7 @@ from .repositories import (
     SqliteMediaRepository,
     SqliteMetaRepository,
     SqliteModelRepository,
+    SqliteJobRepository,
     SqliteMonitorRepository,
     SqliteObservationRepository,
     SqlitePipelineRepository,
@@ -82,6 +83,7 @@ class Store:
         self.pipelines = SqlitePipelineRepository(self._conn)
         self.observations = SqliteObservationRepository(self._conn)
         self.monitors = SqliteMonitorRepository(self._conn)
+        self.jobs = SqliteJobRepository(self._conn)
         self.sources = SqliteSourceRepository(self._conn)
         self.profiles = SqliteProfileRepository(self._conn)
         self.media = SqliteMediaRepository(self._conn)
@@ -143,6 +145,20 @@ class Store:
                 labels TEXT NOT NULL DEFAULT '[]',
                 expires_at TEXT,
                 body TEXT NOT NULL
+            );
+            CREATE TABLE IF NOT EXISTS jobs (
+                job_id TEXT PRIMARY KEY,
+                kind TEXT NOT NULL,
+                source_id TEXT,
+                media_id TEXT,
+                payload_json TEXT NOT NULL,
+                state TEXT NOT NULL DEFAULT 'queued',
+                progress REAL NOT NULL DEFAULT 0,
+                media_ids TEXT NOT NULL DEFAULT '[]',
+                failure TEXT,
+                created_at TEXT NOT NULL,
+                started_at TEXT,
+                ended_at TEXT
             );
             CREATE TABLE IF NOT EXISTS monitors (
                 monitor_id TEXT PRIMARY KEY,

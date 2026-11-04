@@ -5,6 +5,7 @@ from .engines import EngineRepository, SqliteEngineRepository
 from .media import MediaRepository, SqliteMediaRepository
 from .meta import MetaRepository, SqliteMetaRepository, new_revision
 from .models import ModelRepository, SqliteModelRepository
+from .jobs import JobRepository, SqliteJobRepository
 from .monitors import MonitorRepository, SqliteMonitorRepository
 from .observations import ObservationRepository, SqliteObservationRepository
 from .pipelines import PipelineRepository, SqlitePipelineRepository
@@ -20,6 +21,7 @@ __all__ = [
     "MediaRepository",
     "MetaRepository",
     "ModelRepository",
+    "JobRepository",
     "MonitorRepository",
     "ObservationRepository",
     "PipelineRepository",
@@ -33,6 +35,7 @@ __all__ = [
     "SqliteMediaRepository",
     "SqliteMetaRepository",
     "SqliteModelRepository",
+    "SqliteJobRepository",
     "SqliteMonitorRepository",
     "SqliteObservationRepository",
     "SqlitePipelineRepository",

@@ -46,6 +46,7 @@ class ServiceSettings(BaseModel):
     event_queue_capacity: int = Field(default=256, ge=1)
     max_viewers: int = Field(default=8, ge=1)
     max_monitors: int = Field(default=8, ge=1)
+    max_jobs: int = Field(default=4, ge=1)
     default_pipeline_id: str | None = Field(default=None)
 
     @field_validator("event_topics_allowlist")
@@ -77,6 +78,7 @@ class ServiceSettingsPatch(BaseModel):
     event_queue_capacity: int | None = Field(default=None, ge=1)
     max_viewers: int | None = Field(default=None, ge=1)
     max_monitors: int | None = Field(default=None, ge=1)
+    max_jobs: int | None = Field(default=None, ge=1)
     default_pipeline_id: str | None = Field(default=None)
 
     @field_validator("event_topics_allowlist")

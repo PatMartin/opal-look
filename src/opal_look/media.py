@@ -14,7 +14,7 @@ from pathlib import Path
 from typing import Any
 
 from .errors import ApiError
-from .timeutil import expired, now_iso
+from .timeutil import expired, iso, now_iso
 
 _IMAGE_MAGIC = {b"\xff\xd8\xff": "image/jpeg", b"\x89PNG\r\n\x1a\n": "image/png"}
 
@@ -101,6 +101,12 @@ def create_media(store, data: bytes, *, kind: str, origin: str,
     media_id = f"media-{_secrets.token_hex(8)}"
     path = media_dir(store.data_dir) / media_id
     path.write_bytes(data)
+    if expires_at is None:
+        from .settings import effective_settings
+        from datetime import timedelta as _td
+        from .timeutil import parse_iso as _parse
+        ttl = int(effective_settings(store).media_retention_hours * 3600)
+        expires_at = iso(_parse(now_iso()) + _td(seconds=ttl))
     store.media.insert({
         "media_id": media_id, "filename": sanitize_filename(filename),
         "kind": kind,

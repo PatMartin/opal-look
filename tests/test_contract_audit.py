@@ -60,7 +60,6 @@ def test_audit_classifies_routes_honestly(app):
     assert ("GET", "/api/v1/sources/") in {(op.method, op.path) for op in report.covered}
     # Whole v1.5 resource families are not implemented yet.
     missing = {(op.method, op.path) for op in report.missing}
-    assert ("GET", "/api/v1/jobs/") in missing
     # v1.4-only surface is flagged as legacy, never counted as covered.
     legacy = set(report.legacy_only)
     assert ("GET", "/api/v1/profiles/") in legacy

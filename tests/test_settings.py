@@ -25,6 +25,7 @@ DEFAULTS = {
     "default_pipeline_id": None,
 "max_viewers": 8,
     "max_monitors": 8,
+    "max_jobs": 4,
 }
 
 

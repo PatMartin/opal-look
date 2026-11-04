@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import time
 
 
@@ -320,4 +321,100 @@ def test_sse_bounded_log(client, fake_rtsp):
     runtime = client.app.state.monitor_runtimes["m1"]
     assert _wait_events(runtime, 1)
     assert runtime.event_log.maxlen == 256
+    client.delete("/api/v1/monitors/m1", headers={"If-Match": "*"})
+
+
+# -- monitor event publishing (step 21) ------------------------------------------
+
+class _FakePublisher:
+    def __init__(self):
+        self.published_events = []
+        self.dropped = 0
+
+    def publish(self, topic, session_id, data):
+        self.published_events.append((topic, session_id, data))
+
+    def stats(self):
+        return {"published": len(self.published_events), "dropped": 0,
+                "rate_limited": 0, "queue_depth": 0}
+
+    def close(self):
+        pass
+
+
+def _setup_events(client, fake_rtsp, publish_events=True):
+    fake_rtsp.frames_per_open = [None]
+    fake_rtsp.frame_delay = 0.02
+    _setup(client)
+    # provision a fake transport, then enable events through the endpoint
+    client.app.state.event_transport = "inproc://fake"
+    client.put("/api/v1/settings/events_enabled",
+               json={"value": True}, headers={"If-Match": "*"})
+    client.put("/api/v1/settings/event_topics_allowlist",
+               json={"value": ["opal.look.condition.matched"]},
+               headers={"If-Match": "*"})
+    client.app.state.event_publisher = _FakePublisher()
+    client.post("/api/v1/monitors/", json={
+        **MON, "publish_events": publish_events,
+        "conditions": [{"id": "c1", "event": "object_appears"}]},
+        headers={"If-Match": "*"})
+
+
+def test_monitor_publishes_condition_events(client, fake_rtsp):
+    _setup_events(client, fake_rtsp)
+    _wait_state(client, "m1", "running")
+    pub = client.app.state.event_publisher
+    deadline = time.time() + 5
+    while time.time() < deadline and not pub.published_events:
+        time.sleep(0.05)
+    client.delete("/api/v1/monitors/m1", headers={"If-Match": "*"})
+    assert pub.published_events
+    topic, sid, data = pub.published_events[0]
+    assert topic == "opal.look.condition.matched"
+    assert data["monitor_id"] == "m1"
+    assert data["event"] == "object_appears"
+    assert data["metadata"]["transaction_id"]
+    # no credentials / locator / raw frames in the payload
+    blob = json.dumps(data)
+    assert "rtsp://" not in blob and "locator" not in blob
+
+
+def test_monitor_publish_disabled_no_events(client, fake_rtsp):
+    _setup_events(client, fake_rtsp, publish_events=False)
+    _wait_state(client, "m1", "running")
+    time.sleep(0.2)
+    pub = client.app.state.event_publisher
+    client.delete("/api/v1/monitors/m1", headers={"If-Match": "*"})
+    assert pub.published_events == []
+
+
+def test_monitor_publish_events_disabled_globally(client, fake_rtsp):
+    fake_rtsp.frames_per_open = [None]
+    fake_rtsp.frame_delay = 0.02
+    _setup(client)
+    client.app.state.event_publisher = _FakePublisher()
+    client.post("/api/v1/monitors/", json={
+        **MON, "publish_events": True,
+        "conditions": [{"id": "c1", "event": "object_appears"}]},
+        headers={"If-Match": "*"})
+    _wait_state(client, "m1", "running")
+    time.sleep(0.2)
+    pub = client.app.state.event_publisher
+    client.delete("/api/v1/monitors/m1", headers={"If-Match": "*"})
+    # events_enabled=false -> publish_event drops before reaching publisher
+    assert pub.published_events == []
+
+
+def test_monitor_publish_failure_never_breaks(client, fake_rtsp):
+    _setup_events(client, fake_rtsp)
+
+    class _BadPublisher(_FakePublisher):
+        def publish(self, topic, session_id, data):
+            raise RuntimeError("broker down")
+
+    client.app.state.event_publisher = _BadPublisher()
+    _wait_state(client, "m1", "running")
+    time.sleep(0.2)
+    # worker stays alive through broker failures
+    assert client.get("/api/v1/monitors/m1").json()["state"] == "running"
     client.delete("/api/v1/monitors/m1", headers={"If-Match": "*"})

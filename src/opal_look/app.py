@@ -73,7 +73,7 @@ def create_app(
     app.state.swept = sweep_expired(app.state.store)
     from .monitors import recover_monitors
     app.state.recovered_monitors = recover_monitors(
-        app.state.store, app.state.monitor_runtimes)
+        app.state.store, app.state.monitor_runtimes, app)
     load_plugin_adapters()
     load_capture_plugins()
     ensure_engines(app.state.store)

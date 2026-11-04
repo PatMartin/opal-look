@@ -68,7 +68,7 @@ def post_api_v1_monitors(request: Request, store: StoreDep, body: MonitorCreate)
         })
         store.bump_revision()
     if body.enabled:
-        start_monitor(store, request.app.state.monitor_runtimes, body.id)
+        start_monitor(store, request.app.state.monitor_runtimes, body.id, request.app)
     row = store.monitors.get(body.id)
     return monitor_read(store, row, _runtime(request, body.id))
 
@@ -123,7 +123,7 @@ def patch_api_v1_monitors_monitor_id(
     # apply desired-state changes to the worker
     row = store.monitors.get(monitor_id)
     if row["enabled"]:
-        start_monitor(store, request.app.state.monitor_runtimes, monitor_id)
+        start_monitor(store, request.app.state.monitor_runtimes, monitor_id, request.app)
     else:
         stop_monitor(request.app.state.monitor_runtimes, monitor_id)
     return monitor_read(store, row, _runtime(request, monitor_id))

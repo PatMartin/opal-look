@@ -19,6 +19,9 @@ Topic = Literal[
     "opal.look.session.completed",
     "opal.look.session.failed",
     "opal.look.analysis.completed",
+    "opal.look.observation",
+    "opal.look.condition.matched",
+    "opal.look.monitor.failed",
 ]
 
 

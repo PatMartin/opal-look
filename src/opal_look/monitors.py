@@ -44,9 +44,9 @@ def monitor_read(store, row: sqlite3.Row, runtime=None) -> dict[str, Any]:
         "pipeline_id": row["pipeline_id"],
         "enabled": enabled,
         "restart_policy": row["restart_policy"],
-        "options": json.loads(row["options"]),
-        "retention": json.loads(row["retention"]),
-        "conditions": json.loads(row["conditions"]),
+        "options": json.loads(row["options"] or "null"),
+        "retention": json.loads(row["retention"] or "null"),
+        "conditions": json.loads(row["conditions"] or "[]"),
         "publish_events": bool(row["publish_events"]),
         "state": state,
         "created_at": row["created_at"],
@@ -58,9 +58,10 @@ def monitor_read(store, row: sqlite3.Row, runtime=None) -> dict[str, Any]:
 class MonitorRuntime:
     """Per-monitor in-process runtime: worker thread + observation buffer."""
 
-    def __init__(self, store, monitor_id: str) -> None:
+    def __init__(self, store, monitor_id: str, app=None) -> None:
         self.store = store
         self.monitor_id = monitor_id
+        self._app = app
         self.alive = False
         self.observations: deque = deque(maxlen=_OBS_BUFFER_MAX)
         self.condition_events: deque = deque(maxlen=_OBS_BUFFER_MAX)
@@ -90,6 +91,9 @@ class MonitorRuntime:
         self._stop.set()
         self.updated.set()
         self.alive = False
+        t = self._thread
+        if t is not None and t.is_alive() and t is not threading.current_thread():
+            t.join(timeout=5.0)
 
     def _safe_update(self, fields) -> None:
         if self._stop.is_set():
@@ -105,6 +109,17 @@ class MonitorRuntime:
             "code": "monitor_failed", "message": message,
             "request_id": None, "transaction_id": None})})
         self.updated.set()
+        try:
+            row = self.store.monitors.get(self.monitor_id)
+            if (row is not None and row["publish_events"]
+                    and self._app is not None):
+                from .events import publish_event
+                publish_event(
+                    self._app, self.store, "opal.look.monitor.failed",
+                    None, {"monitor_id": self.monitor_id,
+                           "code": "monitor_failed", "message": message})
+        except Exception:
+            pass  # publish failure never breaks the worker
 
     def _run(self) -> None:
         from .capture import (CaptureError, CredentialUnavailable,
@@ -113,6 +128,8 @@ class MonitorRuntime:
         from .errors import ApiError
 
         try:
+            if self._stop.is_set():
+                return
             row = self.store.monitors.get(self.monitor_id)
             if row is None or not row["enabled"]:
                 return
@@ -143,7 +160,7 @@ class MonitorRuntime:
 
             pump = LiveFramePump(stream).start()
             motion_states: dict = {}
-            retention = json.loads(row["retention"] or "{}")
+            retention = json.loads(row["retention"] or "null") or {}
             self.alive = True
             self._restarts = 0
             try:
@@ -187,6 +204,25 @@ class MonitorRuntime:
                             ev["monitor_id"] = self.monitor_id
                             self.condition_events.append(ev)
                             self.emit("condition_match", ev)
+                            if row["publish_events"] and self._app is not None:
+                                try:
+                                    from .events import publish_event
+                                    publish_event(
+                                        self._app, self.store,
+                                        "opal.look.condition.matched",
+                                        None, {
+                                            "monitor_id": self.monitor_id,
+                                            "source_id": row["source_id"],
+                                            "condition_id": ev["monitor_condition"],
+                                            "event": ev["event"],
+                                            "zone_id": ev.get("zone_id"),
+                                            "metadata": {
+                                                "transaction_id": self.monitor_id,
+                                                "request_id": self.monitor_id,
+                                            },
+                                        })
+                                except Exception:
+                                    pass  # publish failure never breaks inference
                             if _cond_by_id(row, ev["monitor_condition"]).capture_on_match:
                                 try:
                                     import io as _io
@@ -240,10 +276,11 @@ class MonitorRuntime:
             self.start()
 
 
-def start_monitor(store, runtime_registry: dict, monitor_id: str) -> None:
+def start_monitor(store, runtime_registry: dict, monitor_id: str,
+                  app=None) -> None:
     runtime = runtime_registry.get(monitor_id)
     if runtime is None:
-        runtime = MonitorRuntime(store, monitor_id)
+        runtime = MonitorRuntime(store, monitor_id, app)
         runtime_registry[monitor_id] = runtime
     runtime.start()
 
@@ -254,12 +291,12 @@ def stop_monitor(runtime_registry: dict, monitor_id: str) -> None:
         runtime.stop()
 
 
-def recover_monitors(store, runtime_registry: dict) -> list[str]:
+def recover_monitors(store, runtime_registry: dict, app=None) -> list[str]:
     """On startup: enabled monitors (re)start their workers."""
     started = []
     for row in store.monitors.list():
         if row["enabled"]:
-            start_monitor(store, runtime_registry, row["monitor_id"])
+            start_monitor(store, runtime_registry, row["monitor_id"], app)
             started.append(row["monitor_id"])
     return started
 

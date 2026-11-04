@@ -472,3 +472,143 @@ async def get_api_v1_sources_source_id_stream(
 
     return StreamingResponse(
         frames(), media_type="multipart/x-mixed-replace; boundary=frame")
+
+
+
+
+# -- v1.5 transient source observation SSE (step 15) ----------------------------
+
+@router.get("/api/v1/sources/{source_id}/observations/stream")
+async def get_api_v1_sources_source_id_observations_stream(
+    request: Request, store: StoreDep, source_id: str,
+    pipeline_id: str | None = None, target_fps: float | None = None,
+):
+    """Connection-scoped analyzed observations over SSE; transient, no replay."""
+    import asyncio
+    import json as _json
+
+    from fastapi.responses import StreamingResponse
+
+    from ..capture import (
+        CaptureError, CredentialUnavailable, LiveFramePump,
+        capture_adapter_for, credentialed_locator,
+    )
+    from ..correlation import current_ids
+    from ..engines import ENGINE_REGISTRY, model_runtime
+    from ..pipeline_exec import _stage_list, run_pipeline
+    from ..settings import effective_settings
+
+    row = _get_source_or_404(store, source_id)
+    app_settings = effective_settings(store)
+    pid = pipeline_id or app_settings.default_pipeline_id
+    if pid is None:
+        raise ApiError(422, "pipeline_id is required when "
+                            "settings.default_pipeline_id is not configured.")
+    pipeline_row = store.pipelines.get(pid)
+    if pipeline_row is None:
+        raise ApiError(404, f"Unknown pipeline: {pid!r}")
+    for st in _stage_list(store, pipeline_row):
+        if st.kind != "inference":
+            continue
+        mrow = store.models.get(st.model_id)
+        if mrow is None:
+            raise ApiError(422, f"Pipeline stage {st.id!r}: model "
+                                f"{st.model_id!r} is not registered.")
+        rt = model_runtime(store, mrow)
+        if not rt["enabled"] or not rt["available"]:
+            raise ApiError(503, f"Pipeline stage {st.id!r}: model "
+                                f"{st.model_id!r} is unavailable.")
+        if st.task not in rt["tasks"]:
+            raise ApiError(422, f"Pipeline stage {st.id!r}: task "
+                                f"{st.task!r} unsupported by model.")
+        if ENGINE_REGISTRY.get(rt["engine_id"]) is None:
+            raise ApiError(503, f"Pipeline stage {st.id!r}: engine "
+                                f"{rt['engine_id']!r} is not installed.")
+
+    kind = row["type"]
+    if kind not in ("rtsp", "http", "camera"):
+        raise ApiError(422, f"Source kind {kind!r} is not a live stream.")
+    if not row["enabled"]:
+        raise ApiError(503, "Source is disabled.")
+    adapter = capture_adapter_for(kind)
+    if adapter is None:
+        raise ApiError(503, f"No capture adapter installed for {kind!r} sources.")
+    installed, message = adapter.installed()
+    if not installed:
+        raise ApiError(503, f"Capture backend unavailable: {message}")
+
+    viewers = request.app.state.viewer_counts
+    lock = request.app.state.viewer_lock
+    with lock:
+        if sum(viewers.values()) >= (app_settings.max_viewers or 8):
+            raise ApiError(429, "Viewer quota exceeded.", retryable=True)
+        viewers[source_id] = viewers.get(source_id, 0) + 1
+
+    try:
+        credentialed = credentialed_locator(row["locator"], row["credential_ref"])
+    except CredentialUnavailable as exc:
+        with lock:
+            viewers[source_id] = max(0, viewers.get(source_id, 1) - 1)
+        raise ApiError(503, f"Credential unavailable: {exc}")
+    try:
+        stream = adapter.open_stream(
+            row["locator"], json.loads(row["source_options"]), credentialed)
+    except CaptureError as exc:
+        with lock:
+            viewers[source_id] = max(0, viewers.get(source_id, 1) - 1)
+        raise ApiError(503, f"Could not open source stream: {exc}")
+
+    pump = LiveFramePump(stream).start()
+    fps = min(target_fps or app_settings.max_preview_fps,
+              app_settings.max_preview_fps)
+    ids = current_ids()
+    motion_states: dict = {}
+    frame_index = 0
+
+    async def events():
+        nonlocal frame_index
+        last_yield = 0.0
+        eid = 0
+        LF = chr(10)
+        try:
+            while True:
+                if await request.is_disconnected():
+                    break
+                try:
+                    frame = await asyncio.to_thread(pump.get, 15.0)
+                except Exception:
+                    break
+                if frame is None:
+                    break
+                now = asyncio.get_event_loop().time()
+                wait = (1.0 / fps) - (now - last_yield)
+                if wait > 0:
+                    await asyncio.sleep(wait)
+                frame_index += 1
+                try:
+                    result = await asyncio.to_thread(
+                        run_pipeline, store, pipeline_row, frame,
+                        source_id=source_id, media_id=None,
+                        frame_index=frame_index,
+                        transaction_id=ids.transaction_id,
+                        request_id=ids.request_id,
+                        motion_states=motion_states)
+                except ApiError:
+                    break
+                emitted = False
+                for obs in result["observations"]:
+                    eid += 1
+                    emitted = True
+                    yield ("id: " + str(eid) + LF + "event: observation" + LF
+                           + "data: " + _json.dumps(obs) + LF + LF)
+                if not emitted:
+                    yield ": heartbeat" + LF + LF
+                last_yield = asyncio.get_event_loop().time()
+        finally:
+            try:
+                pump.close()
+            finally:
+                with lock:
+                    viewers[source_id] = max(0, viewers.get(source_id, 1) - 1)
+
+    return StreamingResponse(events(), media_type="text/event-stream")

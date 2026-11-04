@@ -387,3 +387,108 @@ def test_stream_no_implicit_retention(client, fake_rtsp):
             break
     # viewers never persist observations even if the pipeline asks for it
     assert client.get("/api/v1/observations/").json()["items"] == []
+
+
+# -- transient observation SSE (step 15) ----------------------------------------
+
+def _mk_pipe(client, pid="p"):
+    client.post("/api/v1/pipelines/", json={
+        "id": pid, "name": "P", "model_id": "synthetic-vision",
+        "task": "detection"}, headers={"If-Match": "*"})
+
+
+def test_observe_sse_observation_events(client, fake_rtsp):
+    fake_rtsp.frames_per_open = [3]
+    fake_rtsp.frame_delay = 0.01
+    client.post("/api/v1/sources/", json=RTSP, headers={"If-Match": "*"})
+    _mk_pipe(client)
+    with client.stream("GET", "/api/v1/sources/cam/observations/stream",
+                       params={"pipeline_id": "p"}) as r:
+        assert r.status_code == 200
+        assert r.headers["content-type"].startswith("text/event-stream")
+        assert r.headers["x-opal-request-id"]
+        body = b""
+        for ch in r.iter_text():
+            body += ch.encode()
+            if b"event: observation" in body:
+                break
+    assert b"event: observation" in body
+    import json as _j
+    line = [ln for ln in body.decode().split(chr(10))
+            if ln.startswith("data: ")][0]
+    obs = _j.loads(line[6:])
+    assert obs["pipeline_id"] == "p"
+    assert obs["source_id"] == "cam"
+    assert obs["task"] == "detection"
+    assert isinstance(obs["items"], list)
+
+
+def test_observe_no_pipeline_no_default_422(client, fake_rtsp):
+    client.post("/api/v1/sources/", json=RTSP, headers={"If-Match": "*"})
+    assert client.get("/api/v1/sources/cam/observations/stream"
+                      ).status_code == 422
+
+
+def test_observe_default_pipeline_resolves(client, fake_rtsp):
+    fake_rtsp.frames_per_open = [2]
+    fake_rtsp.frame_delay = 0.01
+    client.post("/api/v1/sources/", json=RTSP, headers={"If-Match": "*"})
+    _mk_pipe(client)
+    client.put("/api/v1/settings/default_pipeline_id",
+               json={"value": "p"}, headers={"If-Match": "*"})
+    with client.stream("GET", "/api/v1/sources/cam/observations/stream") as r:
+        assert r.status_code == 200
+
+
+def test_observe_unknown_pipeline_404(client, fake_rtsp):
+    client.post("/api/v1/sources/", json=RTSP, headers={"If-Match": "*"})
+    assert client.get("/api/v1/sources/cam/observations/stream",
+                      params={"pipeline_id": "ghost"}).status_code == 404
+
+
+def test_observe_finite_kind_422(client):
+    client.post("/api/v1/sources/", json={
+        "id": "img", "name": "I", "kind": "image", "locator": "/x.png"},
+        headers={"If-Match": "*"})
+    _mk_pipe(client)
+    assert client.get("/api/v1/sources/img/observations/stream",
+                      params={"pipeline_id": "p"}).status_code == 422
+
+
+def test_observe_engine_down_503(client, fake_rtsp):
+    client.post("/api/v1/sources/", json=RTSP, headers={"If-Match": "*"})
+    _mk_pipe(client)
+    client.patch("/api/v1/engines/synthetic", json={"enabled": False},
+                 headers={"If-Match": "*"})
+    assert client.get("/api/v1/sources/cam/observations/stream",
+                      params={"pipeline_id": "p"}).status_code == 503
+
+
+def test_observe_releases_on_disconnect(client, fake_rtsp):
+    fake_rtsp.frames_per_open = [None]
+    fake_rtsp.frame_delay = 0.01
+    client.post("/api/v1/sources/", json=RTSP, headers={"If-Match": "*"})
+    _mk_pipe(client)
+    with client.stream("GET", "/api/v1/sources/cam/observations/stream",
+                       params={"pipeline_id": "p"}) as r:
+        next(r.iter_text(), "")
+    # reconnect works immediately -> slot released
+    with client.stream("GET", "/api/v1/sources/cam/observations/stream",
+                       params={"pipeline_id": "p"}) as r2:
+        assert r2.status_code == 200
+
+
+def test_observe_no_persistence(client, fake_rtsp):
+    fake_rtsp.frames_per_open = [2]
+    fake_rtsp.frame_delay = 0.01
+    client.post("/api/v1/sources/", json=RTSP, headers={"If-Match": "*"})
+    _mk_pipe(client)
+    client.post("/api/v1/pipelines/p", headers={"If-Match": "*"})
+    with client.stream("GET", "/api/v1/sources/cam/observations/stream",
+                       params={"pipeline_id": "p"}) as r:
+        body = b""
+        for ch in r.iter_text():
+            body += ch.encode()
+            if b"observation" in body:
+                break
+    assert client.get("/api/v1/observations/").json()["items"] == []

@@ -34,8 +34,8 @@ class SqliteSourceRepository:
 
     def insert(self, fields: dict[str, Any]) -> None:
         self._conn.execute(
-            "INSERT INTO sources (source_id, name, type, locator, credential_ref, enabled, source_options) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?)",
+            "INSERT INTO sources (source_id, name, type, locator, credential_ref, enabled, source_options, zones) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
             (
                 fields["source_id"],
                 fields["name"],
@@ -44,6 +44,7 @@ class SqliteSourceRepository:
                 fields.get("credential_ref"),
                 int(fields.get("enabled", True)),
                 json.dumps(fields.get("source_options") or {}),
+                json.dumps(fields.get("zones") or []),
             ),
         )
 
@@ -67,7 +68,7 @@ class SqliteSourceRepository:
 
 
 def _encode(value: Any) -> Any:
-    if isinstance(value, dict):
+    if isinstance(value, (dict, list)):
         return json.dumps(value)
     if isinstance(value, bool):
         return int(value)

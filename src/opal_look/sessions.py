@@ -16,7 +16,7 @@ from .capture import (
     StreamEnded,
     StreamError,
 )
-from .engines import ENGINE_REGISTRY, EngineUnavailable, model_read
+from .engines import ENGINE_REGISTRY, EngineUnavailable, model_runtime
 from .errors import ApiError
 from .media import is_expired as media_is_expired
 from .results import result_read
@@ -99,7 +99,7 @@ def _fail(store, session_id: str, code: str, message: str) -> None:
 async def _worker(app, store, session_id: str, sel, source_row, store_results: bool) -> None:
     runtime = app.state.session_runtimes.ensure(session_id)
     adapter = ENGINE_REGISTRY.get(sel.engine_id)
-    desc = model_read(store, sel.model_row)
+    desc = model_runtime(store, sel.model_row)
     store.sessions.update(session_id, {"state": "running", "started_at": now_iso()})
     _state_event(app, store, runtime, session_id, "running")
     frame_index = 0

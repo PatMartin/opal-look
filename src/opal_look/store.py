@@ -19,6 +19,11 @@ from .repositories import (
     SqliteMediaRepository,
     SqliteMetaRepository,
     SqliteModelRepository,
+    SqliteJobRepository,
+    SqliteRecordingRepository,
+    SqliteMonitorRepository,
+    SqliteObservationRepository,
+    SqlitePipelineRepository,
     SqliteProfileRepository,
     SqliteResultRepository,
     SqliteSessionRepository,
@@ -68,6 +73,7 @@ class Store:
         raw.row_factory = sqlite3.Row
         raw.execute("PRAGMA journal_mode=WAL")
         self._lock = threading.RLock()
+        self._txn_state = threading.local()
         self._conn = _LockedConnection(raw, self._lock)
         self._init_schema()
 
@@ -75,6 +81,11 @@ class Store:
         self.settings = SqliteSettingsRepository(self._conn)
         self.engines = SqliteEngineRepository(self._conn)
         self.models = SqliteModelRepository(self._conn)
+        self.pipelines = SqlitePipelineRepository(self._conn)
+        self.observations = SqliteObservationRepository(self._conn)
+        self.monitors = SqliteMonitorRepository(self._conn)
+        self.jobs = SqliteJobRepository(self._conn)
+        self.recordings = SqliteRecordingRepository(self._conn)
         self.sources = SqliteSourceRepository(self._conn)
         self.profiles = SqliteProfileRepository(self._conn)
         self.media = SqliteMediaRepository(self._conn)
@@ -106,7 +117,11 @@ class Store:
                 name TEXT NOT NULL,
                 engine_id TEXT NOT NULL,
                 resource TEXT NOT NULL,
-                enabled INTEGER NOT NULL DEFAULT 1
+                enabled INTEGER NOT NULL DEFAULT 1,
+                created_at TEXT NOT NULL DEFAULT '',
+                tasks TEXT NOT NULL DEFAULT '[]',
+                options TEXT NOT NULL DEFAULT '{}',
+                resource_ref TEXT
             );
             CREATE TABLE IF NOT EXISTS sources (
                 source_id TEXT PRIMARY KEY,
@@ -115,7 +130,81 @@ class Store:
                 locator TEXT NOT NULL,
                 credential_ref TEXT,
                 enabled INTEGER NOT NULL DEFAULT 1,
-                source_options TEXT NOT NULL DEFAULT '{}'
+                source_options TEXT NOT NULL DEFAULT '{}',
+                zones TEXT NOT NULL DEFAULT '[]'
+            );
+            CREATE TABLE IF NOT EXISTS observations (
+                observation_id TEXT PRIMARY KEY,
+                created_at TEXT NOT NULL,
+                observed_at TEXT NOT NULL,
+                source_id TEXT,
+                media_id TEXT,
+                monitor_id TEXT,
+                job_id TEXT,
+                pipeline_id TEXT,
+                stage_id TEXT,
+                task TEXT NOT NULL,
+                labels TEXT NOT NULL DEFAULT '[]',
+                expires_at TEXT,
+                body TEXT NOT NULL
+            );
+            CREATE TABLE IF NOT EXISTS recordings (
+                recording_id TEXT PRIMARY KEY,
+                source_id TEXT NOT NULL,
+                pipeline_id TEXT,
+                include_audio INTEGER NOT NULL DEFAULT 0,
+                max_duration_seconds INTEGER,
+                output_json TEXT NOT NULL DEFAULT 'null',
+                state TEXT NOT NULL DEFAULT 'starting',
+                media_id TEXT,
+                failure TEXT,
+                bytes_written INTEGER NOT NULL DEFAULT 0,
+                frames_written INTEGER NOT NULL DEFAULT 0,
+                created_at TEXT NOT NULL,
+                started_at TEXT,
+                finished_at TEXT
+            );
+            CREATE TABLE IF NOT EXISTS jobs (
+                job_id TEXT PRIMARY KEY,
+                kind TEXT NOT NULL,
+                source_id TEXT,
+                media_id TEXT,
+                payload_json TEXT NOT NULL,
+                state TEXT NOT NULL DEFAULT 'queued',
+                progress REAL NOT NULL DEFAULT 0,
+                media_ids TEXT NOT NULL DEFAULT '[]',
+                failure TEXT,
+                created_at TEXT NOT NULL,
+                started_at TEXT,
+                ended_at TEXT
+            );
+            CREATE TABLE IF NOT EXISTS monitors (
+                monitor_id TEXT PRIMARY KEY,
+                name TEXT NOT NULL,
+                source_id TEXT NOT NULL,
+                pipeline_id TEXT NOT NULL,
+                enabled INTEGER NOT NULL DEFAULT 1,
+                restart_policy TEXT NOT NULL DEFAULT 'on_failure',
+                options TEXT NOT NULL DEFAULT 'null',
+                retention TEXT NOT NULL DEFAULT 'null',
+                conditions TEXT NOT NULL DEFAULT '[]',
+                publish_events INTEGER NOT NULL DEFAULT 0,
+                created_at TEXT NOT NULL,
+                last_observation_at TEXT,
+                last_failure TEXT,
+                revision INTEGER NOT NULL DEFAULT 0
+            );
+            CREATE TABLE IF NOT EXISTS pipelines (
+                pipeline_id TEXT PRIMARY KEY,
+                name TEXT NOT NULL,
+                description TEXT,
+                model_id TEXT,
+                task TEXT,
+                stages TEXT NOT NULL DEFAULT '[]',
+                options TEXT NOT NULL DEFAULT '{}',
+                retention TEXT NOT NULL DEFAULT '{}',
+                revision INTEGER NOT NULL DEFAULT 1,
+                created_at TEXT NOT NULL
             );
             CREATE TABLE IF NOT EXISTS profiles (
                 profile_id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -129,6 +218,12 @@ class Store:
                 media_id TEXT PRIMARY KEY,
                 filename TEXT NOT NULL,
                 kind TEXT NOT NULL,
+                origin TEXT NOT NULL DEFAULT 'upload',
+                source_id TEXT,
+                job_id TEXT,
+                monitor_id TEXT,
+                annotated INTEGER NOT NULL DEFAULT 0,
+                sha256 TEXT,
                 content_type TEXT NOT NULL,
                 size_bytes INTEGER NOT NULL,
                 path TEXT NOT NULL,
@@ -202,12 +297,83 @@ class Store:
             );
             """
         )
+        self._migrate()
         if self._conn.execute(
             "SELECT value FROM meta WHERE key = 'config_revision'"
         ).fetchone() is None:
             self._conn.execute(
                 "INSERT INTO meta (key, value) VALUES ('config_revision', ?)",
                 (new_revision(),),
+            )
+
+    def _migrate(self) -> None:
+        """Idempotent column adds for pre-v1.5 databases."""
+        import json as _json
+
+        from .timeutil import now_iso
+
+        cols = {r["name"] for r in self._conn.execute("PRAGMA table_info(models)")}
+        for col, ddl in (
+            ("created_at", "TEXT NOT NULL DEFAULT ''"),
+            ("tasks", "TEXT NOT NULL DEFAULT '[]'"),
+            ("options", "TEXT NOT NULL DEFAULT '{}'"),
+            ("resource_ref", "TEXT"),
+        ):
+            if col not in cols:
+                self._conn.execute(f"ALTER TABLE models ADD COLUMN {col} {ddl}")
+        self._conn.execute("UPDATE models SET created_at = ? WHERE created_at = ''",
+                           (now_iso(),))
+        scols = {r["name"] for r in self._conn.execute("PRAGMA table_info(sources)")}
+        if "zones" not in scols:
+            self._conn.execute("ALTER TABLE sources ADD COLUMN zones TEXT NOT NULL DEFAULT '[]'")
+        self._conn.execute("UPDATE sources SET type = 'file' WHERE type = 'host_video'")
+        self._migrate_profiles_to_pipelines()
+        for row in self._conn.execute(
+            "SELECT model_id, resource FROM models WHERE resource_ref IS NULL"
+        ).fetchall():
+            res = _json.loads(row["resource"])
+            ref = res.get("ref") or res.get("path") or _json.dumps(res)
+            self._conn.execute(
+                "UPDATE models SET resource_ref = ? WHERE model_id = ?",
+                (ref, row["model_id"]),
+            )
+
+    def _migrate_profiles_to_pipelines(self) -> None:
+        """One-shot: profiles with model_id+task become simple pipelines.
+
+        Not all profile data maps onto pipelines (activation state, resolved
+        profile settings); only model_id/task/name plus engine options are
+        carried. Guarded by a meta flag so it runs exactly once.
+        """
+        import json as _json
+
+        from .timeutil import now_iso
+
+        row = self._conn.execute(
+            "SELECT value FROM meta WHERE key = 'profiles_migrated'"
+        ).fetchone()
+        if row is not None:
+            return
+        self._conn.execute(
+            "INSERT INTO meta (key, value) VALUES ('profiles_migrated', '1')"
+        )
+        for p in self._conn.execute(
+            "SELECT * FROM profiles WHERE model_id IS NOT NULL AND task IS NOT NULL"
+        ).fetchall():
+            pid = f"profile-{p['profile_id']}"
+            settings = _json.loads(p["settings"]) if p["settings"] else {}
+            opts = {k: v for k, v in {
+                "target_fps": settings.get("max_fps"),
+                "confidence_threshold": settings.get("confidence_threshold"),
+                "classes": settings.get("class_labels"),
+                "engine_options": settings.get("engine_options"),
+            }.items() if v is not None}
+            self._conn.execute(
+                "INSERT OR IGNORE INTO pipelines (pipeline_id, name, description, "
+                "model_id, task, stages, options, retention, revision, created_at) "
+                "VALUES (?, ?, ?, ?, ?, '[]', ?, '{}', 1, ?)",
+                (pid, p["name"], "migrated from profile", p["model_id"], p["task"],
+                 _json.dumps(opts), now_iso()),
             )
 
     def ping(self) -> bool:
@@ -219,16 +385,43 @@ class Store:
 
     @contextmanager
     def write_txn(self) -> Iterator["Store"]:
-        """Exclusive write transaction for atomic check-and-mutate."""
+        """Exclusive write transaction for atomic check-and-mutate.
+
+        Nestable: an inner write_txn on the same thread becomes a SAVEPOINT,
+        so service helpers may open their own unit of work inside a
+        handler-level transaction (e.g. an atomic check + multi-step import).
+        An inner failure rolls back only to its savepoint; an outer failure
+        rolls back everything. Transactions never nest across threads — the
+        store lock serializes them.
+        """
         with self._lock:
-            self._conn.execute("BEGIN IMMEDIATE")
-            try:
-                yield self
-            except BaseException:
-                self._conn.execute("ROLLBACK")
-                raise
+            depth = getattr(self._txn_state, "depth", 0)
+            if depth == 0:
+                self._txn_state.depth = 1
+                self._conn.execute("BEGIN IMMEDIATE")
+                try:
+                    yield self
+                except BaseException:
+                    self._conn.execute("ROLLBACK")
+                    raise
+                else:
+                    self._conn.execute("COMMIT")
+                finally:
+                    self._txn_state.depth = 0
             else:
-                self._conn.execute("COMMIT")
+                savepoint = f"opal_sp_{depth}"
+                self._txn_state.depth = depth + 1
+                self._conn.execute(f"SAVEPOINT {savepoint}")
+                try:
+                    yield self
+                except BaseException:
+                    self._conn.execute(f"ROLLBACK TO SAVEPOINT {savepoint}")
+                    self._conn.execute(f"RELEASE SAVEPOINT {savepoint}")
+                    raise
+                else:
+                    self._conn.execute(f"RELEASE SAVEPOINT {savepoint}")
+                finally:
+                    self._txn_state.depth = depth
 
     # Revision facade (cross-cutting; delegates to meta repository).
     def config_revision(self) -> str:
@@ -249,7 +442,8 @@ def sweep_expired(store: "Store") -> dict[str, int]:
     counts = {}
     now = now_iso()
     for table, col in (("media", "expires_at"), ("results", "expires_at"),
-                       ("snapshots", "expires_at"), ("idempotency_keys", "expires_at")):
+                       ("snapshots", "expires_at"), ("idempotency_keys", "expires_at"),
+                       ("observations", "expires_at")):
         cur = store._conn.execute(
             f"DELETE FROM {table} WHERE {col} IS NOT NULL AND {col} <= ?", (now,))
         counts[table] = cur.rowcount

@@ -9,9 +9,9 @@ from fastapi import APIRouter, Path, Request, Response
 from fastapi.responses import JSONResponse
 
 from ..dependencies import StoreDep
-from ..engines import model_read
+from ..engines import model_runtime
 from ..errors import ApiError
-from ..precondition import check_if_match
+from ..precondition import check_if_match, require_if_match
 from ..profiles import (
     profile_errors,
     profile_read,
@@ -100,7 +100,7 @@ def patch_api_v1_profiles_profile_id(
     supplied = patch.model_dump(exclude_unset=True)
     reject_null_fields(supplied)
 
-    check_if_match(request, store)
+    require_if_match(request)
     row = _get_profile_or_404(store, profile_id)
     task = supplied.get("task") or row["task"]
     model_id = supplied.get("model_id") or row["model_id"]
@@ -130,7 +130,7 @@ def delete_api_v1_profiles_profile_id(
     request: Request, response: Response, store: StoreDep,
     profile_id: int = Path(ge=1, le=9223372036854775807)
 ) -> None:
-    check_if_match(request, store)
+    require_if_match(request)
     row = _get_profile_or_404(store, profile_id)
     if row["active"]:
         raise ApiError(409, "Cannot delete the active profile; activate another first.")
@@ -162,7 +162,7 @@ def post_api_v1_profiles_profile_id_validate(
         "warnings": warnings,
         "details": {
             "model_id": read["model_id"],
-            "engine_id": model_read(store, model_row)["engine_id"],
+            "engine_id": model_runtime(store, model_row)["engine_id"],
             "task": read["task"],
         },
     }
@@ -173,7 +173,7 @@ def post_api_v1_profiles_profile_id_activate(
     request: Request, store: StoreDep,
     profile_id: int = Path(ge=1, le=9223372036854775807)
 ) -> JSONResponse:
-    check_if_match(request, store)
+    require_if_match(request)
     row = _get_profile_or_404(store, profile_id)
     read = profile_read(row)
     # Activation re-checks current compatibility; runtime unavailability is OK.

@@ -6,7 +6,7 @@ import json
 import sqlite3
 from typing import Any
 
-from .engines import ENGINE_REGISTRY, model_read
+from .engines import ENGINE_REGISTRY, model_runtime
 from .schemas import AnalysisSettings
 from .store import Store
 
@@ -40,7 +40,7 @@ def profile_errors(
     warnings cover current runtime unavailability."""
     errors: list[str] = []
     warnings: list[str] = []
-    read = model_read(store, model_row)
+    read = model_runtime(store, model_row)
     adapter = ENGINE_REGISTRY.get(read["engine_id"])
 
     if not read["enabled"]:

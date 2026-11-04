@@ -2,27 +2,25 @@ def test_list_engines_includes_synthetic(client):
     resp = client.get("/api/v1/engines/")
     assert resp.status_code == 200
     assert resp.headers["etag"].startswith('"')
-    engines = {e["engine_id"]: e for e in resp.json()}
+    engines = {e["id"]: e for e in resp.json()}
     assert "synthetic" in engines
     eng = engines["synthetic"]
-    assert eng["execution"] == "local"
     assert eng["enabled"] is True
-    assert eng["available"] is True
-    assert set(eng["capabilities"]["tasks"]) == {
+    assert eng["state"] == "ready"
+    assert set(eng["tasks"]) == {
         "detection", "classification", "segmentation", "pose", "ocr"
     }
-    assert eng["capabilities"]["tracking"] is True
-    assert set(eng["capabilities"]["source_types"]) == {
-        "camera", "rtsp", "http", "host_video", "media"
-    }
+    assert eng["version"]
+    assert eng["device_types"] == ["cpu"]
+    assert "seed" in eng["options_schema"]["properties"]
 
 
 def test_get_engine(client):
     resp = client.get("/api/v1/engines/synthetic")
     assert resp.status_code == 200
     body = resp.json()
-    for field in ("engine_id", "name", "execution", "enabled", "available",
-                  "capabilities", "config", "metadata"):
+    for field in ("id", "name", "version", "enabled", "state", "tasks",
+                  "device_types", "options_schema"):
         assert field in body
     assert resp.headers["etag"].startswith('"')
 
@@ -45,20 +43,19 @@ def test_patch_engine_disable_and_enable(client):
     assert resp.status_code == 200
     body = resp.json()
     assert body["enabled"] is False
-    assert body["available"] is False
-    assert body["message"] == "engine disabled"
+    assert body["state"] == "disabled"
 
     resp = client.patch(
         "/api/v1/engines/synthetic", json={"enabled": True}, headers={"If-Match": "*"}
     )
     assert resp.json()["enabled"] is True
-    assert resp.json()["available"] is True
+    assert resp.json()["state"] == "ready"
 
 
 def test_patch_engine_config_unknown_key_422(client):
     resp = client.patch(
         "/api/v1/engines/synthetic",
-        json={"config": {"bogus": 1}},
+        json={"options": {"bogus": 1}},
         headers={"If-Match": "*"},
     )
     assert resp.status_code == 422
@@ -67,11 +64,11 @@ def test_patch_engine_config_unknown_key_422(client):
 def test_patch_engine_config_force_unavailable(client):
     resp = client.patch(
         "/api/v1/engines/synthetic",
-        json={"config": {"force_unavailable": True}},
+        json={"options": {"force_unavailable": True}},
         headers={"If-Match": "*"},
     )
     assert resp.status_code == 200
-    assert resp.json()["available"] is False
+    assert resp.json()["state"] == "unavailable"
     # Readiness drops while the only engine is unavailable.
     assert client.get("/api/v1/health/ready").status_code == 503
 

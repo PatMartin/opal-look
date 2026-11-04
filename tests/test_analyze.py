@@ -16,7 +16,7 @@ def media_id(client):
         "/api/v1/media/", files={"file": ("pic.jpg", _img(), "image/jpeg")}
     )
     assert resp.status_code == 201
-    return resp.json()["media_id"]
+    return resp.json()["id"]
 
 
 def _analyze(client, media_id, **overrides):
@@ -152,18 +152,18 @@ def test_analyze_unknown_model_404(client, media_id):
     assert resp.status_code == 404
 
 
-def test_analyze_disabled_model_422(client, media_id):
+def test_analyze_engine_disabled_503(client, media_id):
     client.patch(
-        "/api/v1/models/synthetic-vision", json={"enabled": False}, headers={"If-Match": "*"}
+        "/api/v1/engines/synthetic", json={"enabled": False}, headers={"If-Match": "*"}
     )
     resp = _analyze(client, media_id)
-    assert resp.status_code == 422
+    assert resp.status_code == 503
 
 
 def test_analyze_engine_unavailable_503(client, media_id):
     client.patch(
         "/api/v1/engines/synthetic",
-        json={"config": {"force_unavailable": True}},
+        json={"options": {"force_unavailable": True}},
         headers={"If-Match": "*"},
     )
     resp = _analyze(client, media_id)
@@ -207,7 +207,7 @@ def test_analyze_unknown_source_404(client):
 def test_analyze_media_backed_source(client, media_id):
     client.post(
         "/api/v1/sources/",
-        json={"source_id": "ms", "name": "M", "type": "media", "locator": media_id},
+        json={"id": "ms", "name": "M", "kind": "media", "locator": media_id},
         headers={"If-Match": "*"},
     )
     resp = client.post(
@@ -226,7 +226,7 @@ def test_analyze_media_backed_source(client, media_id):
 def test_analyze_position_ms_on_media_image_422(client, media_id):
     client.post(
         "/api/v1/sources/",
-        json={"source_id": "ms", "name": "M", "type": "media", "locator": media_id},
+        json={"id": "ms", "name": "M", "kind": "media", "locator": media_id},
         headers={"If-Match": "*"},
     )
     resp = client.post(
@@ -244,9 +244,7 @@ def test_analyze_unavailable_source_503(client):
     client.post(
         "/api/v1/sources/",
         json={
-            "source_id": "cam",
-            "name": "Cam",
-            "type": "rtsp",
+            "id": "cam", "name": "Cam", "kind": "rtsp",
             "locator": "rtsp://192.0.2.1/feed",
             "enabled": False,
         },
@@ -273,7 +271,7 @@ def _rtsp_source(client, source_id="cam"):
     client.post(
         "/api/v1/sources/",
         json={
-            "source_id": source_id, "name": "Cam", "type": "rtsp",
+            "id": source_id, "name": "Cam", "kind": "rtsp",
             "locator": "rtsp://192.0.2.1/feed",
         },
         headers={"If-Match": "*"},
@@ -324,8 +322,8 @@ def test_analyze_rtsp_unresolved_credential_503(client, fake_rtsp, monkeypatch):
     client.post(
         "/api/v1/sources/",
         json={
-            "source_id": "cam", "name": "Cam", "type": "rtsp",
-            "locator": "rtsp://192.0.2.1/feed", "credential_ref": "driveway",
+            "id": "cam", "name": "Cam", "kind": "rtsp",
+            "locator": "rtsp://192.0.2.1/feed", "secret_ref": "driveway",
         },
         headers={"If-Match": "*"},
     )

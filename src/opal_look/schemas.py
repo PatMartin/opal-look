@@ -13,7 +13,7 @@ IDENTIFIER_PATTERN = r"^[A-Za-z0-9][A-Za-z0-9._-]{0,199}$"
 Task = Literal["detection", "classification", "segmentation", "pose", "ocr"]
 TASKS = ("detection", "classification", "segmentation", "pose", "ocr")
 
-SOURCE_TYPES = ("camera", "rtsp", "http", "host_video", "media")
+SOURCE_TYPES = ("rtsp", "http", "camera", "file", "media", "image")
 
 Identifier = str
 
@@ -24,58 +24,104 @@ def reject_null_fields(supplied: dict[str, Any]) -> None:
         raise ApiError(422, "Explicit null values are not allowed in updates.")
 
 
-class EngineUpdate(BaseModel):
+class EnginePatch(BaseModel):
+    """v1.5 EnginePatch: enabled and/or engine options (validated by adapter)."""
     model_config = ConfigDict(strict=True, extra="forbid")
 
     enabled: bool | None = Field(default=None)
-    config: dict[str, Any] | None = Field(default=None)
+    options: dict[str, Any] | None = Field(default=None)
 
 
 class ModelCreate(BaseModel):
+    """v1.5 ModelCreate: registers an already-provisioned resource."""
     model_config = ConfigDict(strict=True, extra="forbid")
 
-    model_id: str = Field(pattern=IDENTIFIER_PATTERN)
-    name: str = Field(min_length=1)
+    id: str = Field(pattern=IDENTIFIER_PATTERN)
     engine_id: str = Field(pattern=IDENTIFIER_PATTERN)
-    resource: dict[str, Any]
-    enabled: bool = Field(default=True)
+    resource_ref: str = Field(min_length=1)
+    tasks: list[str] = Field(min_length=1)
+    options: dict[str, Any] | None = Field(default=None)
 
 
-class ModelUpdate(BaseModel):
+class ModelPatch(BaseModel):
+    """v1.5 ModelPatch: metadata/options only."""
     model_config = ConfigDict(strict=True, extra="forbid")
 
-    name: str | None = Field(default=None, min_length=1)
-    engine_id: str | None = Field(default=None, pattern=IDENTIFIER_PATTERN)
-    resource: dict[str, Any] | None = Field(default=None)
-    enabled: bool | None = Field(default=None)
+    display_name: str | None = Field(default=None, min_length=1)
+    options: dict[str, Any] | None = Field(default=None)
 
 
 # -- sources ----------------------------------------------------------------
 
-SourceType = Literal["camera", "rtsp", "http", "host_video", "media"]
+SourceType = Literal["rtsp", "http", "camera", "file", "media", "image"]
+
+
+class SourceZone(BaseModel):
+    """v1.5 SourceZone: source-local named region (polygon >=3, line ==2)."""
+    model_config = ConfigDict(strict=True, extra="forbid")
+
+    id: str = Field(pattern=IDENTIFIER_PATTERN)
+    name: str = Field(min_length=1)
+    kind: Literal["polygon", "line"]
+    points: list["Point"] = Field(min_length=2)
+    enabled: bool = Field(default=True)
+
+    @model_validator(mode="after")
+    def _check_geometry(self) -> "SourceZone":
+        if self.kind == "polygon" and len(self.points) < 3:
+            raise ValueError("polygon zones require at least 3 points")
+        if self.kind == "line" and len(self.points) != 2:
+            raise ValueError("line zones require exactly 2 points")
+        return self
+
+
+def _unique_zone_ids(zones: list[SourceZone] | None) -> list[SourceZone] | None:
+    if zones:
+        ids = [z.id for z in zones]
+        if len(ids) != len(set(ids)):
+            raise ValueError("zone ids must be unique within a source")
+    return zones
 
 
 class SourceCreate(BaseModel):
+    """v1.5 SourceCreate."""
     model_config = ConfigDict(strict=True, extra="forbid")
 
-    source_id: str = Field(pattern=IDENTIFIER_PATTERN)
+    id: str = Field(pattern=IDENTIFIER_PATTERN)
+    kind: SourceType
     name: str = Field(min_length=1)
-    type: SourceType
     locator: str = Field(min_length=1)
-    credential_ref: str | None = Field(default=None)
+    secret_ref: str | None = Field(default=None)
+    options: dict[str, Any] = Field(default_factory=dict)
+    zones: list[SourceZone] = Field(default_factory=list)
     enabled: bool = Field(default=True)
-    source_options: dict[str, Any] = Field(default_factory=dict)
+
+    @model_validator(mode="after")
+    def _check(self) -> "SourceCreate":
+        _unique_zone_ids(self.zones)
+        if self.secret_ref is not None and not self.secret_ref.strip():
+            raise ValueError("secret_ref must be non-empty when provided")
+        return self
 
 
-class SourceUpdate(BaseModel):
+class SourcePatch(BaseModel):
+    """v1.5 SourcePatch: zones replaces the complete collection atomically."""
     model_config = ConfigDict(strict=True, extra="forbid")
 
     name: str | None = Field(default=None, min_length=1)
-    type: SourceType | None = Field(default=None)
     locator: str | None = Field(default=None, min_length=1)
-    credential_ref: str | None = Field(default=None)
+    secret_ref: str | None = Field(default=None)
     enabled: bool | None = Field(default=None)
-    source_options: dict[str, Any] | None = Field(default=None)
+    options: dict[str, Any] | None = Field(default=None)
+    zones: list[SourceZone] | None = Field(default=None)
+
+    @model_validator(mode="after")
+    def _check(self) -> "SourcePatch":
+        _unique_zone_ids(self.zones)
+        if "secret_ref" in self.model_fields_set and self.secret_ref is not None \
+                and not self.secret_ref.strip():
+            raise ValueError("secret_ref must be non-empty when provided")
+        return self
 
 
 # -- profiles ---------------------------------------------------------------
@@ -209,3 +255,334 @@ class SessionCreate(BaseModel):
         if self.end_position_ms is not None and self.end_position_ms <= self.start_position_ms:
             raise ValueError("end_position_ms must exceed start_position_ms")
         return self
+
+
+# -- pipelines (v1.5) ----------------------------------------------------------
+
+class RetentionOptions(BaseModel):
+    model_config = ConfigDict(strict=True, extra="forbid")
+
+    persist_observations: bool = Field(default=False)
+    save_raw_frames: bool = Field(default=False)
+    save_annotated_frames: bool = Field(default=False)
+    ttl_seconds: int | None = Field(default=None, ge=0)
+
+
+class FilterSpec(BaseModel):
+    """v1.5 FilterSpec; per-type parameter bounds validated semantically."""
+    model_config = ConfigDict(strict=True, extra="forbid")
+
+    type: Literal["grayscale", "brightness_contrast", "blur", "sharpen",
+                  "threshold", "edges", "rotate", "flip", "crop", "resize", "motion"]
+    parameters: dict[str, Any] = Field(default_factory=dict)
+
+
+class MotionGateOptions(BaseModel):
+    model_config = ConfigDict(strict=True, extra="forbid")
+
+    motion_stage_id: str = Field(pattern=IDENTIFIER_PATTERN)
+    sample_every_n_frames: int = Field(default=30, ge=1)
+    on_unknown: Literal["run_inference", "skip"] = Field(default="run_inference")
+
+
+class AnnotationOptions(BaseModel):
+    model_config = ConfigDict(strict=True, extra="forbid")
+
+    enabled: bool = Field(default=True)
+    show_boxes: bool = Field(default=True)
+    show_labels: bool = Field(default=True)
+    show_confidence: bool = Field(default=True)
+    show_track_ids: bool = Field(default=False)
+    show_zones: bool = Field(default=False)
+    classes: list[str] | None = Field(default=None)
+    min_confidence: float | None = Field(default=None, ge=0, le=1)
+
+
+class VideoProcessingOptions(BaseModel):
+    model_config = ConfigDict(strict=True, extra="forbid")
+
+    target_fps: float | None = Field(default=None, ge=0.1)
+    width: int | None = Field(default=None, ge=1)
+    height: int | None = Field(default=None, ge=1)
+    quality: int | None = Field(default=None, ge=1, le=100)
+
+
+class InferenceOptions(BaseModel):
+    model_config = ConfigDict(strict=True, extra="forbid")
+
+    target_fps: float | None = Field(default=None, ge=0.1)
+    max_frames: int | None = Field(default=None, ge=1)
+    confidence_threshold: float | None = Field(default=None, ge=0, le=1)
+    classes: list[str] | None = Field(default=None)
+    roi: list[Point] | None = Field(default=None, min_length=3)
+    engine_options: dict[str, Any] | None = Field(default=None)
+    video: VideoProcessingOptions | None = Field(default=None)
+    annotations: AnnotationOptions | None = Field(default=None)
+
+
+
+class ProcessingStageOptions(BaseModel):
+    model_config = ConfigDict(strict=True, extra="forbid")
+
+    filter: FilterSpec | None = Field(default=None)
+    gate: MotionGateOptions | None = Field(default=None)
+    annotation: AnnotationOptions | None = Field(default=None)
+    video: VideoProcessingOptions | None = Field(default=None)
+
+
+class PipelineStage(BaseModel):
+    model_config = ConfigDict(strict=True, extra="forbid")
+
+    id: str = Field(pattern=IDENTIFIER_PATTERN)
+    kind: Literal["preprocess", "inference", "tracker", "filter", "transform", "annotate"]
+    model_id: str | None = Field(default=None, pattern=IDENTIFIER_PATTERN)
+    task: str | None = Field(default=None)
+    inputs: list[str] | None = Field(default=None)
+    options: dict[str, Any] | None = Field(default=None)
+    enabled: bool = Field(default=True)
+    portable: ProcessingStageOptions | None = Field(default=None)
+    phase: Literal["inference_input", "presentation"] | None = Field(default=None)
+
+
+def _pipeline_mode_error() -> ValueError:
+    return ValueError(
+        "exactly one mode required: simple (model_id + task, no stages) "
+        "or advanced (stages, no model_id/task)"
+    )
+
+
+class PipelineCreate(BaseModel):
+    model_config = ConfigDict(strict=True, extra="forbid")
+
+    id: str = Field(pattern=IDENTIFIER_PATTERN)
+    name: str = Field(min_length=1)
+    description: str | None = Field(default=None)
+    model_id: str | None = Field(default=None, pattern=IDENTIFIER_PATTERN)
+    task: str | None = Field(default=None)
+    stages: list[PipelineStage] | None = Field(default=None, min_length=1)
+    options: InferenceOptions | None = Field(default=None)
+    retention: RetentionOptions | None = Field(default=None)
+
+    @model_validator(mode="after")
+    def _one_mode(self) -> "PipelineCreate":
+        simple = self.model_id is not None and self.task is not None
+        if (self.model_id is None) != (self.task is None):
+            raise _pipeline_mode_error()
+        if simple == (self.stages is not None):
+            raise _pipeline_mode_error()
+        return self
+
+
+class PipelinePatch(BaseModel):
+    """Merge-patch; explicit null clears model_id/task/stages for mode switch."""
+    model_config = ConfigDict(strict=True, extra="forbid")
+
+    name: str | None = Field(default=None, min_length=1)
+    description: str | None = Field(default=None)
+    model_id: str | None = Field(default=None, pattern=IDENTIFIER_PATTERN)
+    task: str | None = Field(default=None)
+    stages: list[PipelineStage] | None = Field(default=None, min_length=1)
+    options: InferenceOptions | None = Field(default=None)
+    retention: RetentionOptions | None = Field(default=None)
+
+
+# -- v1.5 analyze submission ---------------------------------------------------
+
+class AnalyzeSourceInput(BaseModel):
+    """v1.5 SourceInput: exactly one of source_id | media_id."""
+    model_config = ConfigDict(strict=True, extra="forbid")
+
+    source_id: str | None = Field(default=None, pattern=IDENTIFIER_PATTERN)
+    media_id: str | None = Field(default=None, pattern=IDENTIFIER_PATTERN)
+    frame_at_ms: int | None = Field(default=None, ge=0)
+
+    @model_validator(mode="after")
+    def _one_input(self) -> "AnalyzeSourceInput":
+        if (self.source_id is None) == (self.media_id is None):
+            raise ValueError("exactly one of source_id or media_id is required")
+        return self
+
+
+class AnalyzeSubmission(BaseModel):
+    """v1.5 POST /api/v1/analyze/ body."""
+    model_config = ConfigDict(strict=True, extra="forbid")
+
+    source: AnalyzeSourceInput
+    pipeline_id: str | None = Field(default=None, pattern=IDENTIFIER_PATTERN)
+    options: InferenceOptions | None = Field(default=None)
+    retention: RetentionOptions | None = Field(default=None)
+
+    @model_validator(mode="after")
+    def _no_explicit_nulls(self) -> "AnalyzeSubmission":
+        for name in self.model_fields_set:
+            if getattr(self, name) is None and name != "source":
+                raise ValueError(f"explicit null is not allowed for {name}")
+        return self
+
+
+class ImageAnalyzeOptions(BaseModel):
+    """v1.5 JSON 'request' part for POST /api/v1/analyze/image."""
+    model_config = ConfigDict(strict=True, extra="forbid")
+
+    pipeline_id: str | None = Field(default=None, pattern=IDENTIFIER_PATTERN)
+    options: InferenceOptions | None = Field(default=None)
+    retention: RetentionOptions | None = Field(default=None)
+
+    @model_validator(mode="after")
+    def _no_explicit_nulls(self) -> "ImageAnalyzeOptions":
+        for name in self.model_fields_set:
+            if getattr(self, name) is None:
+                raise ValueError(f"explicit null is not allowed for {name}")
+        return self
+
+
+class CaptureRequest(BaseModel):
+    """v1.5 POST /sources/{id}/capture: always retains one exact frame."""
+    model_config = ConfigDict(strict=True, extra="forbid")
+
+    pipeline_id: str | None = Field(default=None, pattern=IDENTIFIER_PATTERN)
+    annotated: bool = Field(default=False)
+    ttl_seconds: int | None = Field(default=None, ge=1)
+
+    @model_validator(mode="after")
+    def _no_explicit_nulls(self) -> "CaptureRequest":
+        for name in self.model_fields_set:
+            if getattr(self, name) is None:
+                raise ValueError(f"explicit null is not allowed for {name}")
+        return self
+
+
+# -- monitors (v1.5) -----------------------------------------------------------
+
+class MonitorCondition(BaseModel):
+    model_config = ConfigDict(strict=True, extra="forbid")
+
+    id: str = Field(pattern=IDENTIFIER_PATTERN)
+    event: Literal[
+        "object_appears", "object_disappears", "enters_zone", "exits_zone",
+        "line_crosses", "count_threshold", "dwell_time", "motion_detected",
+    ]
+    zone_id: str | None = Field(default=None, pattern=IDENTIFIER_PATTERN)
+    classes: list[str] | None = Field(default=None, min_length=1)
+    threshold: float | None = Field(default=None, ge=0)
+    minimum_duration_ms: int | None = Field(default=None, ge=0)
+    cooldown_ms: int | None = Field(default=None, ge=0)
+    enabled: bool = Field(default=True)
+    capture_on_match: bool = Field(default=False)
+    clip_on_match: bool = Field(default=False)
+
+
+class MonitorCreate(BaseModel):
+    model_config = ConfigDict(strict=True, extra="forbid")
+
+    id: str = Field(pattern=IDENTIFIER_PATTERN)
+    name: str = Field(min_length=1, max_length=200)
+    source_id: str = Field(pattern=IDENTIFIER_PATTERN)
+    pipeline_id: str = Field(pattern=IDENTIFIER_PATTERN)
+    enabled: bool = Field(default=True)
+    restart_policy: Literal["on_failure", "always", "never"] = "on_failure"
+    options: InferenceOptions | None = Field(default=None)
+    retention: RetentionOptions | None = Field(default=None)
+    conditions: list[MonitorCondition] = Field(default_factory=list)
+    publish_events: bool = Field(default=False)
+
+    @model_validator(mode="after")
+    def _zone_conditions_have_zone(self) -> "MonitorCreate":
+        for c in self.conditions:
+            if c.event in ("enters_zone", "exits_zone", "line_crosses")                     and not c.zone_id:
+                raise ValueError(f"condition {c.id!r}: zone_id is required")
+        return self
+
+
+class MonitorPatch(BaseModel):
+    model_config = ConfigDict(strict=True, extra="forbid")
+
+    name: str | None = Field(default=None, min_length=1, max_length=200)
+    source_id: str | None = Field(default=None, pattern=IDENTIFIER_PATTERN)
+    pipeline_id: str | None = Field(default=None, pattern=IDENTIFIER_PATTERN)
+    enabled: bool | None = Field(default=None)
+    restart_policy: Literal["on_failure", "always", "never"] | None = None
+    options: InferenceOptions | None = Field(default=None)
+    retention: RetentionOptions | None = Field(default=None)
+    conditions: list[MonitorCondition] | None = Field(default=None)
+    publish_events: bool | None = Field(default=None)
+
+    @model_validator(mode="after")
+    def _zone_conditions_have_zone(self) -> "MonitorPatch":
+        if self.conditions is not None:
+            for c in self.conditions:
+                if c.event in ("enters_zone", "exits_zone", "line_crosses")                         and not c.zone_id:
+                    raise ValueError(f"condition {c.id!r}: zone_id is required")
+        return self
+
+
+# -- jobs (v1.5) ---------------------------------------------------------------
+
+class MediaRange(BaseModel):
+    model_config = ConfigDict(strict=True, extra="forbid")
+    start_ms: int = Field(ge=0)
+    end_ms: int = Field(ge=0)
+
+    @model_validator(mode="after")
+    def _end_after_start(self) -> "MediaRange":
+        if self.end_ms <= self.start_ms:
+            raise ValueError("end_ms must be greater than start_ms")
+        return self
+
+
+class ExportOptions(BaseModel):
+    model_config = ConfigDict(strict=True, extra="forbid")
+    format: Literal["mp4", "webm", "jpeg", "png"] = "jpeg"
+    annotated: bool = Field(default=False)
+    include_audio: bool = Field(default=False)
+    quality: int | None = Field(default=None, ge=1, le=100)
+
+
+class JobCreate(BaseModel):
+    """v1.5 JobCreate: exactly one of source_id/media_id."""
+    model_config = ConfigDict(strict=True, extra="forbid")
+
+    kind: Literal["video_analysis", "media_export"]
+    source_id: str | None = Field(default=None, pattern=IDENTIFIER_PATTERN)
+    media_id: str | None = Field(default=None, pattern=IDENTIFIER_PATTERN)
+    pipeline_id: str | None = Field(default=None, pattern=IDENTIFIER_PATTERN)
+    range: MediaRange | None = Field(default=None)
+    options: InferenceOptions | None = Field(default=None)
+    retention: RetentionOptions | None = Field(default=None)
+    output: ExportOptions | None = Field(default=None)
+
+    @model_validator(mode="after")
+    def _validate_shape(self) -> "JobCreate":
+        if (self.source_id is None) == (self.media_id is None):
+            raise ValueError("exactly one of source_id or media_id is required")
+        if self.kind == "media_export" and self.output is None:
+            raise ValueError("media_export requires output options")
+        return self
+
+
+# -- recordings (v1.5) ----------------------------------------------------------
+
+class RecordingCreate(BaseModel):
+    model_config = ConfigDict(strict=True, extra="forbid")
+
+    source_id: str = Field(pattern=IDENTIFIER_PATTERN)
+    pipeline_id: str | None = Field(default=None, pattern=IDENTIFIER_PATTERN)
+    include_audio: bool = Field(default=False)
+    max_duration_seconds: int | None = Field(default=None, ge=1)
+    output: ExportOptions | None = Field(default=None)
+
+
+# -- configuration import (v1.5) ------------------------------------------------
+
+class SourceBinding(BaseModel):
+    """Import-time binding only, never exported."""
+    model_config = ConfigDict(strict=True, extra="forbid")
+    locator: str = Field(min_length=1)
+    secret_ref: str | None = Field(default=None)
+
+
+class ConfigurationImport(BaseModel):
+    model_config = ConfigDict(strict=True, extra="forbid")
+    configuration: dict[str, Any]
+    mode: Literal["replace"] = "replace"
+    source_bindings: dict[str, SourceBinding] | None = Field(default=None)

@@ -6,9 +6,9 @@ from fastapi import APIRouter, Query, Request, Response
 from fastapi.responses import JSONResponse
 
 from ..dependencies import StoreDep
-from ..engines import ENGINE_REGISTRY, model_read
+from ..engines import ENGINE_REGISTRY, model_read, model_runtime
 from ..errors import ApiError
-from ..precondition import check_if_match
+from ..precondition import check_if_match, require_if_match
 from ..refs import (
     media_dependencies,
     nonterminal_sessions_referencing,
@@ -17,7 +17,7 @@ from ..refs import (
 from ..schemas import (
     IDENTIFIER_PATTERN,
     ModelCreate,
-    ModelUpdate,
+    ModelPatch,
     Task,
     reject_null_fields,
 )
@@ -71,24 +71,42 @@ def get_api_v1_models(
 
 @router.post("/api/v1/models/", status_code=201)
 def post_api_v1_models(request: Request, store: StoreDep, model: ModelCreate) -> JSONResponse:
-    if store.models.get(model.model_id) is not None:
-        raise ApiError(409, f"Model {model.model_id!r} already exists.")
+    if store.models.get(model.id) is not None:
+        raise ApiError(409, f"Model {model.id!r} already exists.")
     _engine_or_404(store, model.engine_id)
 
     adapter = ENGINE_REGISTRY.get(model.engine_id)
-    errors, _ = adapter.validate_model(model.resource)
+    supported = set(adapter.capabilities().get("tasks", []))
+    unsupported = [t for t in model.tasks if t not in supported]
+    if unsupported:
+        raise ApiError(
+            422,
+            f"Tasks unsupported by engine {model.engine_id!r}: {sorted(unsupported)}",
+            details={"unsupported_tasks": sorted(unsupported),
+                     "supported_tasks": sorted(supported)},
+        )
+    resource = {"ref": model.resource_ref}
+    errors, _ = adapter.validate_model(resource)
     if errors:
-        raise ApiError(422, "Invalid model resource locator.", details=errors)
+        raise ApiError(422, "Invalid model resource reference.", details=errors)
+    if model.options is not None:
+        opt_errors = adapter.validate_engine_options(model.options)
+        if opt_errors:
+            raise ApiError(422, "Invalid model options.", details=opt_errors)
 
     with store.write_txn():
         check_if_match(request, store)
-        store.models.insert(model.model_id, model.name, model.engine_id, model.resource, model.enabled)
+        store.models.insert(
+            model.id, model.id, model.engine_id, resource, True,
+            tasks=list(model.tasks), options=model.options or {},
+            resource_ref=model.resource_ref,
+        )
         revision = store.bump_revision()
-    row = store.models.get(model.model_id)
+    row = store.models.get(model.id)
     return JSONResponse(
         model_read(store, row),
         status_code=201,
-        headers={"ETag": revision, "Location": f"/api/v1/models/{model.model_id}"},
+        headers={"ETag": revision, "Location": f"/api/v1/models/{model.id}"},
     )
 
 
@@ -100,26 +118,28 @@ def get_api_v1_models_model_id(request: Request, store: StoreDep, model_id: str)
 
 @router.patch("/api/v1/models/{model_id}")
 def patch_api_v1_models_model_id(
-    request: Request, store: StoreDep, model_id: str, patch: ModelUpdate
+    request: Request, store: StoreDep, model_id: str, patch: ModelPatch
 ) -> JSONResponse:
     supplied = patch.model_dump(exclude_unset=True)
     reject_null_fields(supplied)
 
-    check_if_match(request, store)
-    _get_model_or_404(store, model_id)
-    if "engine_id" in supplied:
-        _engine_or_404(store, supplied["engine_id"])
-    if "resource" in supplied:
-        adapter = ENGINE_REGISTRY.get(supplied.get("engine_id") or store.models.get(model_id)["engine_id"])
-        errors, _ = adapter.validate_model(supplied["resource"])
-        if errors:
-            raise ApiError(422, "Invalid model resource locator.", details=errors)
+    require_if_match(request)
+    row = _get_model_or_404(store, model_id)
+    fields = {}
+    if "display_name" in supplied:
+        fields["name"] = supplied["display_name"]
+    if "options" in supplied:
+        adapter = ENGINE_REGISTRY.get(row["engine_id"])
+        opt_errors = adapter.validate_engine_options(supplied["options"])
+        if opt_errors:
+            raise ApiError(422, "Invalid model options.", details=opt_errors)
+        fields["options"] = supplied["options"]
     _session_refs(store, model_id)
 
     with store.write_txn():
         check_if_match(request, store)
-        if supplied:
-            store.models.update(model_id, supplied)
+        if fields:
+            store.models.update(model_id, fields)
         revision = store.bump_revision()
     row = store.models.get(model_id)
     return JSONResponse(model_read(store, row), headers={"ETag": revision})
@@ -129,7 +149,7 @@ def patch_api_v1_models_model_id(
 def delete_api_v1_models_model_id(
     request: Request, response: Response, store: StoreDep, model_id: str
 ) -> None:
-    check_if_match(request, store)
+    require_if_match(request)
     _get_model_or_404(store, model_id)
     _delete_refs(store, model_id)
     with store.write_txn():
@@ -138,10 +158,9 @@ def delete_api_v1_models_model_id(
         response.headers["ETag"] = store.bump_revision()
 
 
-@router.post("/api/v1/models/{model_id}/validate")
 def post_api_v1_models_model_id_validate(request: Request, store: StoreDep, model_id: str) -> dict:
     row = _get_model_or_404(store, model_id)
-    read = model_read(store, row)
+    read = model_runtime(store, row)
     adapter = ENGINE_REGISTRY.get(read["engine_id"])
 
     errors, warnings = adapter.validate_model(read["resource"])

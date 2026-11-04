@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 from typing import Any
 
 import httpx
@@ -10,8 +11,15 @@ import httpx
 class ApiClient:
     def __init__(self, base_url: str, transport: httpx.BaseTransport | None = None,
                  inner: httpx.Client | None = None) -> None:
-        self._client = inner or httpx.Client(
-            base_url=base_url, transport=transport, timeout=30.0)
+        if inner is None:
+            headers = {}
+            token = os.environ.get("OPAL_LOOK_TOKEN")
+            if token:
+                headers["Authorization"] = f"Bearer {token}"
+            inner = httpx.Client(
+                base_url=base_url, transport=transport, timeout=30.0,
+                headers=headers)
+        self._client = inner
 
     def request(self, method: str, path: str, **kwargs) -> httpx.Response:
         return self._client.request(method, path, **kwargs)

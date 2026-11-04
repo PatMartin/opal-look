@@ -10,9 +10,9 @@ from typing import Any
 
 from .engines import ENGINE_REGISTRY
 from .errors import ApiError
-from .schemas import AnalysisSettings, ModelCreate, SourceCreate
+from .schemas import AnalysisSettings
 from .settings import ServiceSettings, effective_settings
-from .sources import check_locator
+from .sources import check_locator, redact_locator
 from .store import Store
 from .timeutil import iso, now_iso
 
@@ -35,7 +35,8 @@ def export_config(store: Store) -> dict[str, Any]:
         ],
         "sources": [
             {"source_id": r["source_id"], "name": r["name"], "type": r["type"],
-             "locator": r["locator"], "credential_ref": r["credential_ref"],
+             "redacted_locator": redact_locator(r["type"], r["locator"]),
+             "credential_ref": r["credential_ref"],
              "enabled": bool(r["enabled"]),
              "source_options": json.loads(r["source_options"])}
             for r in store.sources.list()
@@ -70,36 +71,43 @@ def validate_config(store: Store, payload: dict[str, Any]) -> tuple[list[str], l
     model_ids: set[str] = set()
     model_tasks: dict[str, list[str]] = {}
     for m in payload.get("models") or []:
-        try:
-            mc = ModelCreate.model_validate(m)
-        except Exception as exc:
-            errors.append(f"model: {exc}")
+        # Legacy export shape: {model_id, name, engine_id, resource, enabled}.
+        mc = m if isinstance(m, dict) and {"model_id", "name", "engine_id", "resource"} <= set(m) else None
+        if mc is None:
+            errors.append("model: missing required fields (model_id/name/engine_id/resource)")
             continue
-        if mc.model_id in model_ids:
-            errors.append(f"duplicate model_id {mc.model_id!r}")
-        model_ids.add(mc.model_id)
-        adapter = ENGINE_REGISTRY.get(mc.engine_id)
+        if mc["model_id"] in model_ids:
+            errors.append(f"duplicate model_id {mc['model_id']!r}")
+        model_ids.add(mc["model_id"])
+        adapter = ENGINE_REGISTRY.get(mc["engine_id"])
         if adapter is None:
-            errors.append(f"model {mc.model_id!r}: engine {mc.engine_id!r} not installed")
+            errors.append(f"model {mc['model_id']!r}: engine {mc['engine_id']!r} not installed")
         else:
-            e2, _ = adapter.validate_model(mc.resource)
-            errors.extend(f"model {mc.model_id!r}: {x}" for x in e2)
-            model_tasks[mc.model_id] = adapter.describe_model(mc.resource)["tasks"]
+            e2, _ = adapter.validate_model(mc["resource"])
+            errors.extend(f"model {mc['model_id']!r}: {x}" for x in e2)
+            model_tasks[mc["model_id"]] = adapter.describe_model(mc["resource"])["tasks"]
 
     source_ids: set[str] = set()
     for s in payload.get("sources") or []:
-        try:
-            sc = SourceCreate.model_validate(s)
-        except Exception as exc:
-            errors.append(f"source: {exc}")
+        # Legacy export shape: {source_id, name, type, locator, ...}; the
+        # v1.5 shape {id, kind} is also accepted for forward-compat.
+        if isinstance(s, dict) and {"id", "kind", "locator"} <= set(s):
+            sc = {"source_id": s["id"], "name": s.get("name", s["id"]),
+                  "type": s["kind"], "locator": s.get("locator") or s.get("redacted_locator", ""),
+                  "credential_ref": s.get("secret_ref"),
+                  "source_options": s.get("options") or {}}
+        elif isinstance(s, dict) and {"source_id", "type", "locator"} <= set(s):
+            sc = dict(s)
+        else:
+            errors.append("source: missing required fields")
             continue
-        if sc.source_id in source_ids:
-            errors.append(f"duplicate source_id {sc.source_id!r}")
-        source_ids.add(sc.source_id)
-        errors.extend(f"source {sc.source_id!r}: {x}"
-                      for x in check_locator(sc.type, sc.locator))
-        if sc.type == "media" and store.media.get(sc.locator) is None:
-            warnings.append(f"source {sc.source_id!r}: media {sc.locator!r} unavailable")
+        if sc["source_id"] in source_ids:
+            errors.append(f"duplicate source_id {sc['source_id']!r}")
+        source_ids.add(sc["source_id"])
+        errors.extend(f"source {sc['source_id']!r}: {x}"
+                      for x in check_locator(sc["type"], sc["locator"]))
+        if sc["type"] == "media" and store.media.get(sc["locator"]) is None:
+            warnings.append(f"source {sc['source_id']!r}: media {sc['locator']!r} unavailable")
 
     profiles = payload.get("profiles") or []
     pids, actives = set(), 0
@@ -157,10 +165,13 @@ def import_config(store: Store, payload: dict[str, Any]) -> list[str]:
                                 m["resource"], bool(m.get("enabled", True)))
         for s in payload.get("sources") or []:
             store.sources.insert({
-                "source_id": s["source_id"], "name": s["name"], "type": s["type"],
-                "locator": s["locator"], "credential_ref": s.get("credential_ref"),
+                "source_id": s.get("source_id") or s.get("id"),
+                "name": s["name"], "type": s.get("type") or s.get("kind"),
+                "locator": s.get("locator") or s.get("redacted_locator"),
+                "credential_ref": s.get("credential_ref") or s.get("secret_ref"),
                 "enabled": int(bool(s.get("enabled", True))),
-                "source_options": s.get("source_options") or {}})
+                "source_options": s.get("source_options") or s.get("options") or {},
+                "zones": s.get("zones") or []})
         for p in payload.get("profiles") or []:
             store.profiles.insert_explicit({
                 "profile_id": p["profile_id"], "name": p["name"],

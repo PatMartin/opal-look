@@ -3,11 +3,18 @@
 Implementation of the `opal_look_v1.4.0.yaml` OpenAPI contract (authoritative
 interface; do not serve a generated spec). Python 3.12+ / FastAPI / SQLite.
 
+**Migration in progress:** branch `feature/opal-look-1.5` targets the pinned
+`opal_look_v1.5.0.yaml` (breaking revision; see
+`specs/OPAL_LOOK_V1_5_MIGRATION.md` + `OPAL_LOOK_V1_5_LEDGER.md`). v1.4.0 YAML
+stays as historical reference — do not edit either contract file.
+
 ## Commands
 
 - Setup: `python -m venv .venv && .venv/Scripts/pip install -e .[dev]`
 - Test: `.venv/Scripts/pytest`
 - Run: `.venv/Scripts/opal-look` or `uvicorn opal_look.app:create_app --factory`
+- Contract audit: `.venv/Scripts/python -m opal_look.contract_audit`
+  (`--strict` = Step-28 pass/fail gate, `--json` = machine-readable)
 - Data dir: `OPAL_LOOK_DATA_DIR` (default `./data`)
 
 ## Conventions / design patterns
@@ -31,6 +38,11 @@ interface; do not serve a generated spec). Python 3.12+ / FastAPI / SQLite.
   statements serialize through `Store._lock` (`_LockedConnection` proxy),
   and `write_txn()` holds it for the whole transaction.
 - DTOs: pydantic models in `src/opal_look/schemas.py` + `settings.py`.
+- v1.5 resource reads vs internals: `engine_read`/`model_read` return the
+  contract Engine/Model shapes; `engine_runtime`/`model_runtime` are the
+  richer internal views (probe/config/adapter description) used by
+  services. Models store `created_at/tasks/options/resource_ref` columns
+  (auto-migrated in `Store._migrate`).
 - Middleware: `CorrelationMiddleware` (outer correlation/validation),
   `AccessLogMiddleware` (outermost, logs all requests).
 - All errors use the OpalError envelope (`src/opal_look/errors.py`,
@@ -38,10 +50,20 @@ interface; do not serve a generated spec). Python 3.12+ / FastAPI / SQLite.
 - X-Opal-* correlation headers handled by `CorrelationMiddleware`; never
   trust them for authz.
 - Config mutations require If-Match vs global config revision:
-  `check_if_match(request, store)` inside `store.write_txn()`
-  (src/opal_look/precondition.py). All config writes bump the revision.
+  `require_if_match(request)` early (428 missing / 422 malformed) +
+  `check_if_match(request, store)` inside `store.write_txn()` (412 stale,
+  atomic with the write; src/opal_look/precondition.py). All config writes
+  bump the revision; runtime activity must not. `write_txn()` nests via
+  SAVEPOINT. Idempotency-Key admissions use
+  `idempotency.request_idempotency_key` (contract bounds 1..128).
 - `events_enabled=true` requires `OPAL_LOOK_EVENT_TRANSPORT` env
   (provisioned out of band); otherwise 422.
+- Bearer auth: `OPAL_LOOK_TOKEN` (env, opaque). Set -> all `/api/v1`
+  requests need `Authorization: Bearer <token>` (401 +
+  `WWW-Authenticate: Bearer`, enforced by `BearerAuthMiddleware` inside
+  Correlation so 401s keep X-Opal headers). Unset -> loopback dev mode;
+  `main.py` refuses non-loopback binds without it. Never log/export/echo
+  the token or accept it in query strings. CLI sends it automatically.
 - Planned clients (later phases): `opal-look-cli` (Typer, REST-only via
   httpx; suite verb taxonomy add/remove/update/list/show + operational
   verbs per upstream x-opal-cli conventions) and a full-coverage SPA

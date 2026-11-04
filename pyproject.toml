@@ -31,6 +31,7 @@ dev = [
 [project.scripts]
 opal-look = "opal_look.main:main"
 opal-look-cli = "opal_look_cli.cli:main"
+opal-look-audit = "opal_look.contract_audit:main"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

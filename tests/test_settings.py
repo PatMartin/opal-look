@@ -22,6 +22,11 @@ DEFAULTS = {
     ],
     "max_analysis_events_per_second": 5,
     "event_queue_capacity": 256,
+    "default_pipeline_id": None,
+"max_viewers": 8,
+    "max_monitors": 8,
+    "max_jobs": 4,
+    "recording_max_bytes": 10485760,
 }
 
 

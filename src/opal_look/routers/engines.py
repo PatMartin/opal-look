@@ -6,11 +6,11 @@ from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse
 
 from ..dependencies import StoreDep
-from ..engines import ENGINE_REGISTRY, engine_read
+from ..engines import ENGINE_REGISTRY, engine_read, engine_runtime
 from ..errors import ApiError
-from ..precondition import check_if_match
+from ..precondition import check_if_match, require_if_match
 from ..refs import nonterminal_sessions_referencing
-from ..schemas import EngineUpdate, reject_null_fields
+from ..schemas import EnginePatch, reject_null_fields
 from ..store import Store
 
 router = APIRouter()
@@ -43,36 +43,38 @@ def get_api_v1_engines_engine_id(
 
 @router.patch("/api/v1/engines/{engine_id}")
 def patch_api_v1_engines_engine_id(
-    request: Request, store: StoreDep, engine_id: str, patch: EngineUpdate
+    request: Request, store: StoreDep, engine_id: str, patch: EnginePatch
 ) -> JSONResponse:
     supplied = patch.model_dump(exclude_unset=True)
     reject_null_fields(supplied)
 
-    check_if_match(request, store)
+    require_if_match(request)
     _get_engine_or_404(store, engine_id)
     adapter = ENGINE_REGISTRY.get(engine_id)
 
-    if "config" in supplied:
-        errors = adapter.validate_config(supplied["config"])
+    if "options" in supplied:
+        errors = adapter.validate_config(supplied["options"])
         if errors:
-            raise ApiError(422, "Invalid engine configuration.", details=errors)
+            raise ApiError(422, "Invalid engine options.", details=errors)
     if nonterminal_sessions_referencing(store, "engine", engine_id):
         raise ApiError(409, f"Engine {engine_id!r} is referenced by a nonterminal session.")
 
+    fields = dict(supplied)
+    if "options" in fields:
+        fields["config"] = fields.pop("options")
     with store.write_txn():
         check_if_match(request, store)
-        if supplied:
-            store.engines.update(engine_id, supplied)
+        if fields:
+            store.engines.update(engine_id, fields)
         revision = store.bump_revision()
     row = store.engines.get(engine_id)
     return JSONResponse(engine_read(store, row), headers={"ETag": revision})
 
 
-@router.post("/api/v1/engines/{engine_id}/validate")
 def post_api_v1_engines_engine_id_validate(request: Request, store: StoreDep, engine_id: str) -> dict:
     _get_engine_or_404(store, engine_id)
     adapter = ENGINE_REGISTRY.get(engine_id)
-    read = engine_read(store, store.engines.get(engine_id))
+    read = engine_runtime(store, store.engines.get(engine_id))
 
     errors = adapter.validate_config(read["config"])
     if not read["enabled"]:

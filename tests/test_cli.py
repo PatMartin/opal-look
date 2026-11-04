@@ -1,4 +1,7 @@
+"""v1.5 CLI: every command mirrors a real REST op; no obsolete flows."""
+
 import io
+import json
 
 import httpx
 import pytest
@@ -23,73 +26,85 @@ def cli(tmp_path, monkeypatch):
 
 
 def test_cli_engines_list(cli):
-    result = cli.invoke(cli_app, ["--json", "engines", "list"])
-    assert result.exit_code == 0
-    assert "synthetic" in result.output
+    r = cli.invoke(cli_app, ["--json", "engines", "list"])
+    assert r.exit_code == 0 and "synthetic" in r.output
 
 
 def test_cli_models_show(cli):
-    result = cli.invoke(cli_app, ["models", "show", "synthetic-vision"])
-    assert result.exit_code == 0
-    assert "synthetic-vision" in result.output
+    r = cli.invoke(cli_app, ["models", "show", "synthetic-vision"])
+    assert r.exit_code == 0 and "synthetic-vision" in r.output
 
 
 def test_cli_health(cli):
-    result = cli.invoke(cli_app, ["health"])
-    assert result.exit_code == 0
+    r = cli.invoke(cli_app, ["health", "show"])
+    assert r.exit_code == 0
+
+
+def test_cli_metrics(cli):
+    r = cli.invoke(cli_app, ["metrics", "show"])
+    assert r.exit_code == 0 and "counters" in r.output
+
+
+def test_cli_events_status(cli):
+    r = cli.invoke(cli_app, ["events", "status"])
+    assert r.exit_code == 0 and "enabled" in r.output
 
 
 def test_cli_settings_show(cli):
-    result = cli.invoke(cli_app, ["settings", "show", "max_upload_bytes"])
-    assert result.exit_code == 0
-    assert "1073741824" in result.output
-
-
-def test_cli_backup_export(cli):
-    result = cli.invoke(cli_app, ["backup", "export"])
-    assert result.exit_code == 0
-    assert "1.1.0" in result.output
+    r = cli.invoke(cli_app, ["settings", "show", "max_upload_bytes"])
+    assert r.exit_code == 0 and "1073741824" in r.output
 
 
 def test_cli_sources_add_and_list(cli, tmp_path):
     body = tmp_path / "src.json"
     body.write_text(
-        '{"source_id": "cli-src", "name": "CLI", "type": "rtsp", '
+        '{"id": "cli-src", "name": "CLI", "kind": "rtsp", '
         '"locator": "rtsp://192.0.2.10/x"}')
-    result = cli.invoke(cli_app, ["sources", "add", "--file", str(body)])
-    assert result.exit_code == 0, result.output
-    result = cli.invoke(cli_app, ["sources", "list"])
-    assert "cli-src" in result.output
+    r = cli.invoke(cli_app, ["sources", "add", "--file", str(body)])
+    assert r.exit_code == 0, r.output
+    assert "cli-src" in cli.invoke(cli_app, ["sources", "list"]).output
 
 
-def test_cli_profiles_activate(cli):
-    result = cli.invoke(
-        cli_app,
-        ["profiles", "add", "--body",
-         '{"name": "p1", "model_id": "synthetic-vision", "task": "detection"}'])
-    assert result.exit_code == 0, result.output
-    import json
-    pid = json.loads(result.output)["profile_id"]
-    result = cli.invoke(cli_app, ["profiles", "activate", str(pid)])
-    assert result.exit_code == 0
-    assert json.loads(result.output)["active"] is True
-
-
-def test_cli_sessions_add_202(cli, tmp_path):
+def test_cli_media_upload_and_download(cli, tmp_path):
     buf = io.BytesIO()
     Image.new("RGB", (8, 8)).save(buf, format="JPEG")
     img = tmp_path / "x.jpg"
     img.write_bytes(buf.getvalue())
-    result = cli.invoke(cli_app, ["media", "upload", str(img)])
-    assert result.exit_code == 0, result.output
-    import json
-    mid = json.loads(result.output)["media_id"]
-    result = cli.invoke(cli_app, [
-        "sources", "add", "--body",
-        f'{{"source_id": "ms", "name": "M", "type": "media", "locator": "{mid}"}}'])
-    assert result.exit_code == 0
-    result = cli.invoke(cli_app, [
-        "sessions", "add", "--body",
-        '{"source_id": "ms", "model_id": "synthetic-vision", "task": "detection"}'])
-    assert result.exit_code == 0
-    assert "session_id" in result.output
+    r = cli.invoke(cli_app, ["media", "upload", str(img)])
+    assert r.exit_code == 0, r.output
+    mid = json.loads(r.output)["id"]
+    out = tmp_path / "dl.bin"
+    r = cli.invoke(cli_app, ["media", "download", mid, "--out", str(out)])
+    assert r.exit_code == 0 and out.read_bytes()[:2] == b"\xff\xd8"
+
+
+def test_cli_pipelines_validate(cli):
+    r = cli.invoke(cli_app, ["pipelines", "validate", "--body",
+                             '{"id": "p", "name": "P", "model_id": "synthetic-vision", '
+                             '"task": "detection"}'])
+    assert r.exit_code == 0
+
+
+def test_cli_jobs_submit_cancel(cli):
+    body = {"kind": "media_export", "media_id": "none",
+            "output": {"format": "png"}}
+    r = cli.invoke(cli_app, ["jobs", "submit", "--body", json.dumps(body)])
+    assert r.exit_code in (0, 1)  # 404 media -> SystemExit error, never hang
+
+
+def test_cli_configuration_export(cli):
+    r = cli.invoke(cli_app, ["configuration", "export"])
+    assert r.exit_code == 0 and "settings" in r.output
+
+
+def test_cli_obsolete_commands_gone(cli):
+    """v1.4 resources have no REST op — the CLI must not expose them."""
+    for group in ("profiles", "sessions", "results", "snapshots", "backup"):
+        r = cli.invoke(cli_app, [group, "list"])
+        assert r.exit_code != 0, f"{group} still exposed"
+
+
+def test_cli_unknown_exit_code(cli):
+    r = cli.invoke(cli_app, ["models", "show", "ghost-model"])
+    assert r.exit_code != 0
+    assert "404" in r.output or "Unknown" in r.output

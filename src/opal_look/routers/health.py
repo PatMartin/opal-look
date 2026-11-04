@@ -16,7 +16,7 @@ from ..constants import (
     SERVICE_NAME,
     SERVICE_VERSION,
 )
-from ..engines import engine_read
+from ..engines import engine_runtime
 
 router = APIRouter()
 
@@ -36,14 +36,14 @@ def _model_available(store, model_row) -> bool:
     engine_row = store.engines.get(model_row["engine_id"])
     if engine_row is None:
         return False
-    read = engine_read(store, engine_row)
+    read = engine_runtime(store, engine_row)
     return read["enabled"] and read["available"]
 
 
 def _health_read(store) -> dict:
     storage_ok = store.ping()
     ready, status = _readiness(store)
-    engines = [engine_read(store, row) for row in store.engines.list()]
+    engines = [engine_runtime(store, row) for row in store.engines.list()]
     if ready and any(e["enabled"] and not e["available"] for e in engines):
         status = "degraded"
     return {

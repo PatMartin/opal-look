@@ -52,9 +52,9 @@ def test_session_events_state_stream(client):
     Image.new("RGB", (8, 8), (1, 2, 3)).save(buf, format="JPEG")
     mid = client.post(
         "/api/v1/media/", files={"file": ("x.jpg", buf.getvalue(), "image/jpeg")}
-    ).json()["media_id"]
+    ).json()["id"]
     client.post("/api/v1/sources/",
-                json={"source_id": "ms", "name": "M", "type": "media",
+                json={"id": "ms", "name": "M", "kind": "media",
                       "locator": mid}, headers={"If-Match": "*"})
     sid = client.post("/api/v1/sessions/",
                       json={"source_id": "ms", "model_id": "synthetic-vision",

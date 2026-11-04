@@ -19,6 +19,7 @@ from .repositories import (
     SqliteMediaRepository,
     SqliteMetaRepository,
     SqliteModelRepository,
+    SqliteMonitorRepository,
     SqliteObservationRepository,
     SqlitePipelineRepository,
     SqliteProfileRepository,
@@ -80,6 +81,7 @@ class Store:
         self.models = SqliteModelRepository(self._conn)
         self.pipelines = SqlitePipelineRepository(self._conn)
         self.observations = SqliteObservationRepository(self._conn)
+        self.monitors = SqliteMonitorRepository(self._conn)
         self.sources = SqliteSourceRepository(self._conn)
         self.profiles = SqliteProfileRepository(self._conn)
         self.media = SqliteMediaRepository(self._conn)
@@ -141,6 +143,22 @@ class Store:
                 labels TEXT NOT NULL DEFAULT '[]',
                 expires_at TEXT,
                 body TEXT NOT NULL
+            );
+            CREATE TABLE IF NOT EXISTS monitors (
+                monitor_id TEXT PRIMARY KEY,
+                name TEXT NOT NULL,
+                source_id TEXT NOT NULL,
+                pipeline_id TEXT NOT NULL,
+                enabled INTEGER NOT NULL DEFAULT 1,
+                restart_policy TEXT NOT NULL DEFAULT 'on_failure',
+                options TEXT NOT NULL DEFAULT 'null',
+                retention TEXT NOT NULL DEFAULT 'null',
+                conditions TEXT NOT NULL DEFAULT '[]',
+                publish_events INTEGER NOT NULL DEFAULT 0,
+                created_at TEXT NOT NULL,
+                last_observation_at TEXT,
+                last_failure TEXT,
+                revision INTEGER NOT NULL DEFAULT 0
             );
             CREATE TABLE IF NOT EXISTS pipelines (
                 pipeline_id TEXT PRIMARY KEY,

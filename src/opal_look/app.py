@@ -18,7 +18,7 @@ from .errors import register_error_handlers
 from .framecache import FrameCache
 from .sessions import SessionRuntimeRegistry
 from .routers import (
-    analyze, backup, capabilities, engines, health, media, models, observations, pipelines, profiles, results,
+    analyze, backup, capabilities, engines, health, media, models, monitors, observations, pipelines, profiles, results,
     sessions as sessions_router, settings, snapshots, sources,
 )
 from .store import Store
@@ -56,6 +56,7 @@ def create_app(
     if token is not None and not token.strip():
         raise ValueError("auth_token must be non-empty")
     app.state.auth_token = token.strip() if token else None
+    app.state.monitor_runtimes = {}
     app.state.viewer_counts = {}
     import threading as _th
     app.state.viewer_lock = _th.Lock()
@@ -65,6 +66,9 @@ def create_app(
         '{"code":"service_restarted","message":"service restarted before completion"}')
     from .store import sweep_expired
     app.state.swept = sweep_expired(app.state.store)
+    from .monitors import recover_monitors
+    app.state.recovered_monitors = recover_monitors(
+        app.state.store, app.state.monitor_runtimes)
     load_plugin_adapters()
     load_capture_plugins()
     ensure_engines(app.state.store)
@@ -84,6 +88,7 @@ def create_app(
     app.include_router(profiles.router)
     app.include_router(pipelines.router)
     app.include_router(observations.router)
+    app.include_router(monitors.router)
     app.include_router(media.router)
     app.include_router(analyze.router)
     app.include_router(results.router)

@@ -24,6 +24,7 @@ DEFAULTS = {
     "event_queue_capacity": 256,
     "default_pipeline_id": None,
 "max_viewers": 8,
+    "max_monitors": 8,
 }
 
 

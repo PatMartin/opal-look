@@ -42,6 +42,7 @@ class ServiceSettings(BaseModel):
     max_analysis_events_per_second: float = Field(default=5, gt=0)
     event_queue_capacity: int = Field(default=256, ge=1)
     max_viewers: int = Field(default=8, ge=1)
+    max_monitors: int = Field(default=8, ge=1)
     default_pipeline_id: str | None = Field(default=None)
 
     @field_validator("event_topics_allowlist")
@@ -72,6 +73,7 @@ class ServiceSettingsPatch(BaseModel):
     max_analysis_events_per_second: float | None = Field(default=None, gt=0)
     event_queue_capacity: int | None = Field(default=None, ge=1)
     max_viewers: int | None = Field(default=None, ge=1)
+    max_monitors: int | None = Field(default=None, ge=1)
     default_pipeline_id: str | None = Field(default=None)
 
     @field_validator("event_topics_allowlist")

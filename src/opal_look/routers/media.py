@@ -5,12 +5,13 @@ from __future__ import annotations
 import secrets
 from pathlib import Path
 
-from fastapi import APIRouter, File, Query, Request, UploadFile
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi import APIRouter, File, Form, Query, Request, UploadFile
+from fastapi.responses import FileResponse, JSONResponse, Response
 
 from ..dependencies import StoreDep
 from ..errors import ApiError
 from ..media import (
+    create_media,
     detect_and_decode,
     is_expired,
     media_dir,
@@ -29,7 +30,8 @@ _FKEY = filter_key({})
 
 @router.post("/api/v1/media/", status_code=201)
 async def post_api_v1_media(
-    request: Request, store: StoreDep, file: UploadFile = File()
+    request: Request, store: StoreDep, file: UploadFile = File(),
+    ttl_seconds: int | None = Form(default=None, ge=1),
 ) -> JSONResponse:
     settings = effective_settings(store)
 
@@ -42,27 +44,17 @@ async def post_api_v1_media(
 
     decoded = detect_and_decode(data, settings.max_image_pixels)
 
-    media_id = f"media-{secrets.token_hex(8)}"
-    blob_dir = media_dir(store.data_dir)
-    blob_path = blob_dir / media_id
-    blob_path.write_bytes(data)
-
-    created_at = now_iso()
-    fields = {
-        "media_id": media_id,
-        "filename": sanitize_filename(file.filename),
-        "kind": decoded["kind"],
-        "content_type": decoded["content_type"],
-        "size_bytes": len(data),
-        "path": str(blob_path),
-        "width": decoded["width"],
-        "height": decoded["height"],
-        "duration_ms": decoded["duration_ms"],
-        "created_at": created_at,
-        "expires_at": iso(plus_hours(settings.media_retention_hours)),
-    }
+    ttl = ttl_seconds or int(settings.media_retention_hours * 3600)
+    from ..timeutil import parse_iso as _parse
+    from datetime import timedelta as _td
+    expires_at = iso(_parse(now_iso()) + _td(seconds=ttl))
     with store.write_txn():
-        store.media.insert(fields)
+        media_id = create_media(
+            store, data, kind=decoded["kind"], origin="upload",
+            filename=file.filename or "upload",
+            content_type=decoded["content_type"],
+            width=decoded["width"], height=decoded["height"],
+            duration_ms=decoded["duration_ms"], expires_at=expires_at)
     row = store.media.get(media_id)
     return JSONResponse(
         media_read(row),
@@ -77,9 +69,11 @@ def get_api_v1_media(
     store: StoreDep,
     limit: int = Query(default=100, ge=1, le=500),
     cursor: str | None = Query(default=None, min_length=1),
+    kind: str | None = Query(default=None),
+    source_id: str | None = Query(default=None),
 ) -> dict:
     after, _, _ = decode_cursor(cursor, _FKEY)
-    rows = store.media.page(now_iso(), after, limit)
+    rows = store.media.page(now_iso(), after, limit, kind, source_id)
     items = rows[:limit]
     has_more = len(rows) > limit
     next_cursor = (
@@ -115,6 +109,11 @@ def delete_api_v1_media_media_id(request: Request, store: StoreDep, media_id: st
         raise ApiError(404, f"Unknown media: {media_id!r}")
     if nonterminal_sessions_referencing(store, "media", media_id):
         raise ApiError(409, f"Media {media_id!r} is pinned by an active session or analysis.")
+    src_refs = store._conn.execute(
+        "SELECT COUNT(*) FROM sources WHERE type = 'media' AND locator = ?",
+        (media_id,)).fetchone()[0]
+    if src_refs:
+        raise ApiError(409, f"Media {media_id!r} is referenced by a media source.")
     with store.write_txn():
         store.media.delete(media_id)
     try:
@@ -126,4 +125,34 @@ def delete_api_v1_media_media_id(request: Request, store: StoreDep, media_id: st
 @router.get("/api/v1/media/{media_id}/content")
 def get_api_v1_media_media_id_content(request: Request, store: StoreDep, media_id: str):
     row = _get_media_or_404(store, media_id)
-    return FileResponse(row["path"], media_type="application/octet-stream")
+    range_header = request.headers.get("range")
+    path = Path(row["path"])
+    size = row["size_bytes"]
+    if range_header:
+        from ..errors import ApiError as _AE
+        import re as _re
+        m = _re.match(r"bytes=(\d+)?-(\d+)?", range_header)
+        if not m:
+            raise _AE(416, "Malformed Range header.", code="range_not_satisfiable")
+        start_s, end_s = m.group(1), m.group(2)
+        if start_s is None and end_s is None:
+            raise _AE(416, "Malformed Range header.", code="range_not_satisfiable")
+        if start_s is None:
+            length = min(int(end_s), size)
+            start = size - length
+        else:
+            start = int(start_s)
+            length = size - start if end_s is None else int(end_s) - start + 1
+        if start >= size or length <= 0:
+            raise _AE(416, "Range not satisfiable.", code="range_not_satisfiable")
+        length = min(length, size - start)
+        data = path.read_bytes()[start:start + length]
+        return Response(
+            data, status_code=206, media_type=row["content_type"],
+            headers={
+                "Content-Range": f"bytes {start}-{start + length - 1}/{size}",
+                "Accept-Ranges": "bytes",
+                "Content-Length": str(length),
+            })
+    return FileResponse(path, media_type=row["content_type"],
+                        headers={"Accept-Ranges": "bytes"})

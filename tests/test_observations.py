@@ -14,7 +14,7 @@ def _media(client):
     Image.new("RGB", (16, 16)).save(buf, format="JPEG")
     return client.post("/api/v1/media/",
                        files={"file": ("a.jpg", buf.getvalue(), "image/jpeg")}
-                       ).json()["media_id"]
+                       ).json()["id"]
 
 
 def _pipeline(client, **over):

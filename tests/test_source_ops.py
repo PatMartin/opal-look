@@ -18,7 +18,7 @@ def _png_media_id(client, color=(10, 20, 30)):
     resp = client.post("/api/v1/media/",
                        files={"file": ("x.png", buf.getvalue(), "image/png")})
     assert resp.status_code == 201
-    return resp.json()["media_id"]
+    return resp.json()["id"]
 
 
 # -- status -------------------------------------------------------------------
@@ -492,3 +492,95 @@ def test_observe_no_persistence(client, fake_rtsp):
             if b"observation" in body:
                 break
     assert client.get("/api/v1/observations/").json()["items"] == []
+
+
+# -- unified media (step 16) -----------------------------------------------------
+
+def _up_media(client, fmt="JPEG"):
+    import io
+    from PIL import Image
+    buf = io.BytesIO()
+    Image.new("RGB", (12, 12), (7, 7, 7)).save(buf, format=fmt)
+    return client.post("/api/v1/media/",
+                       files={"file": ("a.jpg", buf.getvalue(), "image/jpeg")}
+                       ).json()["id"]
+
+
+def test_media_v15_shape(client):
+    mid = _up_media(client)
+    m = client.get(f"/api/v1/media/{mid}").json()
+    for k in ("id", "kind", "origin", "mime_type", "size_bytes", "created_at"):
+        assert k in m
+    assert m["kind"] == "upload_image" and m["origin"] == "upload"
+    assert m["mime_type"] == "image/jpeg"
+    assert len(m["sha256"]) == 64
+    assert m["annotated"] is False
+
+
+def test_media_video_upload_kind(client):
+    mp4 = b"\x00\x00\x00\x18ftypmp42" + b"\x00" * 64
+    resp = client.post("/api/v1/media/",
+                       files={"file": ("v.mp4", mp4, "video/mp4")})
+    assert resp.status_code == 201
+    body = resp.json()
+    assert body["kind"] == "upload_video" and body["mime_type"] == "video/mp4"
+
+
+def test_media_ttl_seconds_form_field(client):
+    import io
+    from PIL import Image
+    buf = io.BytesIO()
+    Image.new("RGB", (8, 8)).save(buf, format="JPEG")
+    resp = client.post("/api/v1/media/",
+                       files={"file": ("a.jpg", buf.getvalue(), "image/jpeg")},
+                       data={"ttl_seconds": "60"})
+    assert resp.status_code == 201
+    assert resp.json()["expires_at"]
+
+
+def test_media_kind_filter(client):
+    _up_media(client)
+    page = client.get("/api/v1/media/", params={"kind": "upload_video"}).json()
+    assert page["items"] == []
+    page = client.get("/api/v1/media/", params={"kind": "upload_image"}).json()
+    assert len(page["items"]) == 1
+
+
+def test_media_content_mime_and_bytes(client):
+    mid = _up_media(client)
+    r = client.get(f"/api/v1/media/{mid}/content")
+    assert r.status_code == 200
+    assert r.headers["content-type"] == "image/jpeg"
+    assert r.headers["accept-ranges"] == "bytes"
+
+
+def test_media_content_range_206(client):
+    mid = _up_media(client)
+    full = client.get(f"/api/v1/media/{mid}/content").content
+    r = client.get(f"/api/v1/media/{mid}/content",
+                   headers={"Range": "bytes=0-9"})
+    assert r.status_code == 206
+    assert r.headers["content-range"].startswith("bytes 0-9/")
+    assert r.content == full[:10]
+
+
+def test_media_content_range_416(client):
+    mid = _up_media(client)
+    r = client.get(f"/api/v1/media/{mid}/content",
+                   headers={"Range": "bytes=999999-"})
+    assert r.status_code == 416
+
+
+def test_media_delete_pinned_by_media_source(client):
+    mid = _up_media(client)
+    client.post("/api/v1/sources/", json={
+        "id": "m", "name": "M", "kind": "media", "locator": mid},
+        headers={"If-Match": "*"})
+    assert client.delete(f"/api/v1/media/{mid}",
+                         headers={"If-Match": "*"}).status_code == 409
+
+
+def test_media_upload_shape_keys(client):
+    mid = _up_media(client)
+    page = client.get("/api/v1/media/").json()
+    assert set(page) >= {"items", "next_cursor", "has_more"}

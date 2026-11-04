@@ -213,7 +213,7 @@ def test_runtime_activity_does_not_bump_revision(client, tmp_path):
         "/api/v1/media/", files={"file": ("x.jpg", buf.getvalue(), "image/jpeg")}
     )
     assert resp.status_code == 201
-    media_id = resp.json()["media_id"]
+    media_id = resp.json()["id"]
     assert _etag(client) == etag, "media upload must not move config ETag"
     assert client.delete(f"/api/v1/media/{media_id}").status_code == 204
     assert _etag(client) == etag, "media delete must not move config ETag"

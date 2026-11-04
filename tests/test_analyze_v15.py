@@ -14,7 +14,7 @@ def _media(client, color=(10, 20, 30)):
     Image.new("RGB", (16, 16), color).save(buf, format="JPEG")
     return client.post("/api/v1/media/",
                        files={"file": ("a.jpg", buf.getvalue(), "image/jpeg")}
-                       ).json()["media_id"]
+                       ).json()["id"]
 
 
 def _pipeline(client, pid="p", **over):
@@ -170,7 +170,7 @@ def test_retention_save_raw_frames(client):
     out_mid = resp.json()["media_id"]
     assert out_mid and out_mid.startswith("media-")
     got = client.get(f"/api/v1/media/{out_mid}").json()
-    assert got["media_id"] == out_mid
+    assert got["id"] == out_mid
 
 
 def test_retention_ttl_over_cap_422(client):

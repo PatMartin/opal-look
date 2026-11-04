@@ -24,13 +24,20 @@ class SqliteMediaRepository:
 
     def insert(self, fields: dict[str, Any]) -> None:
         self._conn.execute(
-            "INSERT INTO media (media_id, filename, kind, content_type, size_bytes, path, "
-            "width, height, duration_ms, created_at, expires_at) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            "INSERT INTO media (media_id, filename, kind, origin, source_id, "
+            "job_id, monitor_id, annotated, sha256, content_type, size_bytes, "
+            "path, width, height, duration_ms, created_at, expires_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (
                 fields["media_id"],
                 fields["filename"],
                 fields["kind"],
+                fields.get("origin", "upload"),
+                fields.get("source_id"),
+                fields.get("job_id"),
+                fields.get("monitor_id"),
+                fields.get("annotated", 0),
+                fields.get("sha256"),
                 fields["content_type"],
                 fields["size_bytes"],
                 fields["path"],
@@ -45,10 +52,18 @@ class SqliteMediaRepository:
     def delete(self, media_id: str) -> None:
         self._conn.execute("DELETE FROM media WHERE media_id = ?", (media_id,))
 
-    def page(self, now: str, after: list | None, limit: int) -> list[sqlite3.Row]:
+    def page(self, now: str, after: list | None, limit: int,
+             kind: str | None = None, source_id: str | None = None
+             ) -> list[sqlite3.Row]:
         """Unexpired media, newest-first with media_id tiebreak."""
         query = "SELECT * FROM media WHERE expires_at > ?"
         params: list = [now]
+        if kind is not None:
+            query += " AND kind = ?"
+            params.append(kind)
+        if source_id is not None:
+            query += " AND source_id = ?"
+            params.append(source_id)
         if after is not None:
             query += " AND (created_at < ? OR (created_at = ? AND media_id < ?))"
             params += [after[0], after[0], after[1]]

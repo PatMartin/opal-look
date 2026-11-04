@@ -16,7 +16,7 @@ def media_id(client):
         "/api/v1/media/", files={"file": ("pic.jpg", _img(), "image/jpeg")}
     )
     assert resp.status_code == 201
-    return resp.json()["media_id"]
+    return resp.json()["id"]
 
 
 def _analyze(client, media_id, **overrides):

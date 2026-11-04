@@ -78,7 +78,7 @@ def test_binary_response_carries_correlation_headers(client):
     Image.new("RGB", (8, 8), (5, 5, 5)).save(buf, format="PNG")
     mid = client.post(
         "/api/v1/media/", files={"file": ("x.png", buf.getvalue(), "image/png")}
-    ).json()["media_id"]
+    ).json()["id"]
     resp = client.get(
         f"/api/v1/media/{mid}/content",
         headers={"X-Opal-Transaction-Id": "txn-bin"},
@@ -99,7 +99,7 @@ def test_internal_session_ids_never_leak_into_x_opal_header(client):
     Image.new("RGB", (8, 8), (4, 4, 4)).save(buf, format="JPEG")
     mid = client.post(
         "/api/v1/media/", files={"file": ("x.jpg", buf.getvalue(), "image/jpeg")}
-    ).json()["media_id"]
+    ).json()["id"]
     client.post(
         "/api/v1/sources/",
         json={"id": "ms", "name": "M", "kind": "media", "locator": mid},

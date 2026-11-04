@@ -83,7 +83,7 @@ def test_cli_sessions_add_202(cli, tmp_path):
     result = cli.invoke(cli_app, ["media", "upload", str(img)])
     assert result.exit_code == 0, result.output
     import json
-    mid = json.loads(result.output)["media_id"]
+    mid = json.loads(result.output)["id"]
     result = cli.invoke(cli_app, [
         "sources", "add", "--body",
         f'{{"id": "ms", "name": "M", "kind": "media", "locator": "{mid}"}}'])

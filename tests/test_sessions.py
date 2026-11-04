@@ -17,7 +17,7 @@ def _img(size=(40, 30)):
 def media_source(client):
     mid = client.post(
         "/api/v1/media/", files={"file": ("p.jpg", _img(), "image/jpeg")}
-    ).json()["media_id"]
+    ).json()["id"]
     client.post(
         "/api/v1/sources/",
         json={"id": "ms", "name": "M", "kind": "media", "locator": mid},

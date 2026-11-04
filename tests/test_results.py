@@ -14,7 +14,7 @@ def _img(size=(40, 30), color=(5, 200, 60)):
 def result(client):
     mid = client.post(
         "/api/v1/media/", files={"file": ("p.jpg", _img(), "image/jpeg")}
-    ).json()["media_id"]
+    ).json()["id"]
     body = client.post(
         "/api/v1/analyze",
         json={
@@ -48,7 +48,7 @@ def test_get_unknown_result_404(client):
 def test_unstored_result_not_in_history(client):
     mid = client.post(
         "/api/v1/media/", files={"file": ("p.jpg", _img(), "image/jpeg")}
-    ).json()["media_id"]
+    ).json()["id"]
     body = client.post(
         "/api/v1/analyze",
         json={
@@ -90,7 +90,7 @@ def test_results_cursor_pagination(client, result):
     # Second result for paging.
     mid = client.post(
         "/api/v1/media/", files={"file": ("p2.jpg", _img(), "image/jpeg")}
-    ).json()["media_id"]
+    ).json()["id"]
     client.post(
         "/api/v1/analyze",
         json={
@@ -154,7 +154,7 @@ def test_snapshot_unknown_result_404(client):
 def test_snapshot_evicted_frame_409(client):
     mid = client.post(
         "/api/v1/media/", files={"file": ("p.jpg", _img(), "image/jpeg")}
-    ).json()["media_id"]
+    ).json()["id"]
     body = client.post(
         "/api/v1/analyze",
         json={

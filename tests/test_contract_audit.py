@@ -99,8 +99,8 @@ def test_main_json_output_is_machine_readable(capsys):
     assert payload["contract"]["operations"] == 62
     assert payload["contract"]["paths"] == 42
     assert payload["coverage"]["implemented"] + payload["coverage"]["missing"] == 62
+    # coverage is now complete; ok stays False while legacy-only routes remain
     assert payload["ok"] is False
-    assert payload["missing"], "missing routes must not be reported as passing"
 
 
 def test_main_missing_contract_returns_2(tmp_path, capsys):

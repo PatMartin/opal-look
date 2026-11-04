@@ -64,11 +64,19 @@ class MonitorRuntime:
         self.alive = False
         self.observations: deque = deque(maxlen=_OBS_BUFFER_MAX)
         self.condition_events: deque = deque(maxlen=_OBS_BUFFER_MAX)
+        self.event_log: deque = deque(maxlen=256)  # (seq, kind, payload)
+        self.event_seq = 0
         self.cond_state: dict = {}
         self.updated = threading.Event()
         self._thread: threading.Thread | None = None
         self._stop = threading.Event()
         self._restarts = 0
+
+    def emit(self, kind: str, payload: dict) -> int:
+        self.event_seq += 1
+        self.event_log.append((self.event_seq, kind, payload))
+        self.updated.set()
+        return self.event_seq
 
     def start(self) -> None:
         if self.alive:
@@ -158,6 +166,8 @@ class MonitorRuntime:
                         self._fail(str(exc))
                         break
                     self.observations.extend(result["observations"])
+                    for obs in result["observations"]:
+                        self.emit("observation", obs)
                     self.updated.set()
                     now = now_iso()
                     # inline condition evaluation
@@ -176,6 +186,7 @@ class MonitorRuntime:
                         for ev in matched:
                             ev["monitor_id"] = self.monitor_id
                             self.condition_events.append(ev)
+                            self.emit("condition_match", ev)
                             if _cond_by_id(row, ev["monitor_condition"]).capture_on_match:
                                 try:
                                     import io as _io

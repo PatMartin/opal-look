@@ -151,7 +151,7 @@ def _to_conditions(raw):
             for c in raw]
 
 
-# -- monitor observation SSE tail (live buffer, not durable replay) --------------
+# -- monitor observation SSE: shared producer + bounded replay (step 20) ---------
 
 @router.get("/api/v1/monitors/{monitor_id}/observations/stream")
 async def get_api_v1_monitors_observations_stream(
@@ -164,40 +164,49 @@ async def get_api_v1_monitors_observations_stream(
     row = _get_monitor_or_404(store, monitor_id)
     runtime = _runtime(request, monitor_id)
 
+    last_id_raw = request.headers.get("last-event-id")
+    last_seq = 0
+    if last_id_raw is not None:
+        try:
+            last_seq = int(str(last_id_raw).lstrip("c"))
+        except ValueError:
+            raise ApiError(422, "Malformed Last-Event-ID header.")
+    if runtime is not None and last_seq:
+        log = list(runtime.event_log)
+        if log and last_seq < log[0][0] - 1:
+            # requested cursor older than the replay window: deterministic 409
+            raise ApiError(
+                409, f"Replay cursor {last_seq} is stale; oldest retained "
+                     f"event is {log[0][0]}.", code="replay_expired")
+
     async def events():
-        sent = 0
-        ceid = 0
-        eid = 0
+        seq = last_seq
         LF = chr(10)
-        while True:
-            if await request.is_disconnected():
-                return
-            buf = list(runtime.observations) if runtime else []
-            cbuf = list(runtime.condition_events) if runtime else []
-            while ceid < len(cbuf):
-                ev = cbuf[ceid]
-                yield ("id: c" + str(ceid) + LF + "event: condition_match" + LF
-                       + "data: " + json.dumps(ev) + LF + LF)
-                ceid += 1
-            while sent < len(buf):
-                eid += 1
-                obs = buf[sent]
-                yield ("id: " + str(eid) + LF + "event: observation" + LF
-                       + "data: " + json.dumps(obs) + LF + LF)
-                sent += 1
-            if runtime is None or not runtime.alive:
-                if not row["enabled"]:
+        try:
+            while True:
+                if await request.is_disconnected():
                     return
-            try:
-                if runtime is not None:
-                    runtime.updated.clear()
+                if runtime is None:
+                    yield ": heartbeat" + LF + LF
+                    await asyncio.sleep(2.0)
+                    continue
+                log = list(runtime.event_log)
+                emitted = False
+                for s_, kind, payload in log:
+                    if s_ > seq:
+                        seq = s_
+                        emitted = True
+                        yield ("id: " + str(s_) + LF + "event: " + kind + LF
+                               + "data: " + json.dumps(payload) + LF + LF)
+                if not emitted:
+                    yield ": heartbeat" + LF + LF
+                runtime.updated.clear()
+                try:
                     await asyncio.wait_for(
                         asyncio.to_thread(runtime.updated.wait, 15.0), 15.5)
-            except (asyncio.TimeoutError, Exception):
-                yield ": heartbeat" + LF + LF
-            else:
-                continue
-            if runtime is None or (not runtime.alive and not row["enabled"]):
-                return
+                except asyncio.TimeoutError:
+                    pass
+        except Exception:
+            return
 
     return StreamingResponse(events(), media_type="text/event-stream")

@@ -166,12 +166,19 @@ async def get_api_v1_monitors_observations_stream(
 
     async def events():
         sent = 0
+        ceid = 0
         eid = 0
         LF = chr(10)
         while True:
             if await request.is_disconnected():
                 return
             buf = list(runtime.observations) if runtime else []
+            cbuf = list(runtime.condition_events) if runtime else []
+            while ceid < len(cbuf):
+                ev = cbuf[ceid]
+                yield ("id: c" + str(ceid) + LF + "event: condition_match" + LF
+                       + "data: " + json.dumps(ev) + LF + LF)
+                ceid += 1
             while sent < len(buf):
                 eid += 1
                 obs = buf[sent]

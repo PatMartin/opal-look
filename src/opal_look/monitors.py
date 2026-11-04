@@ -63,6 +63,8 @@ class MonitorRuntime:
         self.monitor_id = monitor_id
         self.alive = False
         self.observations: deque = deque(maxlen=_OBS_BUFFER_MAX)
+        self.condition_events: deque = deque(maxlen=_OBS_BUFFER_MAX)
+        self.cond_state: dict = {}
         self.updated = threading.Event()
         self._thread: threading.Thread | None = None
         self._stop = threading.Event()
@@ -158,6 +160,42 @@ class MonitorRuntime:
                     self.observations.extend(result["observations"])
                     self.updated.set()
                     now = now_iso()
+                    # inline condition evaluation
+                    try:
+                        from .condition_eval import evaluate_conditions
+                        zones = json.loads(src["zones"] or "[]")
+                        tracking = any(
+                            model_runtime(self.store, m).get("tracking")
+                            for st in _stage_list(self.store, pipeline)
+                            if st.kind == "inference"
+                            for m in [self.store.models.get(st.model_id)]
+                            if m is not None)
+                        matched = evaluate_conditions(
+                            _to_conds(row["conditions"]), result["observations"],
+                            zones, self.cond_state, tracking)
+                        for ev in matched:
+                            ev["monitor_id"] = self.monitor_id
+                            self.condition_events.append(ev)
+                            if _cond_by_id(row, ev["monitor_condition"]).capture_on_match:
+                                try:
+                                    import io as _io
+                                    from .media import create_media
+                                    buf = _io.BytesIO()
+                                    frame.convert("RGB").save(buf, "JPEG")
+                                    create_media(
+                                        self.store, buf.getvalue(),
+                                        kind="snapshot", origin="monitor",
+                                        filename="monitor-capture.jpg",
+                                        content_type="image/jpeg",
+                                        monitor_id=self.monitor_id)
+                                except Exception:
+                                    pass
+                            clip = _cond_by_id(row, ev["monitor_condition"]).clip_on_match
+                            if clip:
+                                ev["clip_unsupported"] = True
+                                ev["clip_reason"] = "no video decoder installed"
+                    except Exception:
+                        pass
                     self._safe_update({"last_observation_at": now})
                     if retention.get("persist_observations"):
                         ttl = retention.get("ttl_seconds")
@@ -241,8 +279,24 @@ def validate_monitor_refs(store, source_id: str, pipeline_id: str,
             raise ApiError(503, f"Pipeline stage {st.id!r}: engine "
                                 f"{rt['engine_id']!r} is not installed.")
     if conditions:
-        zones = {z["id"] for z in json.loads(src["zones"] or "[]")}
-        for c in conditions:
-            if c.zone_id and c.zone_id not in zones:
-                raise ApiError(422, f"condition {c.id!r}: zone "
-                                    f"{c.zone_id!r} not found on source")
+        from .condition_eval import validate_conditions_for_source
+        errors = validate_conditions_for_source(store, src, conditions, pipe)
+        if errors:
+            raise ApiError(422, "; ".join(errors))
+
+
+def _cond_by_id(row, cid):
+    import json as _j
+    for c in _j.loads(row["conditions"] or "[]"):
+        if c["id"] == cid:
+            return c
+    return {}
+
+
+def _to_conds(raw):
+    from .schemas import MonitorCondition
+    import json as _j
+    if isinstance(raw, str):
+        raw = _j.loads(raw or "[]")
+    return [c if isinstance(c, MonitorCondition) else MonitorCondition(**c)
+            for c in (raw or [])]

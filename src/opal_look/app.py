@@ -36,6 +36,11 @@ def create_app(
     @asynccontextmanager
     async def lifespan(app: FastAPI):
         yield
+        for rt in getattr(app.state, "monitor_runtimes", {}).values():
+            rt.stop()
+        for rt in getattr(app.state, "monitor_runtimes", {}).values():
+            if rt._thread is not None:
+                rt._thread.join(timeout=2.0)
         app.state.store.close()
 
     app = FastAPI(

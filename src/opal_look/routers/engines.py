@@ -71,7 +71,6 @@ def patch_api_v1_engines_engine_id(
     return JSONResponse(engine_read(store, row), headers={"ETag": revision})
 
 
-@router.post("/api/v1/engines/{engine_id}/validate")
 def post_api_v1_engines_engine_id_validate(request: Request, store: StoreDep, engine_id: str) -> dict:
     _get_engine_or_404(store, engine_id)
     adapter = ENGINE_REGISTRY.get(engine_id)

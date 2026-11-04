@@ -18,8 +18,7 @@ from .errors import register_error_handlers
 from .framecache import FrameCache
 from .sessions import SessionRuntimeRegistry
 from .routers import (
-    analyze, backup, capabilities, configuration, engines, health, media, jobs, metrics, models, monitors, observations, pipelines, recordings, profiles, results,
-    sessions as sessions_router, settings, snapshots, sources,
+    analyze, capabilities, configuration, engines, health, media, jobs, metrics, models, monitors, observations, pipelines, recordings, settings, sources,
 )
 from .store import Store
 
@@ -105,7 +104,6 @@ def create_app(
     app.include_router(engines.router)
     app.include_router(models.router)
     app.include_router(sources.router)
-    app.include_router(profiles.router)
     app.include_router(pipelines.router)
     app.include_router(observations.router)
     app.include_router(jobs.router)
@@ -115,10 +113,6 @@ def create_app(
     app.include_router(metrics.router)
     app.include_router(media.router)
     app.include_router(analyze.router)
-    app.include_router(results.router)
-    app.include_router(snapshots.router)
-    app.include_router(sessions_router.router)
-    app.include_router(backup.router)
 
     from fastapi.staticfiles import StaticFiles
     app.mount("/app", StaticFiles(directory=Path(__file__).parent / "static", html=True),

@@ -148,15 +148,12 @@ def delete_api_v1_sources_source_id(
         response.headers["ETag"] = store.bump_revision()
 
 
-@router.post("/api/v1/sources/{source_id}/validate")
 def post_api_v1_sources_source_id_validate(request: Request, store: StoreDep, source_id: str) -> dict:
     row = _get_source_or_404(store, source_id)
     return validate_source(store, row)
 
 
-@router.get("/api/v1/devices/cameras/")
-def get_api_v1_devices_cameras(request: Request) -> list:
-    return discover_cameras()
+
 
 
 # -- v1.5 runtime surfaces: status / probe / frame -----------------------------

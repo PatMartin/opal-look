@@ -158,7 +158,6 @@ def delete_api_v1_models_model_id(
         response.headers["ETag"] = store.bump_revision()
 
 
-@router.post("/api/v1/models/{model_id}/validate")
 def post_api_v1_models_model_id_validate(request: Request, store: StoreDep, model_id: str) -> dict:
     row = _get_model_or_404(store, model_id)
     read = model_runtime(store, row)

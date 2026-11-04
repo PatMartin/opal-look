@@ -1,952 +1,746 @@
 ![OPAL Look — machine vision for the OPAL ecosystem](opal-look.png)
 
 # OPAL Look
-### Give your software eyes. Decide what happens next.
+### Give your software eyes. Keep the decisions yours.
 
-A camera sees movement. An image contains something interesting. A service needs to know **what's in the frame**, not just where the file lives.
+A camera sees a driveway. A photo lands in a folder. A robot wonders whether the path ahead is clear. In each case, the interesting question is not *where are the pixels?* but **what can we observe, and what should happen next?**
 
-That's the job of **OPAL Look**, the vision component of [OPAL](https://github.com/PatMartin/opal): an **API-first image-analysis service** with models, sources, profiles, stored results, snapshots, analysis sessions, a Typer CLI, and a browser console.
+**OPAL Look** is the visual observation service in [OPAL](https://github.com/PatMartin/opal). It turns images and camera frames into structured observations. You can view a feed, run a reusable processing pipeline, retain evidence, or leave a monitor on duty—all through a REST API with a Typer command-line client and a browser console.
 
 ~~~text
-       Image / uploaded media / configured source
-                          │
-                          ▼
-                     OPAL Look
-                   FastAPI REST API
-                          │
-          ┌───────────────┼────────────────┐
-          ▼               ▼                ▼
-        Models          Profiles         Sources
-      + engines        + filters      + media catalog
-          └───────────────┬────────────────┘
-                          ▼
-                    Analyze a frame
-                          │
-          ┌───────────────┼────────────────┐
-          ▼               ▼                ▼
-      Structured       Annotated       Persistent
-       results         snapshots         history
-          └───────────────┬────────────────┘
-                          ▼
-                  Other OPAL services
-               rules, actions, voice, AI
+             Image / uploaded media / RTSP camera
+                            |
+                            v
+                         SOURCE
+                            |------> raw frame / live MJPEG view
+                            v
+                        PIPELINE
+                model + transforms + filters
+                            |
+                            v
+                      OBSERVATIONS
+                 typed evidence + provenance
+                            |
+              +-------------+-------------+
+              v                           v
+          MONITOR                      MEDIA / JOB
+       conditions + SSE              capture / record
+              |
+              v
+          OPAL-EVENT  --->  automation / OPAL-THINK / your app
 ~~~
 
-Think of it as the **eyes** in a modular assistant. [OPAL Listen](https://github.com/PatMartin/opal-listen) hears; [OPAL Look](https://github.com/PatMartin/opal-look) sees; [OPAL Event](https://github.com/PatMartin/opal-event) decides what to do when an event arrives; [OPAL Talk](https://github.com/PatMartin/opal-talk) gives the system a voice. The interfaces are designed to fit together without combining everything into one giant application.
+**No public session management required.** The basic workflows are *view it*, *analyze it*, and *monitor it*. Complex processing remains available when you need it.
 
-> **Know what works today:** This repository currently ships a **synthetic vision engine**. It generates deterministic, correctly structured results for developing and testing the pipeline; **it does not actually recognize people, vehicles, text, or other objects in your photos**. Image uploads, synthetic analysis, stored results, snapshots, media-backed sessions, and the REST clients are implemented. Real camera/RTSP capture, actual trained-model inference, and video decoding require additional adapters.
+> **What is real today?** OPAL Look includes a deterministic **synthetic inference engine** for testing the API, not a trained object detector. It **does not identify people, cars, or animals in actual photographs**. RTSP capture is implemented using PyAV, but real detection requires a separate trained-model adapter. You can [install YOLO and test it independently](#optional-install-yolo-for-real-object-detection) right now; connecting its pixels to OPAL Look still needs a small but essential adapter-interface change. See [Current capabilities and known limitations](#current-capabilities-and-known-limitations).
 
-## Why OPAL Look?
+**Explore:** [Quickstart](#quickstart-in-five-minutes) · [YOLO setup](#optional-install-yolo-for-real-object-detection) · [CLI reference](#complete-cli-reference) · [Recipes](#practical-recipes) · [REST and integrations](#rest-streams-and-opal-integrations) · [Limitations](#current-capabilities-and-known-limitations) · [Contributing](#tests-contract-and-contributing)
 
-- **One REST contract for vision.** Define an analysis request once; let a model adapter fulfill it.
-- **Five structured analysis tasks.** Detection, classification, segmentation, pose, and OCR all have defined result shapes.
-- **Model and engine discovery.** Register resources, inspect capabilities, validate availability, and select a model.
-- **Reusable profiles.** Bundle a model, task, confidence threshold, class filters, regions, and other analysis settings.
-- **Media as first-class input.** Upload JPEGs or PNGs, reuse their IDs, download originals, and inspect retention.
-- **Results with receipts.** Stored detections, timestamps, source and model references, and correlation metadata are discoverable later.
-- **Frame-aware snapshots.** Capture a JPEG from the analyzed frame, optionally with annotations, and retain it separately.
-- **Session lifecycle.** Start a media-backed analysis session, observe status and results, and stop/delete it through REST.
-- **A practical command line.** Typer covers the service as a thin HTTP client; the web app uses the API too.
-- **Deliberately bounded work.** Limits on uploads, decoded pixels, concurrent sessions, analysis time, result retention, and event publication.
+---
 
-The philosophy is simple: **the server owns behavior; the CLI and UI are clients**. The [OpenAPI 1.4.0 contract](opal_look_v1.4.0.yaml) describes the intended interface; this README distinguishes the implemented functionality from things still waiting for hardware adapters.
+## Quickstart in five minutes
 
-## Installation
+### 1. Install from a checkout
 
-### 1. Install the service and CLI
-
-You need **Python 3.12 or newer** and Git. The commands below use Linux/macOS (including Ubuntu and Raspberry Pi OS with a suitable Python version).
+You need **Python 3.12+**. The commands below use Bash on Linux/macOS. Windows users can create a venv with `py -3.12 -m venv .venv` and activate `.\.venv\Scripts\Activate.ps1` in PowerShell.
 
 ~~~bash
 git clone https://github.com/PatMartin/opal-look.git
 cd opal-look
-
 python3 -m venv .venv
 source .venv/bin/activate
 python -m pip install -e ".[dev]"
 ~~~
 
-The repository declares two console commands:
+This is a source-checkout workflow. The project's current wheel packaging lists only `src/opal_look` even though the CLI lives in `src/opal_look_cli`; until that is corrected, verify that `opal-look-cli` is installed before distributing a built wheel.
 
-| Command | Purpose |
-| --- | --- |
-| `opal-look` | Run the FastAPI service |
-| `opal-look-cli` | Call its REST API using Typer |
-
-**Source-checkout note:** The current `pyproject.toml` explicitly packages `src/opal_look` but not the sibling `src/opal_look_cli` directory. If `opal-look-cli` fails with `ModuleNotFoundError: opal_look_cli`, expose the source tree while working from the checkout:
-
-~~~bash
-export PYTHONPATH="$PWD/src:$PYTHONPATH"
-opal-look-cli --help
-
-# Alternative that doesn't depend on the installed script:
-python -m opal_look_cli.cli --help
-~~~
-
-This is a development workaround, not a claim that wheel packaging is already fixed.
-
-### 2. Start OPAL Look
-
-In terminal one:
+### 2. Start the service
 
 ~~~bash
 opal-look
-
-# Equivalent with uvicorn:
-# uvicorn opal_look.app:create_app --factory --host 127.0.0.1 --port 8000
 ~~~
 
-Open terminal two in the repository directory, activate the virtual environment, and check the API:
+By default, LOOK listens at **http://127.0.0.1:8000** on loopback. Keep that terminal open. Use a second terminal with the same virtual environment:
 
 ~~~bash
-source .venv/bin/activate
-export PYTHONPATH="$PWD/src:$PYTHONPATH"
-
-opal-look-cli info
-opal-look-cli health
+opal-look-cli health live
+opal-look-cli health ready
 opal-look-cli engines list
 opal-look-cli models list
-opal-look-cli settings show
+opal-look-cli capabilities show
 ~~~
 
-Default locations:
+The built-in inference engine is `synthetic` and its seeded model is `synthetic-vision`. You can also open the browser console at **http://127.0.0.1:8000/app/**.
 
-<<<<<<< HEAD
-The included **synthetic** engine/model is useful for exploring the API and testing the workflow. It is not a trained object detector.
-
-First, upload a local JPEG or PNG:
-
-```bash
-opal-look-cli media upload ./example.jpg
-```
-
-Copy the `media_id` from the response, then run an analysis against it (replace `YOUR_MEDIA_ID`):
-
-```bash
-opal-look-cli analyze run --body '{"media_id":"YOUR_MEDIA_ID","model_id":"synthetic-vision","task":"detection"}'
-```
-
-Alternatively, explore uploads, analysis, and results using the [web app](http://127.0.0.1:8000/app/).
-
-### 4. Try an RTSP camera (optional)
-
-RTSP sources decode through PyAV (bundled FFmpeg — no system install needed). Register a camera, validate connectivity, then open a live analysis session:
-
-```bash
-opal-look-cli sources add --body '{"source_id":"driveway","name":"Driveway","type":"rtsp","locator":"rtsp://192.168.1.50:554/stream1"}'
-opal-look-cli sources validate driveway
-opal-look-cli sessions add --body '{"source_id":"driveway","model_id":"synthetic-vision","task":"detection"}'
-```
-
-For authenticated cameras, provision credentials out of band before starting the service — never in the locator:
-
-```bash
-export OPAL_LOOK_CRED_DRIVEWAY=camera-user:camera-pass
-opal-look-cli sources update driveway --body '{"credential_ref":"driveway"}'
-```
-
-Live sessions honor `settings.max_fps` analysis pacing and the `reconnect` policy (exponential backoff; exhaustion fails the session). MJPEG preview and SSE result events work the same as for media sessions.
-
-### 5. Run the tests
-
-```bash
-python -m pytest
-```
-
-**That's it.** You now have the local API, browser UI, and REST CLI available.
-
-## How OPAL Look fits into OPAL
-
-OPAL Look is the vision component of the broader [OPAL project](https://github.com/PatMartin/opal). It handles media inputs and image-analysis workflows. Other OPAL services can consume its results through REST or, when configured, event publication.
-
-The core design is **API-first**: the server owns behavior, persistence, and validation. The Typer CLI and single-page application are clients of the same API rather than separate implementations of the business logic.
-
-## Features
-
-| Area | What it does |
-=======
-| Service | Address |
->>>>>>> 8bf5d7564b3e59df8389a3564bcd83e8e55be8cf
-| --- | --- |
-| REST API | `http://127.0.0.1:8000/api/v1/` |
-| Web app | `http://127.0.0.1:8000/app/` |
-| Health | `http://127.0.0.1:8000/api/v1/health/` |
-| Authoritative API specification | [`opal_look_v1.4.0.yaml`](opal_look_v1.4.0.yaml) |
-
-**Note:** The service deliberately disables FastAPI's generated `/docs`, `/redoc`, and `/openapi.json` endpoints. Use the checked-in contract and the running API instead.
-
-**Already running OPAL Listen?** It also commonly uses port 8000. Put Look on port **8002** and point the CLI at it:
+If port 8000 is already taken, use `OPAL_LOOK_PORT=8002 opal-look` and point the CLI to it:
 
 ~~~bash
-# Server terminal:
-OPAL_LOOK_PORT=8002 opal-look
-
-# CLI terminal:
-opal-look-cli --url http://127.0.0.1:8002 health
+opal-look-cli --url http://127.0.0.1:8002 health show
 ~~~
 
-The remainder of this guide assumes the service is on the default port 8000. If you chose 8002, add `--url http://127.0.0.1:8002` immediately after `opal-look-cli` (or use a shell alias).
-
-### 3. Analyze your first image—without a camera or a model download
-
-There's already a PNG in the repository: **`opal-look.png`**, the artwork at the top of this README. Let's use it as our test input.
+### 3. Create your first processing pipeline
 
 ~~~bash
-# Step 1: upload the graphic.
-opal-look-cli media upload ./opal-look.png
-
-# The response contains a media_id, like "media-...".
-# Step 2: inspect the seeded test model.
-opal-look-cli models show synthetic-vision
-opal-look-cli models validate synthetic-vision
-
-# Step 3: substitute your actual media_id below.
-opal-look-cli analyze run --body '{
-  "input": {"kind": "media", "media_id": "YOUR_MEDIA_ID"},
-  "model_id": "synthetic-vision",
-  "task": "detection"
-}'
-
-# Step 4: examine the result history.
-opal-look-cli results list
+opal-look-cli pipelines add --body '{"id":"demo","name":"First vision pipeline","model_id":"synthetic-vision","task":"detection"}'
+opal-look-cli pipelines show demo
 ~~~
 
-The generated `result_id` lets you inspect the analysis and capture a snapshot:
+### 4. Analyze an image, without a camera
+
+Put any JPG or PNG in the working directory and call it `sample.jpg`:
 
 ~~~bash
-opal-look-cli results show YOUR_RESULT_ID
-
-# Run promptly: snapshots need the exact frame still in the short-lived frame cache.
-opal-look-cli results snapshot YOUR_RESULT_ID --annotated --out annotated.jpg
+opal-look-cli analyze image sample.jpg --request '{"pipeline_id":"demo"}'
 ~~~
 
-**The labels and boxes are synthetic test output, not real recognition of the poster.** That makes this a useful first test of API routing, storage, filters, result schemas, and snapshot rendering without requiring a GPU or a camera.
+This returns **structured detection-shaped observations**, but the labels are synthetic, not facts about the photo. That's intentional: you can test the REST interface, persistence, CLI, and downstream tools before committing to a hardware or model provider.
 
-### 4. Run the test suite
-
-~~~bash
-python -m pytest
-~~~
-
-The suite exercises the implemented REST resources, CLI, persistence, analysis, sessions, correlation, and error handling. The service comes with the synthetic adapter, so basic tests don't require a pretrained vision model.
-
-## Complete Typer command tree
-
-This tree follows [`src/opal_look_cli/cli.py`](src/opal_look_cli/cli.py). The actual command is **`opal-look-cli`** (not yet `opal look`). Global flags belong **before** the command/group.
-
-~~~text
-opal-look-cli
-│  --url URL                                   default http://127.0.0.1:8000
-│  --json                                      JSON output
-│
-├── info
-├── health
-│
-├── engines
-│   ├── list
-│   ├── show ENGINE_ID
-│   ├── add --body JSON | --file PATH           *
-│   ├── update ENGINE_ID --body JSON | --file PATH
-│   ├── remove ENGINE_ID                        *
-│   └── validate ENGINE_ID
-│
-├── models
-│   ├── list
-│   ├── show MODEL_ID
-│   ├── add --body JSON | --file PATH
-│   ├── update MODEL_ID --body JSON | --file PATH
-│   ├── remove MODEL_ID
-│   └── validate MODEL_ID
-│
-├── sources
-│   ├── list
-│   ├── show SOURCE_ID
-│   ├── add --body JSON | --file PATH
-│   ├── update SOURCE_ID --body JSON | --file PATH
-│   ├── remove SOURCE_ID
-│   └── validate SOURCE_ID
-│
-├── profiles
-│   ├── list
-│   ├── show PROFILE_ID
-│   ├── add --body JSON | --file PATH
-│   ├── update PROFILE_ID --body JSON | --file PATH
-│   ├── remove PROFILE_ID
-│   ├── validate PROFILE_ID
-│   └── activate PROFILE_ID
-│
-├── devices
-│   └── cameras
-│
-├── media
-│   ├── list [--cursor TOKEN]
-│   ├── show MEDIA_ID
-│   ├── upload FILE
-│   ├── download MEDIA_ID [--out PATH]
-│   └── remove MEDIA_ID
-│
-├── analyze
-│   └── run --body JSON | --file PATH
-│
-├── results
-│   ├── list
-│   ├── show RESULT_ID
-│   ├── add --body JSON | --file PATH           *
-│   ├── update RESULT_ID --body JSON | --file PATH *
-│   ├── remove RESULT_ID
-│   ├── validate RESULT_ID                      *
-│   └── snapshot RESULT_ID [--annotated] [--retain] [--out PATH]
-│
-├── snapshots
-│   ├── list
-│   ├── show SNAPSHOT_ID
-│   ├── add --body JSON | --file PATH           *
-│   ├── update SNAPSHOT_ID --body JSON | --file PATH *
-│   ├── remove SNAPSHOT_ID
-│   └── validate SNAPSHOT_ID                    *
-│
-├── sessions
-│   ├── list [--cursor TOKEN] [--state STATE]
-│   ├── show SESSION_ID
-│   ├── add --body JSON | --file PATH [--idempotency-key KEY]
-│   ├── latest SESSION_ID
-│   ├── events SESSION_ID
-│   ├── stream SESSION_ID
-│   ├── stop SESSION_ID
-│   └── remove SESSION_ID
-│
-├── settings
-│   ├── show [KEY]
-│   ├── set KEY JSON_VALUE
-│   └── unset KEY
-│
-└── backup
-    ├── export
-    ├── import --file PATH
-    ├── validate [--file PATH]
-    ├── list
-    ├── create
-    ├── download FILENAME [--out PATH]
-    ├── restore FILENAME
-    └── remove FILENAME
-~~~
-
-**`*` Generated CLI commands without a matching server operation:** The current reusable Typer collection builder creates `add`/`remove`/`validate` for every collection. The REST API intentionally does **not** implement all of them. For example, engines cannot be added or removed through REST; results and snapshots are created by analysis and capture, not by generic `add`. Those marked commands are in the CLI tree but **should not be used**. Use the supported workflows below.
-
-~~~bash
-opal-look-cli --help
-opal-look-cli models --help
-opal-look-cli analyze run --help
-opal-look-cli sessions add --help
-opal-look-cli results snapshot --help
-
-# Target another Look service:
-opal-look-cli --url http://127.0.0.1:8002 models list
-
-# Output JSON for scripting:
-opal-look-cli --json models list
-~~~
-
-**CLI convention:** Configuration catalog verbs are `list`, `show`, `add`, `update`, and `remove`. Operational verbs include `validate`, `activate`, `upload`, `download`, `run`, `snapshot`, and `stop`. The CLI sends REST requests; it does not run inference or access the database directly.
-
-## In-depth CLI guide: useful things to build
-
-### First, learn the objects
-
-| Concept | Think of it as | Example |
-| --- | --- | --- |
-<<<<<<< HEAD
-| `OPAL_LOOK_HOST` | `127.0.0.1` | API bind address |
-| `OPAL_LOOK_PORT` | `8000` | API port |
-| `OPAL_LOOK_DATA_DIR` | `./data` | Persistent application data directory |
-| `OPAL_LOOK_EVENT_TRANSPORT` | Unset | Provisioned ZeroMQ event transport configuration |
-| `OPAL_LOOK_CRED_<REF>` | Unset | `user:pass` credentials for a source `credential_ref` (e.g. `OPAL_LOOK_CRED_DRIVEWAY`) |
-=======
-| **Engine** | A vision implementation | `synthetic` today; plugin adapters later |
-| **Model** | A registered resource served by an engine | `synthetic-vision` |
-| **Source** | Where frames come from | Uploaded media, camera, RTSP, HTTP, host video |
-| **Media** | An uploaded image with an ID and retention | `media-...` |
-| **Profile** | A reusable model + task + filter recipe | "Detect people at the front door" |
-| **Analysis** | One frame analyzed immediately | `analyze run` |
-| **Result** | A structured analysis record | `result-...` |
-| **Snapshot** | Exact-frame JPEG, optionally annotated | `snap-...` |
-| **Session** | A managed analysis lifecycle for a source | `session-...` |
->>>>>>> 8bf5d7564b3e59df8389a3564bcd83e8e55be8cf
-
-A **source can be registered without being available**. In the current implementation, uploaded-image-backed `media` sources are usable; physical camera/RTSP/HTTP and video-file sources are not yet backed by operational capture/decoding adapters.
-
-### Use case 1: Make an upload-analyze-inspect script
-
-First install [`jq`](https://jqlang.github.io/jq/) if you want the shell to extract IDs automatically. Then run this **from the repository root** against the running service:
-
-~~~bash
-# Upload the repo artwork and capture the server-generated ID.
-MEDIA_ID=$(opal-look-cli --json media upload ./opal-look.png | jq -r .media_id)
-echo "Uploaded: $MEDIA_ID"
-
-# Run a synthetic detection analysis; capture the result.
-RESULT_ID=$(
-  opal-look-cli --json analyze run --body \
-    "{\"input\":{\"kind\":\"media\",\"media_id\":\"$MEDIA_ID\"},\"model_id\":\"synthetic-vision\",\"task\":\"detection\"}" \
-  | jq -r .result_id
-)
-echo "Result: $RESULT_ID"
-
-# Read it back from persistence.
-opal-look-cli results show "$RESULT_ID"
-
-# Export an annotated JPEG while the exact frame remains cached.
-opal-look-cli results snapshot "$RESULT_ID" \
-  --annotated --out ./first-result.jpg
-~~~
-
-<<<<<<< HEAD
-- The built-in synthetic engine demonstrates flows but does not perform real trained-model inference. Additional engine adapters are needed for real model inference.
-- RTSP sources are supported through the PyAV capture adapter (with live sessions, reconnect backoff, and single-frame analyze). Camera devices, HTTP/MJPEG feeds, and host_video decoding still require additional source adapters; configuring such a source does not by itself guarantee a usable feed.
-- Some SSE replay-window edge cases and operational counters remain deferred.
-=======
-No external images, pretrained model, RTSP camera, or shell-side image processing required. You have exercised the **upload → selection → inference adapter → result → snapshot** path.
->>>>>>> 8bf5d7564b3e59df8389a3564bcd83e8e55be8cf
-
-A normal result includes the model, engine, task, timestamps, image dimensions, and task-specific payload. An unstored result can still be returned immediately, but it won't appear in persistent result history.
-
-### Use case 2: Explore five different analysis contracts
-
-A real vision backend may eventually support only some tasks. The synthetic adapter supports **all five** so integrations can be built early:
-
-~~~bash
-# Reuse MEDIA_ID from the previous example.
-for TASK in detection classification segmentation pose ocr; do
-  echo "=== $TASK ==="
-  opal-look-cli analyze run --body \
-    "{\"input\":{\"kind\":\"media\",\"media_id\":\"$MEDIA_ID\"},\"model_id\":\"synthetic-vision\",\"task\":\"$TASK\"}"
-done
-~~~
-
-| Task | Expected result shape | Example future use |
-| --- | --- | --- |
-| `detection` | Objects, labels, confidence, normalized boxes | Person at a front door |
-| `classification` | Ranked class labels and confidence | Categorize a frame |
-| `segmentation` | Instance masks or a semantic map | Separate foreground from background |
-| `pose` | Keypoints, boxes, skeleton metadata | Interpret body position |
-| `ocr` | Text regions, polygons, confidence | Read a label or sign |
-
-The **current synthetic outputs are generated test data**. They prove that the payload and filters work, not that the image contains those objects or words.
-
-Want to exercise semantic segmentation specifically?
-
-~~~bash
-opal-look-cli analyze run --body \
-  "{\"input\":{\"kind\":\"media\",\"media_id\":\"$MEDIA_ID\"},\"model_id\":\"synthetic-vision\",\"task\":\"segmentation\",\"settings\":{\"segmentation_kind\":\"semantic\"}}"
-~~~
-
-### Use case 3: Filter the noise to the things that matter
-
-A model might detect several object classes, but your workflow may only care about people in a defined region. Filters are **portable settings**, applied after the inference adapter returns its raw predictions.
-
-~~~bash
-opal-look-cli analyze run --body \
-  "{\"input\":{\"kind\":\"media\",\"media_id\":\"$MEDIA_ID\"},\"model_id\":\"synthetic-vision\",\"task\":\"detection\",\"settings\":{\"confidence\":0.7,\"class_labels\":[\"person\"]}}"
-~~~
-
-For a reusable polygonal region, save a request file:
-
-~~~bash
-cat > filtered-analysis.json <<'JSON'
-{
-  "input": {"kind": "media", "media_id": "REPLACE_WITH_YOUR_MEDIA_ID"},
-  "model_id": "synthetic-vision",
-  "task": "detection",
-  "settings": {
-    "confidence": 0.6,
-    "class_labels": ["person"],
-    "regions": [
-      {
-        "region_id": "front_door",
-        "polygon": [
-          {"x": 0.20, "y": 0.10},
-          {"x": 0.85, "y": 0.10},
-          {"x": 0.85, "y": 0.95},
-          {"x": 0.20, "y": 0.95}
-        ]
-      }
-    ]
-  }
-}
-JSON
-
-# Replace the placeholder in that file with an actual uploaded media_id.
-opal-look-cli analyze run --file filtered-analysis.json
-~~~
-
-Coordinates range from **0 to 1** across the image. A detection passes the polygon test when the **center of its bounding box** lies inside the region. This is a useful way to prototype a driveway-only or doorway-only rule without tying the rest of the system to a particular model.
-
-**No tracking in single-frame mode:** `"tracking": true` is intentionally rejected for `analyze run`. It's a session-oriented concept.
-
-### Use case 4: Define an analysis profile you can reuse
-
-Profiles stop you from repeating the same model, task, and filtering settings in every call.
-
-~~~bash
-opal-look-cli profiles add --body '{
-  "name": "Front door prototype",
-  "model_id": "synthetic-vision",
-  "task": "detection",
-  "settings": {
-    "confidence": 0.65,
-    "class_labels": ["person"]
-  }
-}'
-
-opal-look-cli profiles list
-
-# Use the numeric profile_id returned above:
-opal-look-cli profiles show YOUR_PROFILE_ID
-opal-look-cli profiles validate YOUR_PROFILE_ID
-opal-look-cli profiles activate YOUR_PROFILE_ID
-~~~
-
-Once a profile is active, a one-frame request can omit `model_id` and `task`:
-
-~~~bash
-opal-look-cli analyze run --body \
-  "{\"input\":{\"kind\":\"media\",\"media_id\":\"$MEDIA_ID\"}}"
-~~~
-
-The service resolves the active profile, or you can specify `"profile_id": 1` in an analysis body. Request settings can override selected profile defaults; engine-specific options live under `settings.engine_options`.
-
-You can edit a profile with a partial patch:
-
-~~~bash
-opal-look-cli profiles update YOUR_PROFILE_ID \
-  --body '{"settings":{"confidence":0.8,"class_labels":["person"]}}'
-~~~
-
-**Note:** When `settings` is supplied on a profile update, it is a new settings object; re-send the values you still want to preserve rather than assuming a deep per-key merge.
-
-### Use case 5: Turn an uploaded photo into a reusable source
-
-A `media` source is a named way to reference an uploaded image. Unlike a live camera source, it **works with the current implementation**.
-
-~~~bash
-# Create a named source for the already-uploaded image.
-opal-look-cli sources add --body \
-  "{\"source_id\":\"demo-poster\",\"name\":\"README poster\",\"type\":\"media\",\"locator\":\"$MEDIA_ID\"}"
-
-opal-look-cli sources list
-opal-look-cli sources show demo-poster
-opal-look-cli sources validate demo-poster
-
-# Analyze by source rather than by media ID.
-opal-look-cli analyze run --body '{
-  "input": {"kind": "source", "source_id": "demo-poster"},
-  "model_id": "synthetic-vision",
-  "task": "classification"
-}'
-~~~
-
-The source points to a **media record**, not a copied image. If that media expires or is deleted, the source may remain registered but become unavailable.
-
-To save a fresh copy of the original locally:
-
-~~~bash
-opal-look-cli media download "$MEDIA_ID" --out restored-poster.png
-opal-look-cli media show "$MEDIA_ID"
-opal-look-cli media list
-~~~
-
-### Use case 6: Create a managed analysis session
-
-A one-shot analysis returns immediately when inference completes. A **session** has its own identity, state, latest result, history, and lifecycle endpoints.
-
-A media-backed session processes its image and normally completes quickly:
-
-~~~bash
-opal-look-cli sessions add --body '{
-  "source_id": "demo-poster",
-  "model_id": "synthetic-vision",
-  "task": "detection",
-  "store_results": true
-}'
-
-# Copy the returned session_id:
-opal-look-cli sessions show YOUR_SESSION_ID
-opal-look-cli sessions latest YOUR_SESSION_ID
-opal-look-cli sessions list --state completed
-
-# Inspect the results, including those from the session.
-opal-look-cli results list
-~~~
-
-Sessions start with HTTP **202 Accepted**, transition through the worker, and normally end as `completed` for one uploaded image. If `sessions latest` initially says the result is unavailable, poll `sessions show` until the session has produced a frame.
-
-Use `--idempotency-key` if your client could retry the same start request:
-
-~~~bash
-opal-look-cli sessions add \
-  --idempotency-key demo-poster-once \
-  --body '{"source_id":"demo-poster","model_id":"synthetic-vision","task":"detection"}'
-~~~
-
-Reusing the same key **with the same body** can return the original session; reusing it for a different body is a conflict.
-
-The CLI also exposes:
-
-~~~bash
-opal-look-cli sessions events YOUR_SESSION_ID
-opal-look-cli sessions stream YOUR_SESSION_ID
-opal-look-cli sessions stop YOUR_SESSION_ID
-opal-look-cli sessions remove YOUR_SESSION_ID
-~~~
-
-A session must be terminal before it can be removed. The current CLI uses buffered HTTP reads for `events` and `stream`, so do not depend on those commands for interactive long-running SSE monitoring. For real-time consumption in a future live-source adapter, use an SSE-capable HTTP client against the server endpoints.
-
-### Use case 7: Save evidence as annotated snapshots
-
-After an analysis, the server keeps the **exact analyzed frame in a short-lived cache**. You can render a snapshot with its bounding boxes or other supported annotations.
-
-~~~bash
-# Immediate one-off JPEG, written to the local file:
-opal-look-cli results snapshot YOUR_RESULT_ID \
-  --annotated --out ./annotated.jpg
-
-# Create a separately retained snapshot resource instead:
-opal-look-cli results snapshot YOUR_RESULT_ID \
-  --annotated --retain
-
-# Inspect the retained resource by snapshot_id from the response:
-opal-look-cli snapshots list
-opal-look-cli snapshots show YOUR_SNAPSHOT_ID
-~~~
-
-For a retained snapshot, use REST to download the JPEG:
-
-~~~bash
-curl -fS \
-  http://127.0.0.1:8000/api/v1/snapshots/YOUR_SNAPSHOT_ID/content \
-  -o retained-snapshot.jpg
-~~~
-
-**Two clocks matter:** the frame cache lasts only `frame_cache_seconds` (default **30 seconds**); persistent result metadata lasts `result_retention_hours` (default **168 hours**). A stored `result_id` does not guarantee the original pixels are still available for a new snapshot tomorrow. Capture promptly, or retain a snapshot.
-
-### Use case 8: Build toward an RTSP camera without pretending it's live
-
-The API lets you register a camera or network source. It validates the locator and supported options. That is useful configuration work **even before** the capture adapter exists.
-
-~~~bash
-opal-look-cli devices cameras
-
-opal-look-cli sources add --body '{
-  "source_id": "front-door",
-  "name": "Front door RTSP",
-  "type": "rtsp",
-  "locator": "rtsp://192.0.2.10:554/stream1",
-  "source_options": {"transport": "tcp"}
-}'
-
-opal-look-cli sources show front-door
-opal-look-cli sources validate front-door
-~~~
-
-The `192.0.2.10` address is a documentation-only example; replace it with your camera's host and RTSP path. **Do not put usernames and passwords in the locator URL**—the validator rejects inline credentials. There is a separate `credential_ref` field in the contract for credentials provisioned elsewhere.
-
-**Current result:** a registered RTSP source normally reports `"available": false`, with a message that a network source hasn't been probed. Starting analysis or a session against it returns an unavailable response. The same is true for physical camera capture and video-file decoding today. The **API shape is there**; operational frame adapters are the next implementation step.
-
-Once actual live capture exists, session preview is designed around `GET /api/v1/sessions/{session_id}/preview` (MJPEG), with result/event streams beside it. Do not mistake the presence of these endpoints for a functional live feed in this release.
-
-### Use case 9: Experiment with a custom synthetic model
-
-You can register models that reference installed engine adapters. Here's an intentionally **synthetic** model for deterministic regression experiments:
-
-~~~bash
-opal-look-cli models add --body '{
-  "model_id": "synthetic-workshop",
-  "name": "Workshop test model",
-  "engine_id": "synthetic",
-  "resource": {"ref": "builtin"}
-}'
-
-opal-look-cli models show synthetic-workshop
-opal-look-cli models validate synthetic-workshop
-
-# Deterministic output, useful for testing client code:
-opal-look-cli analyze run --body \
-  "{\"input\":{\"kind\":\"media\",\"media_id\":\"$MEDIA_ID\"},\"model_id\":\"synthetic-workshop\",\"task\":\"detection\",\"settings\":{\"engine_options\":{\"seed\":42}}}"
-~~~
-
-The synthetic model supports three example class labels (`person`, `car`, `dog`), plus task-shaped segmentation, pose, and OCR outputs. It does **not** learn from the photo. The `seed` option helps reproduce a predictable inference payload for testing.
-
-Third-party trained adapters can be registered through the Python `opal_look.engines` entry-point mechanism. An actual YOLO or other model adapter must be implemented and installed separately; this repo does not currently include one.
-
-### Use case 10: Search and inspect results later
-
-~~~bash
-opal-look-cli results list
-opal-look-cli results show YOUR_RESULT_ID
-opal-look-cli media list
-opal-look-cli snapshots list
-opal-look-cli sessions list
-~~~
-
-The REST result list supports richer filters than the current Typer wrapper exposes. For example:
-
-~~~bash
-# Find recent stored detection results.
-curl -fSG http://127.0.0.1:8000/api/v1/results/ \
-  --data-urlencode 'task=detection' \
-  --data-urlencode 'model_id=synthetic-vision' \
-  --data-urlencode 'limit=20'
-
-# Find OCR records containing particular text (synthetic test results).
-curl -fSG http://127.0.0.1:8000/api/v1/results/ \
-  --data-urlencode 'task=ocr' \
-  --data-urlencode 'text=EXIT'
-~~~
-
-Results, media, sessions, and snapshots use **opaque cursor pagination**. If a response includes `next_cursor` and `has_more=true`, pass that cursor for the next page. Do not try to calculate a cursor from an ID.
-
-Stored results can be deleted:
-
-~~~bash
-opal-look-cli results remove YOUR_RESULT_ID
-~~~
-
-Storage retention is intentional: media (default 24 hours), results (168 hours), and retained snapshots (168 hours) are not a permanent evidence vault. Make long-term retention a separate, explicitly managed system.
-
-### Use case 11: Change one setting without hand-editing the server
-
-~~~bash
-opal-look-cli settings show
-opal-look-cli settings show max_upload_bytes
-opal-look-cli settings show frame_cache_seconds
-
-# Give clients more time to request exact-frame snapshots.
-opal-look-cli settings set frame_cache_seconds 120
-
-# Allow at most two admitted nonterminal sessions at once.
-opal-look-cli settings set max_concurrent_sessions 2
-
-# Return to the schema default for a single overridden setting.
-opal-look-cli settings unset frame_cache_seconds
-~~~
-
-The value argument is parsed as **JSON**:
-
-~~~bash
-opal-look-cli settings set max_preview_fps 3.0
-opal-look-cli settings set events_enabled false
-~~~
-
-Configuration mutations use **`If-Match` / revision checks** so a concurrent change can be rejected instead of silently overwritten. The CLI fetches revision headers for its supported mutation commands.
-
-A selection of important settings:
-
-| Setting | Default | Meaning |
-| --- | ---: | --- |
-| `frame_cache_seconds` | 30 | Snapshot window for exact analyzed frame |
-| `media_retention_hours` | 24 | Uploaded-media retention |
-| `result_retention_hours` | 168 | Stored-result retention |
-| `snapshot_retention_hours` | 168 | Retained-snapshot retention |
-| `max_concurrent_sessions` | 4 | Session admission limit |
-| `max_analysis_timeout_seconds` | 60 | Single analysis timeout |
-| `max_preview_fps` | 5 | Preview rate limit |
-| `max_upload_bytes` | 1,073,741,824 | Maximum upload size; image decoding has a separate pixel cap |
-| `events_enabled` | false | External event publication, when transport is provisioned |
-
-### Use case 12: Back up your experiments before changing configurations
-
-~~~bash
-# Check current logical configuration.
-opal-look-cli backup validate
-
-# Export as JSON into a local file:
-opal-look-cli backup export > look-config.json
-
-# Validate that export without changing the service:
-opal-look-cli backup validate --file look-config.json
-
-# Make a server-managed JSON backup.
-opal-look-cli backup create
-opal-look-cli backup list
-~~~
-
-Download the actual filename shown by `backup list`:
-
-~~~bash
-opal-look-cli backup download YOUR_BACKUP_FILENAME --out ./look-backup.json
-~~~
-
-To re-import a full configuration export:
-
-~~~bash
-# WARNING: imports replace configuration; don't execute until ready.
-opal-look-cli backup import --file look-config.json
-~~~
-
-Or restore a managed backup already on the server:
-
-~~~bash
-opal-look-cli backup restore YOUR_BACKUP_FILENAME
-~~~
-
-These are **logical configuration backups** (engine/model/source/profile/settings metadata), not an archive of all uploaded images, generated JPEGs, and other stored media. An import/restore is a configuration mutation, so check it first and keep your own copy.
-
-### Use case 13: Prepare for a whole-OPAL vision automation
-
-Here's the intended end-to-end architecture:
-
-~~~text
-     Real trained vision adapter (future installation)
-                         │
-              Camera frame / image
-                         │
-                     OPAL Look
-                  result + snapshot
-                         │
-             Optional event publication
-                         │
-                     OPAL Event
-                rule / action decision
-                         │
-               ┌─────────┴──────────┐
-               ▼                    ▼
-           OPAL Talk            OPAL Think
-     "A visitor arrived."    analyze / plan
-~~~
-
-A good integration separates four concerns:
-
-1. **Perception:** Look produces a structured result, not a direct physical command.
-2. **Selection:** A rule or agent decides which results are relevant.
-3. **Action:** Event executes an explicitly configured shell/HTTP/Python action.
-4. **Feedback:** Talk or another service communicates what happened.
-
-**Publication caveat:** `events_enabled` is **false by default** and requires `OPAL_LOOK_EVENT_TRANSPORT` provisioned at server startup. The current publisher/event-topic wiring also needs integration verification against OPAL Event before treating automatic event delivery as ready for production. REST polling of stored results is the straightforward working integration path today.
-
-The point is to **build the interface now, prove the workflow with synthetic data, then swap in a real inference and capture adapter** without rewriting your CLI, browser client, or downstream consumer.
-
-## How the pieces fit together
-
-~~~text
-     opal-look-cli (Typer)           Browser console (/app/)
-               │                             │
-               └───────────┬─────────────────┘
-                           ▼
-                       FastAPI REST
-                  /api/v1/... endpoints
-                           │
-     ┌─────────────────────┼─────────────────────────┐
-     ▼                     ▼                         ▼
- Config repositories     Workflows                 Settings
- engines/models/        analyze/session            + limits
- profiles/sources        + snapshots
-     │                     │
-     └─────────┬───────────┘
-               ▼
-       EngineAdapter registry
-               │
-               ▼
-      Synthetic engine (built in)
-      Custom plugins (if installed)
-               │
-               ▼
-        SQLite + media files
-~~~
-
-- **REST first:** Routes own validation, selection, task handling, and resource lifecycles.
-- **Repositories + unit of work:** Per-aggregate persistence APIs sit behind a SQLite-backed store; configuration writes use transactions and revision checks.
-- **Engine adapters:** The built-in synthetic engine implements the adapter protocol and provides deterministic test payloads; plugin discovery supports future real implementations.
-- **Explicit input types:** An analysis request names an uploaded `media` object or a configured `source`.
-- **Short-lived frame cache:** Results keep metadata; snapshots capture actual image pixels while available.
-- **OPAL correlation headers:** Middleware manages request/session/transaction correlation independently of application payloads.
-- **Optional ZeroMQ events:** Best-effort publication is separate from inference and off unless enabled.
-- **Browser client:** The static SPA lives under `src/opal_look/static/` and calls REST rather than having its own analysis engine.
-
-The full intended contract is [`opal_look_v1.4.0.yaml`](opal_look_v1.4.0.yaml). The implemented Python package is currently version **0.1.0**; those are separate identifiers (contract vs implementation).
-
-## Current capabilities and limitations
-
-| Capability | Current status |
-| --- | --- |
-| Upload and inspect JPEG/PNG | Implemented |
-| Synthetic detection/classification/segmentation/pose/OCR | Implemented (test data, not true recognition) |
-| Persist/search result metadata | Implemented |
-| Exact-frame annotated snapshots | Implemented while frame is cached |
-| Media-backed, single-image sessions | Implemented |
-| Session status, latest result, SSE/MJPEG endpoints | Implemented, with finite-media and buffering limitations |
-| Register RTSP/HTTP/camera/video source configurations | Implemented |
-| Capture actual live RTSP/USB/HTTP frames | **Not yet implemented** |
-| Decode uploaded/host video files | **Not yet implemented** |
-| Discover attached cameras | No capture discovery adapter installed |
-| YOLO/other trained inference | Requires an additional engine adapter |
-| Event-driven OPAL integration | Optional/experimental; transport and topic compatibility need verification |
-
-**Practical consequence:** registering an RTSP URL doesn't make it playable. A useful first hardware milestone is implementing a capture adapter, then adding a trained model adapter, then validating preview, annotations, session lifecycle, and event publication end-to-end.
-
-## Troubleshooting
-
-| What happened? | What to check |
-| --- | --- |
-| `opal-look-cli` cannot import its module | Add the checkout's `src/` to `PYTHONPATH` (see Installation) |
-| Connection refused | Start `opal-look`; confirm port 8000 (or your overridden port) |
-| OPAL Listen also uses port 8000 | Run Look on 8002, use CLI `--url` |
-| `/docs` returns 404 | Generated docs are disabled; use the checked-in OpenAPI file |
-| Analysis returns 422 | Include required `input` object and a valid model/task |
-| Result is full of surprising boxes | The current engine is **synthetic**, not image understanding |
-| RTSP session returns 503 | Live capture adapter isn't implemented |
-| Snapshot says frame unavailable | Capture before the short frame-cache expiry |
-| Configuration change returns 412/428 | Revision / `If-Match` precondition; reload and retry |
-| Can't enable events | Provision transport first; external integration still needs verification |
-
-## Development and testing
-
-~~~bash
-# From the repository root:
-python -m pip install -e ".[dev]"
-python -m pytest
-
-# Alternate service startup:
-uvicorn opal_look.app:create_app --factory \
-  --host 127.0.0.1 --port 8000
-
-# Focus the test run:
-python -m pytest tests/test_analyze.py tests/test_sessions.py
-python -m pytest tests/test_cli.py tests/test_media.py
-~~~
-
-When extending the project, keep the [OpenAPI contract](opal_look_v1.4.0.yaml) aligned with server behavior, preserve the REST-only CLI design, add regression tests for each capability, and make small reviewable commits. Contributor design conventions and known deferrals are recorded in [`AGENTS.md`](AGENTS.md).
-
-### Repository map
-
-~~~text
-opal-look/
-├── opal-look.png                  top-level project graphic
-├── README.md                      this guide
-├── opal_look_v1.4.0.yaml          authoritative OpenAPI contract
-├── pyproject.toml                 Python package / entry points
-├── AGENTS.md                      architecture and contributor conventions
-├── src/
-│   ├── opal_look/
-│   │   ├── app.py                FastAPI application factory
-│   │   ├── analysis.py           single-image analysis workflow
-│   │   ├── sessions.py           managed session worker
-│   │   ├── engines.py            synthetic adapter + plugin registry
-│   │   ├── sources.py            source validation / availability
-│   │   ├── media.py              image validation / decoding
-│   │   ├── snapshots.py          annotation / retention helpers
-│   │   ├── settings.py           service settings
-│   │   ├── events.py             optional event publication
-│   │   ├── repositories/         per-resource data access
-│   │   ├── routers/              REST API endpoints
-│   │   └── static/               bundled browser console
-│   └── opal_look_cli/
-│       ├── cli.py                Typer command tree
-│       └── client.py             REST client
-└── tests/                         API, CLI, session, analysis, storage tests
-~~~
+You've now exercised **image → pipeline → observations**. No session IDs, no camera credentials, no GPU, no drama.
 
 ---
 
-**OPAL Look is where pixels become structured possibilities.** Start with an uploaded image. Learn the result format. Give it a profile, a snapshot, and a session. Then add the real camera and inference adapters when you're ready to turn those possibilities into useful observations.
+## Optional: install YOLO for real object detection
 
-[OPAL](https://github.com/PatMartin/opal) · [OPAL Event](https://github.com/PatMartin/opal-event) · [OPAL Listen](https://github.com/PatMartin/opal-listen) · [OPAL Talk](https://github.com/PatMartin/opal-talk) · [OPAL Think](https://github.com/PatMartin/opal-think)
+A deterministic test engine is perfect for building interfaces. At some point, though, you may want to know whether there is *actually* a dog on the porch. That's where a trained vision model comes in.
+
+[Ultralytics YOLO](https://docs.ultralytics.com/quickstart) is one option. It is **optional**: OPAL Look is intended to work with multiple models and vendors, and installing YOLO does not replace its REST API or pipeline abstraction.
+
+### Step A — Install Ultralytics in the Python environment
+
+From the repository directory, with your virtual environment active:
+
+~~~bash
+python -m pip install -U ultralytics
+~~~
+
+This installs the Ultralytics `yolo` command and its Python dependencies. It may download substantial PyTorch packages. For an NVIDIA GPU, choose a compatible PyTorch/CUDA build using the official [PyTorch installation selector](https://pytorch.org/get-started/locally/) **before** installing Ultralytics if you need control over the CUDA version.
+
+Test whether PyTorch can see your accelerator:
+
+~~~bash
+python -c "import torch; print('Torch:', torch.__version__); print('CUDA available:', torch.cuda.is_available()); print('CUDA devices:', torch.cuda.device_count())"
+~~~
+
+`CUDA available: False` does **not** mean YOLO cannot run; it means the PyTorch environment is not using CUDA. CPU inference is possible, usually with lower throughput. On an NVIDIA system, verify your driver separately with `nvidia-smi`.
+
+### Step B — Run real inference outside OPAL Look
+
+Use your own picture and a small pretrained model:
+
+~~~bash
+yolo predict model=yolo26n.pt source=sample.jpg imgsz=640
+~~~
+
+On first use, Ultralytics downloads the model weights. It should save a rendered prediction in a `runs/detect/predict*` directory. This is **real pretrained inference**, unlike LOOK's synthetic engine.
+
+You can also call the model directly from Python:
+
+~~~python
+from ultralytics import YOLO
+
+model = YOLO("yolo26n.pt")
+results = model.predict(source="sample.jpg", conf=0.25)
+for result in results:
+    for box in result.boxes:
+        print(result.names[int(box.cls.item())], float(box.conf.item()))
+~~~
+
+Choose a smaller model and lower resolution to explore CPU/Raspberry Pi performance; measure actual throughput and thermals instead of assuming desktop GPU performance on an edge device.
+
+### Step C — Understand the integration boundary
+
+**Installing `ultralytics` does not automatically register a `yolo` engine in OPAL Look.** As of this revision, the included engine registry only seeds `synthetic`. External engine plugins can register themselves through Python entry points, using the group `opal_look.engines`, but **no Ultralytics adapter is included here**.
+
+More importantly, LOOK's current `EngineAdapter.infer(...)` protocol receives image **width, height, task, model description, options, and frame key**, *not the actual image data*. `pipeline_exec.py` similarly calls it without passing the input pixels. That is sufficient for synthetic test results, **not for real YOLO inference**.
+
+To make YOLO a first-class LOOK engine, the following engineering work is required:
+
+1. Evolve the internal engine-adapter interface to accept the **actual decoded frame** (for example a PIL image), preserving one-decode-per-frame pipeline behavior.
+2. Update the synthetic adapter and its tests to use the new interface without breaking existing REST request and response shapes.
+3. Implement an Ultralytics adapter: load a configured model once, run inference on the supplied frame, and normalize its boxes, labels, scores, and optional tracking data into LOOK's typed observation payloads.
+4. Register the adapter through an `opal_look.engines` Python entry point, then validate its advertised tasks, availability, options, and model resource references.
+5. Add deterministic fixture tests, a real-image **evalset**, and CPU/GPU smoke tests. Verify confidence filtering, coordinate normalization, repeated frames, and failure behavior.
+
+**Only after that adapter is installed and discovered** will these CLI commands become meaningful (illustrative future workflow; **not supported by the current checkout**):
+
+~~~bash
+# FUTURE WORKFLOW — requires an installed YOLO engine adapter
+opal-look-cli engines list
+opal-look-cli models add --body '{"id":"yolo-small","engine_id":"yolo","resource_ref":"yolo26n.pt","tasks":["detection"]}'
+opal-look-cli pipelines add --body '{"id":"real-detect","name":"Real YOLO detection","model_id":"yolo-small","task":"detection"}'
+opal-look-cli analyze image sample.jpg --request '{"pipeline_id":"real-detect"}'
+~~~
+
+This is intentional separation of concerns: **YOLO owns inference; OPAL Look owns pipelines, observations, retention, CLI, and REST**. An Ultralytics license may carry **AGPL-3.0 obligations**; consult [Ultralytics licensing](https://docs.ultralytics.com/) and seek appropriate advice before distributing proprietary or commercial solutions. An Enterprise license is also offered.
+
+---
+
+## Understand the building blocks
+
+| Resource | What it represents | Why you care |
+|---|---|---|
+| **Sources** | RTSP feed, host image, file, or uploaded media reference | A named place to look |
+| **Engines** | Installed inference provider / adapter | Interchangeable implementation |
+| **Models** | Registered resource belonging to an engine | Which model to execute |
+| **Pipelines** | One model/task or an ordered DAG of stages | Reusable way to process frames |
+| **Observations** | Typed, traceable output from a pipeline | What the system observed |
+| **Monitors** | Durable source + pipeline + inline conditions | Continuous watch with restart behavior |
+| **Media** | Uploaded content, retained captures, derived artifacts | Evidence you can retrieve |
+| **Jobs** | Finite, queued background processing | Batch work without blocking a request |
+| **Recordings** | Explicit live recording lifecycle | Save a feed independently of monitoring |
+
+**Simplification in v1.5:** profiles became pipeline defaults; zones live inside sources; conditions live inside monitors; public session management is gone. You can still build complicated graphs without asking every beginner to manage one.
+
+---
+
+## Complete CLI reference
+
+There are **two executables**:
+
+- `opal-look` starts the **service**.
+- `opal-look-cli` talks to the service over **REST**.
+
+Every command below is derived from the checked-in [Typer implementation](src/opal_look_cli/cli.py), not from a hypothetical CLI. **Some legacy generic CRUD verbs still appear in `--help` even when REST does not support the operation.** They are marked `!` so you don't waste time trying them. `*` indicates a [currently defective streaming-client path](#live-streams-and-the-browser).
+
+### Global flags and common patterns
+
+~~~bash
+opal-look-cli --help
+opal-look-cli --url http://127.0.0.1:8002 --json sources list
+opal-look-cli sources --help
+opal-look-cli monitors add --file monitor.json
+~~~
+
+| Flag | Usage |
+|---|---|
+| `--url URL` | Server base URL; default `http://127.0.0.1:8000` |
+| `--json` | JSON output for scripts and `jq` |
+| `--body 'JSON'` | Inline request object |
+| `--file FILE` | Load a JSON request object from disk |
+| `--out FILE` | Save returned binary data |
+| `--pipeline ID` | Select a pipeline on applicable source commands |
+| `--idempotency-key KEY` | Avoid duplicate job submission |
+
+Put global flags **before the command group**. Prefer `--file` for substantial JSON, especially on Windows and for reviewable workflows.
+
+### The complete Typer command tree
+
+`!` = command currently exposed by a generic CLI builder, but without the corresponding supported REST operation. `*` = streaming command with the currently known HTTPX client defect.
+
+~~~text
+opal-look-cli [--url URL] [--json]
+|
++-- info
++-- capabilities
+|   +-- show
++-- health
+|   +-- show
+|   +-- live
+|   +-- ready
++-- metrics
+|   +-- show
++-- events
+|   +-- status
+|
++-- engines
+|   +-- list
+|   +-- show ENGINE_ID
+|   +-- update ENGINE_ID [--body JSON | --file FILE]
+|   +-- add !                  no engine creation API
+|   +-- remove !               no engine deletion API
+|
++-- models
+|   +-- list
+|   +-- show MODEL_ID
+|   +-- add [--body JSON | --file FILE]
+|   +-- update MODEL_ID [--body JSON | --file FILE]
+|   +-- remove MODEL_ID
+|
++-- sources
+|   +-- list
+|   +-- show SOURCE_ID
+|   +-- add [--body JSON | --file FILE]
+|   +-- update SOURCE_ID [--body JSON | --file FILE]
+|   +-- remove SOURCE_ID
+|   +-- status SOURCE_ID
+|   +-- probe SOURCE_ID
+|   +-- frame SOURCE_ID [--out FILE]
+|   +-- view SOURCE_ID [--out FILE] [--max-bytes N] [--pipeline ID] *
+|   +-- observe SOURCE_ID *
+|   +-- capture SOURCE_ID [--pipeline ID] [--annotated]
+|
++-- pipelines
+|   +-- list
+|   +-- show PIPELINE_ID
+|   +-- add [--body JSON | --file FILE]
+|   +-- update PIPELINE_ID [--body JSON | --file FILE]
+|   +-- remove PIPELINE_ID
+|   +-- validate [--body JSON | --file FILE]
+|
++-- analyze
+|   +-- run [--body JSON | --file FILE]
+|   +-- image FILE [--request JSON]
+|
++-- monitors
+|   +-- list
+|   +-- show MONITOR_ID
+|   +-- add [--body JSON | --file FILE]
+|   +-- update MONITOR_ID [--body JSON | --file FILE]
+|   +-- remove MONITOR_ID
+|   +-- stream MONITOR_ID *
+|
++-- observations
+|   +-- list
+|   +-- show OBSERVATION_ID
+|   +-- add !                  observations are generated by analysis
+|   +-- update !               no observation PATCH API
+|   +-- remove !               no observation DELETE API
+|
++-- media
+|   +-- list
+|   +-- show MEDIA_ID
+|   +-- upload FILE [--ttl SECONDS]
+|   +-- download MEDIA_ID [--out FILE]
+|   +-- remove MEDIA_ID
+|   +-- add !                  POST requires multipart upload
+|   +-- update !               no media PATCH API
+|
++-- jobs
+|   +-- list
+|   +-- show JOB_ID
+|   +-- submit [--body JSON | --file FILE] [--idempotency-key KEY]
+|   +-- cancel JOB_ID
+|   +-- add !                  use submit
+|   +-- update !               no job PATCH API
+|   +-- remove !               no job DELETE API
+|
++-- recordings
+|   +-- list
+|   +-- show RECORDING_ID
+|   +-- start --source SOURCE_ID [--pipeline ID] [--duration SECONDS]
+|   +-- stop RECORDING_ID
+|   +-- add !                  use start
+|   +-- update !               no recording PATCH API
+|   +-- remove !               no recording DELETE API
+|
++-- settings
+|   +-- list
+|   +-- show KEY
+|   +-- set KEY JSON_VALUE
+|   +-- reset KEY
+|   +-- remove KEY             alternative to reset
+|   +-- add !                  no settings POST API
+|   +-- update !               no settings/key PATCH API
+|
++-- configuration
+    +-- export
+    +-- validate --file FILE
+    +-- import --file FILE [--bindings FILE]
+~~~
+
+**One important rule:** successful `--help` output is *not* proof a command exists in REST. The generic builder currently generates invalid aliases. The goal is CLI/REST parity; the table records the real current state until parity fixes land.
+
+### Quick task lookup
+
+| Your goal | CLI command |
+|---|---|
+| Is LOOK running? | `health ready` |
+| What can my installation do? | `capabilities show` |
+| What inference engines are installed? | `engines list` |
+| What models can I select? | `models list` |
+| What cameras/sources are configured? | `sources list` |
+| Is this RTSP feed reachable? | `sources probe driveway` |
+| Fetch one fresh frame | `sources frame driveway --out frame.jpg` |
+| Create a pipeline | `pipelines add --file pipeline.json` |
+| Inspect a pipeline | `pipelines show PIPELINE_ID` |
+| Process a still image | `analyze image photo.jpg --request '{"pipeline_id":"demo"}'` |
+| Process an uploaded media item | `analyze run --file request.json` |
+| Arm a permanent lookout | `monitors add --file monitor.json` |
+| Read retained observations | `observations list` |
+| Upload a picture | `media upload picture.jpg` |
+| Save the latest frame | `sources capture driveway` |
+| Record camera video | `recordings start --source driveway --duration 30` |
+| Inspect a background job | `jobs show JOB_ID` |
+| Set one configuration value | `settings set max_preview_fps 2` |
+| Export configuration | `configuration export` |
+| Inspect metrics | `metrics show` |
+
+---
+
+## Practical recipes
+
+The examples deliberately start with tools that work **without GPU or a trained model**. Recipes requiring an actual camera or model say so explicitly.
+
+### 1. A miniature vision laboratory
+
+~~~bash
+opal-look-cli pipelines add --body '{"id":"lab","name":"Portable vision lab","model_id":"synthetic-vision","task":"detection","retention":{"persist_observations":true,"ttl_seconds":3600}}'
+opal-look-cli analyze image sample.jpg --request '{"pipeline_id":"lab"}'
+opal-look-cli observations list
+~~~
+
+Use `observations show OBSERVATION_ID` to inspect a retained observation. Without retention opt-in, a result returned to the caller may not be stored.
+
+### 2. Upload once, analyze repeatedly
+
+~~~bash
+opal-look-cli media upload sample.jpg --ttl 86400
+opal-look-cli media list
+opal-look-cli media show MEDIA_ID
+
+opal-look-cli analyze run --body '{"source":{"media_id":"MEDIA_ID"},"pipeline_id":"lab"}'
+
+opal-look-cli media download MEDIA_ID --out recovered.jpg
+~~~
+
+`MEDIA_ID` is the returned upload ID. The upload route currently handles supported images; don't assume it can ingest arbitrary MP4 content.
+
+### 3. Name an input so your workflows can reuse it
+
+~~~bash
+opal-look-cli sources add --body '{"id":"example-photo","kind":"media","name":"Lab sample","locator":"MEDIA_ID"}'
+opal-look-cli sources show example-photo
+opal-look-cli sources frame example-photo --out single-frame.jpg
+opal-look-cli analyze run --body '{"source":{"source_id":"example-photo"},"pipeline_id":"lab"}'
+~~~
+
+A source is a reference to frames; a media record is retained content. They are not interchangeable resources.
+
+### 4. Stack processing stages
+
+For advanced processing, place the request in `pipeline.json`:
+
+~~~json
+{
+  "id": "grayscale-lab",
+  "name": "Grayscale before inference",
+  "stages": [
+    {
+      "id": "gray",
+      "kind": "filter",
+      "portable": { "filter": { "type": "grayscale" } }
+    },
+    {
+      "id": "detect",
+      "kind": "inference",
+      "model_id": "synthetic-vision",
+      "task": "detection",
+      "inputs": ["gray"]
+    }
+  ]
+}
+~~~
+
+~~~bash
+opal-look-cli pipelines validate --file pipeline.json
+opal-look-cli pipelines add --file pipeline.json
+opal-look-cli pipelines show grayscale-lab
+opal-look-cli analyze image sample.jpg --request '{"pipeline_id":"grayscale-lab"}'
+~~~
+
+The executor supports an ordered DAG of filters, inference, transforms, tracking, and presentation. Stage input IDs must reference earlier stages, and capabilities vary by adapter. Available portable filter types include grayscale, blur, threshold, edges, sharpen, rotate, flip, crop, resize, brightness/contrast, and motion.
+
+### 5. Bring a driveway camera online
+
+Replace the documentation-only address with your own reachable RTSP URL:
+
+~~~bash
+opal-look-cli sources add --body '{"id":"driveway","kind":"rtsp","name":"Driveway camera","locator":"rtsp://192.0.2.10:554/stream1"}'
+
+opal-look-cli sources probe driveway
+opal-look-cli sources frame driveway --out driveway.jpg
+opal-look-cli sources status driveway
+~~~
+
+RTSP access is backed by PyAV. A source may be configured even while the network endpoint is offline; `probe` is a bounded connectivity check, while `frame` retrieves a still image.
+
+**Do not embed camera credentials in URLs.** To reference a server-provisioned credential, use `secret_ref`:
+
+~~~bash
+opal-look-cli sources add --body '{"id":"front-door","kind":"rtsp","name":"Front door","locator":"rtsp://192.0.2.20:554/stream1","secret_ref":"front_door"}'
+~~~
+
+Before starting the server, provision `OPAL_LOOK_CRED_FRONT_DOOR` as `username:password` in its environment. Avoid committing credentials or placing them in shell history.
+
+**Known issue:** source `status` still consults old internal session state and may not reflect a live monitor or viewer. Prefer `probe` and `frame` for connectivity testing for now.
+
+### 6. Watch without creating a session
+
+The source REST endpoint streams multipart MJPEG, optionally through a selected pipeline:
+
+~~~bash
+# Raw camera stream
+curl --no-buffer http://127.0.0.1:8000/api/v1/sources/driveway/stream
+
+# Stream through the named pipeline (synthetic inference for now)
+curl --no-buffer 'http://127.0.0.1:8000/api/v1/sources/driveway/stream?pipeline_id=lab&annotations=true'
+~~~
+
+The CLI exposes:
+
+~~~bash
+opal-look-cli sources view driveway --pipeline lab --out driveway.mjpeg --max-bytes 5000000
+~~~
+
+**Current defect:** the CLI streaming wrapper passes an unsupported `stream=True` parameter to HTTPX. The CLI command requires a fix; use the REST endpoint with a proper streaming client meanwhile. The REST response is multipart MJPEG, not a single JPEG image.
+
+### 7. Mark a useful part of the picture
+
+Sources own zones, expressed as normalized coordinates in the range 0–1. This is an example polygon; adjust coordinates for your camera perspective:
+
+~~~bash
+opal-look-cli sources update driveway --body '{"zones":[{"id":"driveway-area","name":"Driveway area","kind":"polygon","points":[{"x":0.12,"y":0.44},{"x":0.87,"y":0.43},{"x":0.94,"y":0.94},{"x":0.08,"y":0.95}]}]}'
+~~~
+
+Zones are source-local. Polygons require at least three points, lines exactly two.
+
+### 8. Put a lookout on duty
+
+A monitor combines a source, pipeline, and conditions. It is durable desired state: it can restart without a client holding a session open.
+
+~~~bash
+opal-look-cli monitors add --body '{"id":"driveway-watch","name":"Driveway lookout","source_id":"driveway","pipeline_id":"lab","enabled":true,"restart_policy":"on_failure","conditions":[{"id":"visitor","event":"object_appears","classes":["person"],"cooldown_ms":5000,"capture_on_match":true}]}'
+
+opal-look-cli monitors list
+opal-look-cli monitors show driveway-watch
+opal-look-cli monitors update driveway-watch --body '{"enabled":false}'
+~~~
+
+With the bundled `synthetic-vision` engine, person labels are **not actual camera detections**. Use a real detector before driving security alerts or physical actions. Supported condition types include `object_appears`, `object_disappears`, `enters_zone`, `exits_zone`, `line_crosses`, `count_threshold`, `dwell_time`, and `motion_detected`, subject to pipeline and tracking support.
+
+**Current defect:** changing a running monitor's pipeline/conditions may not restart its worker. Stop/re-enable and verify before relying on revised conditions; the lifecycle needs hardening.
+
+### 9. Subscribe to an observation stream
+
+~~~bash
+# These Typer commands exist, but currently need the HTTPX streaming fix:
+opal-look-cli sources observe driveway
+opal-look-cli monitors stream driveway-watch
+
+# Current REST/SSE alternative:
+curl -N 'http://127.0.0.1:8000/api/v1/sources/driveway/observations/stream?pipeline_id=lab'
+curl -N http://127.0.0.1:8000/api/v1/monitors/driveway-watch/observations/stream
+~~~
+
+Source observation SSE is connection-scoped and transient. Monitor SSE offers a bounded replay window using `Last-Event-ID`. Neither should be mistaken for unlimited guaranteed-delivery messaging.
+
+### 10. Save a frame instead of a whole recording
+
+~~~bash
+opal-look-cli sources capture driveway
+opal-look-cli sources capture driveway --pipeline lab --annotated
+opal-look-cli media list
+opal-look-cli media download MEDIA_ID --out snapshot.jpg
+~~~
+
+Captures produce retained media and do not require a public session.
+
+### 11. Record a camera independently of monitoring
+
+~~~bash
+opal-look-cli recordings start --source driveway --duration 30
+opal-look-cli recordings list
+opal-look-cli recordings show RECORDING_ID
+opal-look-cli recordings stop RECORDING_ID
+~~~
+
+The current recorder writes **MJPEG-like JPEG-frame output**; it does not supply general MP4/WebM encoding or audio capture. Find the returned media ID to retrieve the output.
+
+### 12. Submit a bounded background job
+
+~~~bash
+opal-look-cli jobs submit --body '{"kind":"media_export","media_id":"MEDIA_ID","output":{"format":"png"}}' --idempotency-key image-export-001
+opal-look-cli jobs list
+opal-look-cli jobs show JOB_ID
+opal-look-cli jobs cancel JOB_ID
+~~~
+
+`video_analysis` jobs are also defined but currently have image-oriented decoder limitations; they are not general-purpose MP4 analysis.
+
+### 13. Change a single setting
+
+~~~bash
+opal-look-cli settings list
+opal-look-cli settings show max_preview_fps
+opal-look-cli settings set max_preview_fps 2
+opal-look-cli settings reset max_preview_fps
+
+# Default pipeline for analysis requests that omit one:
+opal-look-cli settings set default_pipeline_id '"lab"'
+opal-look-cli analyze image sample.jpg
+~~~
+
+`set` parses its last argument as **JSON**. Numbers are bare (e.g. `2`); strings need quotes (e.g. `'"lab"'`). Setting event publication on requires a provisioned event transport.
+
+### 14. Export and validate configuration
+
+~~~bash
+opal-look-cli configuration export > look-config.json
+opal-look-cli configuration validate --file look-config.json
+opal-look-cli configuration import --file look-config.json
+~~~
+
+Sensitive source locators are redacted in exports. For portability, `configuration import --bindings bindings.json` can explicitly rebind environment-specific source details. Validate imports and avoid putting secrets in configuration files.
+
+### 15. Find out what is running
+
+~~~bash
+opal-look-cli info
+opal-look-cli health show
+opal-look-cli health live
+opal-look-cli health ready
+opal-look-cli metrics show
+opal-look-cli events status
+opal-look-cli capabilities show
+~~~
+
+Capability discovery exists, but several boolean fields currently remain hard-coded false even when supporting code is present. Treat those specific flags as work in progress until they are reconciled with actual installed adapters and runtime state.
+
+---
+
+## REST, streams, and OPAL integrations
+
+The pinned [OpenAPI v1.5.0 specification](opal_look_v1.5.0.yaml) defines **42 paths / 62 operations**. The old [v1.4.0 specification](opal_look_v1.4.0.yaml) stays for comparison. [opal-api](https://github.com/PatMartin/opal-api) is the intended canonical contract repository; its LOOK contract still requires reconciliation with this v1.5 implementation.
+
+### The main REST surface
+
+| Goal | Request |
+|---|---|
+| Capabilities | `GET /api/v1/capabilities/` |
+| Engines / models | `GET /api/v1/engines/` / `GET /api/v1/models/` |
+| Source list | `GET /api/v1/sources/` |
+| Single frame | `GET /api/v1/sources/{source_id}/frame` |
+| MJPEG view | `GET /api/v1/sources/{source_id}/stream` |
+| Source observation SSE | `GET /api/v1/sources/{source_id}/observations/stream` |
+| Capture | `POST /api/v1/sources/{source_id}/capture` |
+| Pipelines | `GET /api/v1/pipelines/` |
+| Pipeline validation | `POST /api/v1/pipelines/validate` |
+| Image analysis | `POST /api/v1/analyze/image` |
+| Source/media analysis | `POST /api/v1/analyze/` |
+| Monitors | `GET /api/v1/monitors/` |
+| Monitor SSE | `GET /api/v1/monitors/{monitor_id}/observations/stream` |
+| Observations | `GET /api/v1/observations/` |
+| Media | `GET /api/v1/media/` |
+| Jobs | `POST /api/v1/jobs/` |
+| Recordings | `POST /api/v1/recordings/` |
+| Settings | `GET /api/v1/settings/` |
+| Export configuration | `GET /api/v1/configuration/export` |
+| Health | `GET /api/v1/health/` |
+
+Trailing slashes on collection endpoints matter; match the OpenAPI file exactly.
+
+~~~bash
+curl -sS http://127.0.0.1:8000/api/v1/health/
+
+curl -sS -X POST http://127.0.0.1:8000/api/v1/analyze/ \
+  -H 'Content-Type: application/json' \
+  -d '{"source":{"media_id":"MEDIA_ID"},"pipeline_id":"lab"}'
+~~~
+
+When bearer authentication is configured, also send `Authorization: Bearer <token>`. For mutation calls, follow the contract's configuration-ETag / `If-Match` rules; the supported CLI mutation wrappers handle that step.
+
+### What happens when a monitor matches?
+
+~~~text
+camera --> OPAL Look monitor --> condition match --> OPAL Event
+                                                        |
+                               +------------------------+----------------+
+                               v                        v                v
+                         notification               webhook        OPAL Think
+~~~
+
+LOOK observes; OPAL-EVENT handles enabled actions and integrations. Publication is disabled by default and is best-effort. LOOK must remain useful even when the event bus is not configured.
+
+### Live streams and the browser
+
+The SPA is available at **`/app/`**. It exposes sources, pipelines, analysis, viewing, monitors, media, jobs, recordings, configuration, and diagnostics through REST.
+
+The **REST MJPEG implementation** and **SPA viewer** are not equally mature: the current SPA assembles arbitrary network chunks into JPEG blobs rather than correctly parsing multipart frame boundaries, and its stream cancellation needs work. Until corrected, test live video with a proper MJPEG-aware viewer or client. The CLI stream path also needs the HTTPX fix documented above.
+
+---
+
+## Configuration, security, and lightweight hardware
+
+| Server variable | Purpose |
+|---|---|
+| `OPAL_LOOK_HOST` | Bind address; defaults to `127.0.0.1` |
+| `OPAL_LOOK_PORT` | HTTP port; defaults to `8000` |
+| `OPAL_LOOK_TOKEN` | Opaque bearer token; required for non-loopback bind through the normal entry point |
+| `OPAL_LOOK_CRED_<NAME>` | Credential for a corresponding `secret_ref` |
+| `OPAL_LOOK_EVENT_TRANSPORT` | Event transport provisioned out-of-band |
+
+Start on loopback. For network access, add suitable authentication, TLS at a reverse proxy, and firewall policy. Never put credentials in source locators, logs, public screenshots, or source control.
+
+**A GPU is optional for the API and synthetic engine.** For small edge devices, reduce FPS, resolution, active viewers, and retention before trying a large model:
+
+~~~bash
+opal-look-cli settings set max_preview_fps 2
+opal-look-cli settings set max_viewers 2
+opal-look-cli settings set max_monitors 1
+~~~
+
+Be aware that viewing, recording, and monitoring can currently open independent capture connections to the same camera, which increases CPU and bandwidth use. Design for modest hardware first; scale up when actual measurement justifies it.
+
+---
+
+## Current capabilities and known limitations
+
+These are honest distinctions between an implemented REST surface and an end-to-end feature demonstrated on real hardware.
+
+| Area | Current state |
+|---|---|
+| API-first sources, models, pipelines, monitors | Implemented |
+| Typed observations, retention, captures, media | Implemented |
+| One-shot image analysis | Implemented; synthetic inference bundled |
+| Ordered filters, DAG validation, motion processing | Implemented |
+| RTSP capture using PyAV | Implemented; test against your camera |
+| Raw/processed REST MJPEG viewing and SSE | Implemented; more soak testing needed |
+| Monitor conditions and event publication | Implemented; monitor reconfiguration needs hardening |
+| Finite jobs and MJPEG-like recordings | Implemented within current decoder/encoder limitations |
+| Trained-model inference / YOLO | **Not bundled**; requires image-aware adapter interface |
+| USB cameras and HTTP camera feeds | Capture adapters required |
+| General MP4/WebM processing or audio recording | Not fully implemented |
+| CLI live view and SSE | Known HTTPX streaming error |
+| SPA live MJPEG | Known multipart parsing / cancellation issues |
+| Source status | May not represent active sessionless viewers/monitors |
+| Capability discovery | Some hard-coded flags underreport support |
+| Clean CI | Latest verified main run was blocked by missing `PyYAML` dependency |
+| Full OpenAPI compliance | Route presence alone doesn't prove schema or runtime compliance |
+
+The package metadata currently still mentions contract v1.4.0 and version 0.1.0; do not confuse that with the pinned **v1.5.0 REST contract**. The [migration notes](specs/OPAL_LOOK_V1_5_MIGRATION.md) and [implementation ledger](specs/OPAL_LOOK_V1_5_LEDGER.md) describe how the current revision was constructed.
+
+---
+
+## Tests, contract, and contributing
+
+~~~bash
+python -m pytest -q
+python -m opal_look.contract_audit
+python -m opal_look.contract_audit --strict
+~~~
+
+The audit verifies the route inventory against the pinned YAML. It does **not** validate every response body, long-running stream, camera, or model provider.
+
+**CI note:** The latest verified clean run failed during collection because `PyYAML` was missing from development dependencies; `python -m pip install PyYAML` is a temporary local workaround until packaging is fixed. Some migration-era audit tests also appear to have outdated expectations. A green test suite must be re-established before the next release.
+
+The code is intentionally organized for small, independently testable changes:
+
+| Explore | File |
+|---|---|
+| FastAPI setup | [`src/opal_look/app.py`](src/opal_look/app.py) |
+| CLI implementation | [`src/opal_look_cli/cli.py`](src/opal_look_cli/cli.py) |
+| Browser UI | [`src/opal_look/static/app.js`](src/opal_look/static/app.js) |
+| Pipeline execution | [`src/opal_look/pipeline_exec.py`](src/opal_look/pipeline_exec.py) |
+| Engine adapter protocol | [`src/opal_look/engines.py`](src/opal_look/engines.py) |
+| Capture adapters | [`src/opal_look/capture.py`](src/opal_look/capture.py) |
+| RTSP implementation | [`src/opal_look/capture_rtsp.py`](src/opal_look/capture_rtsp.py) |
+| Monitor workers | [`src/opal_look/monitors.py`](src/opal_look/monitors.py) |
+| REST contract audit | [`src/opal_look/contract_audit.py`](src/opal_look/contract_audit.py) |
+
+Follow [`AGENTS.md`](AGENTS.md), keep the REST contract authoritative, derive CLI and SPA behavior from the server, and make **one cohesive change per commit**. Report passed, failed, skipped, and unexecuted tests—and be explicit about limitations.
+
+> **OPAL design tenets:** Be promiscuous about compatible integrations. Standardize interfaces, not implementations. Make useful intelligence available on the hardware people already own. Explore without limits; design with discipline; implement with restraint; validate with evidence.
+
+**OPAL Look is where pixels become useful observations.** Start with a picture. Add a camera when you're ready. Add a real model when the application needs one. Keep everything loosely coupled so the next provider, device, or idea can join the conversation.
+
+[OPAL](https://github.com/PatMartin/opal) · [OPAL Listen](https://github.com/PatMartin/opal-listen) · [OPAL Event](https://github.com/PatMartin/opal-event) · [OPAL Talk](https://github.com/PatMartin/opal-talk) · [OPAL Think](https://github.com/PatMartin/opal-think)

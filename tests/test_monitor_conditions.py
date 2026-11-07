@@ -1,4 +1,4 @@
-"""v1.5 monitor condition evaluation: zones, tracking, cooldown, events."""
+"""Condition-eval engine unit tests (rules feed these conditions)."""
 
 from __future__ import annotations
 
@@ -144,25 +144,3 @@ def test_wrong_zone_kind_never_fires():
     ev = evaluate_conditions([c], _obs([_det(box=BOX_IN)]), LINE, state, True)
     assert ev == []
 
-
-def test_zone_kind_validation_on_create(client):
-    client.post("/api/v1/sources/", json={
-        "id": "cam", "name": "C", "kind": "rtsp", "locator": "rtsp://x",
-        "zones": [{"id": "z1", "name": "P", "kind": "polygon",
-                   "points": [{"x": 0, "y": 0}, {"x": 1, "y": 0}, {"x": 0, "y": 1}]}]},
-        headers={"If-Match": "*"})
-    client.post("/api/v1/pipelines/", json={
-        "id": "p", "name": "P", "stages": [{"id": "s1", "kind": "inference", "model_id": "synthetic-vision", "task": "detection"}]}, headers={"If-Match": "*"})
-    # duplicate condition ids -> 422
-    bad = {"id": "m", "name": "M", "source_id": "cam", "pipeline_id": "p",
-           "enabled": False,
-           "conditions": [{"id": "c", "event": "enters_zone", "zone_id": "z1"},
-                          {"id": "c", "event": "exits_zone", "zone_id": "z1"}]}
-    assert client.post("/api/v1/monitors/", json=bad,
-                       headers={"If-Match": "*"}).status_code == 422
-    # tracking-required event works: synthetic advertises tracking
-    ok = {"id": "m", "name": "M", "source_id": "cam", "pipeline_id": "p",
-          "enabled": False,
-          "conditions": [{"id": "c", "event": "object_disappears"}]}
-    assert client.post("/api/v1/monitors/", json=ok,
-                       headers={"If-Match": "*"}).status_code == 201

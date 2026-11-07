@@ -93,6 +93,12 @@ class MonitorRuntime:
         if t is not None and t.is_alive() and t is not threading.current_thread():
             t.join(timeout=5.0)
 
+    def _safe_update_rule(self, rule_id: str, fields) -> None:
+        try:
+            self.store.rules.update(rule_id, fields)
+        except Exception:
+            pass
+
     def _safe_update(self, fields) -> None:
         if self._stop.is_set():
             return
@@ -185,62 +191,68 @@ class MonitorRuntime:
                         self.emit("observation", obs)
                     self.updated.set()
                     now = now_iso()
-                    # inline condition evaluation
+                    # inline rule evaluation (standalone /rules/ resource)
                     try:
                         from .condition_eval import evaluate_conditions
                         from .repositories.zones import zone_read
-                        zones = [zone_read(z) for z in
-                                 self.store.zones.list_for_source(row["source_id"])]
-                        tracking = any(
-                            model_runtime(self.store, m).get("tracking")
-                            for st in _stage_list(self.store, pipeline)
-                            if st.kind == "inference"
-                            for m in [self.store.models.get(st.model_id)]
-                            if m is not None)
-                        matched = evaluate_conditions(
-                            _to_conds(row["conditions"]), result["observations"],
-                            zones, self.cond_state, tracking)
-                        for ev in matched:
-                            ev["monitor_id"] = self.monitor_id
-                            self.condition_events.append(ev)
-                            self.emit("condition_match", ev)
-                            if row["publish_events"] and self._app is not None:
-                                try:
-                                    from .events import publish_event
-                                    publish_event(
-                                        self._app, self.store,
-                                        "opal.look.condition.matched",
-                                        None, {
-                                            "monitor_id": self.monitor_id,
-                                            "source_id": row["source_id"],
-                                            "condition_id": ev["monitor_condition"],
-                                            "event": ev["event"],
-                                            "zone_id": ev.get("zone_id"),
-                                            "metadata": {
-                                                "transaction_id": self.monitor_id,
-                                                "request_id": self.monitor_id,
-                                            },
-                                        })
-                                except Exception:
-                                    pass  # publish failure never breaks inference
-                            if _cond_by_id(row, ev["monitor_condition"]).capture_on_match:
-                                try:
-                                    import io as _io
-                                    from .media import create_media
-                                    buf = _io.BytesIO()
-                                    frame.convert("RGB").save(buf, "JPEG")
-                                    create_media(
-                                        self.store, buf.getvalue(),
-                                        kind="snapshot", origin="monitor",
-                                        filename="monitor-capture.jpg",
-                                        content_type="image/jpeg",
-                                        monitor_id=self.monitor_id)
-                                except Exception:
-                                    pass
-                            clip = _cond_by_id(row, ev["monitor_condition"]).clip_on_match
-                            if clip:
-                                ev["clip_unsupported"] = True
-                                ev["clip_reason"] = "no video decoder installed"
+                        rules = _rules_for_source(
+                            self.store, row["source_id"])
+                        if rules:
+                            zones = [zone_read(z) for z in
+                                     self.store.zones.list_for_source(row["source_id"])]
+                            tracking = any(
+                                model_runtime(self.store, m).get("tracking")
+                                for st in _stage_list(self.store, pipeline)
+                                if st.kind == "inference"
+                                for m in [self.store.models.get(st.model_id)]
+                                if m is not None)
+                            matched = evaluate_conditions(
+                                rules, result["observations"],
+                                zones, self.cond_state, tracking)
+                            for ev in matched:
+                                ev["monitor_id"] = self.monitor_id
+                                self.condition_events.append(ev)
+                                self.emit("rule_match", ev)
+                                rid = ev["monitor_condition"]
+                                self._safe_update_rule(
+                                    rid, {"last_triggered_at": now})
+                                rule = _rule_by_id(rules, rid)
+                                if self._app is not None:
+                                    try:
+                                        from .events import publish_event
+                                        publish_event(
+                                            self._app, self.store,
+                                            "opal.look.rule.matched",
+                                            None, {
+                                                "monitor_id": self.monitor_id,
+                                                "source_id": row["source_id"],
+                                                "rule_id": rid,
+                                                "event": ev["event"],
+                                                "zone_id": ev.get("zone_id"),
+                                                "metadata": {
+                                                    "transaction_id": self.monitor_id,
+                                                    "request_id": self.monitor_id,
+                                                },
+                                            })
+                                    except Exception:
+                                        pass  # publish failure never breaks inference
+                                if rule.capture_on_match:
+                                    try:
+                                        import io as _io
+                                        from .media import create_media
+                                        buf = _io.BytesIO()
+                                        frame.convert("RGB").save(buf, "JPEG")
+                                        create_media(
+                                            self.store, buf.getvalue(),
+                                            kind="snapshot", origin="monitor",
+                                            filename="monitor-capture.jpg",
+                                            content_type="image/jpeg",
+                                            monitor_id=self.monitor_id)
+                                    except Exception:
+                                        pass
+                                if rule.clip_on_match:
+                                    ev["clip_unsupported"] = True
+                                    ev["clip_reason"] = "no video decoder installed"
                     except Exception:
                         pass
                     self._safe_update({"last_observation_at": now})
@@ -331,6 +343,30 @@ def validate_monitor_refs(store, source_id: str, pipeline_id: str,
         errors = validate_conditions_for_source(store, src, conditions, pipe)
         if errors:
             raise ApiError(422, "; ".join(errors))
+
+
+def _rules_for_source(store, source_id: str) -> list:
+    """Enabled standalone rules for a source, as MonitorCondition objects."""
+    from .schemas import MonitorCondition
+    out = []
+    for r in store.rules.list_for_source(source_id):
+        if not r["enabled"]:
+            continue
+        classes = json.loads(r["class_filters"] or "null")
+        out.append(MonitorCondition(
+            id=r["rule_id"], event=r["kind"], zone_id=r["zone_id"],
+            classes=classes or None, threshold=r["threshold"],
+            minimum_duration_ms=r["minimum_duration_ms"],
+            cooldown_ms=r["cooldown_ms"], enabled=True,
+            capture_on_match=bool(r["capture_on_match"]),
+            clip_on_match=bool(r["clip_on_match"])))
+    return out
+
+
+def _rule_by_id(rules: list, rule_id: str):
+    from .schemas import MonitorCondition
+    return next((r for r in rules if r.id == rule_id),
+                MonitorCondition(id=rule_id, event="object_appears"))
 
 
 def _cond_by_id(row, cid):

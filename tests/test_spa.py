@@ -9,8 +9,7 @@ def test_spa_served(client):
 def test_spa_js_only_v15_paths(client):
     js = client.get("/app/app.js").text
     # no legacy v1.4 endpoints referenced
-    for legacy in ("/api/v1/profiles", "/api/v1/sessions", "/api/v1/results",
-                   "/api/v1/snapshots", "/api/v1/backup", "/api/v1/zones"):
+    for legacy in ("/api/v1/results", "/api/v1/snapshots", "/api/v1/backup"):
         assert legacy not in js, legacy
     # v1.5 ops are referenced
     for path in ("/api/v1/sources/", "/api/v1/pipelines/", "/api/v1/analyze/",
@@ -21,6 +20,5 @@ def test_spa_js_only_v15_paths(client):
 
 def test_spa_no_legacy_sections(client):
     html = client.get("/app/").text
-    for legacy in ("sec-profiles", "sec-sessions", "sec-results",
-                   "sec-snapshots", "sec-backup"):
+    for legacy in ("sec-results", "sec-snapshots", "sec-backup"):
         assert legacy not in html

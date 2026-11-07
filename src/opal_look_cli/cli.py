@@ -201,7 +201,7 @@ def _src_capture(source_id: str,
         body["session_id"] = session_id
     if observation_id:
         body["observation_id"] = observation_id
-    _emit(unwrap(_client().request(
+    _emit(unwrap(_client().mutate(
         "POST", f"/api/v1/sources/{source_id}/captures/", json=body)))
 
 

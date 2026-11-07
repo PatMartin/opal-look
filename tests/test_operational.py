@@ -7,11 +7,10 @@ def test_metrics_shape_and_counters(client):
     resp = client.get("/api/v1/metrics/")
     assert resp.status_code == 200
     body = resp.json()
-    assert set(body) == {"counters", "gauges"}
-    assert all(isinstance(v, (int, float)) for v in body["counters"].values())
-    assert all(isinstance(v, (int, float)) for v in body["gauges"].values())
-    assert "monitors_running" in body["gauges"]
-    assert "viewers_active" in body["gauges"]
+    assert {"captured_frames","processed_frames","dropped_frames",
+            "observations_total","event_publish_drops","active_sessions",
+            "queued_jobs","mean_inference_ms"} <= set(body)
+    assert all(isinstance(v, (int, float)) for v in body.values())
 
 
 def test_metrics_reflect_work(client, fake_rtsp):
@@ -28,11 +27,11 @@ def test_metrics_reflect_work(client, fake_rtsp):
     import time
     deadline = time.time() + 4
     while time.time() < deadline:
-        g = client.get("/api/v1/metrics/").json()["gauges"]
-        if g["monitors_running"] >= 1:
+        g = client.get("/api/v1/metrics/").json()
+        if g["active_source_streams"] >= 1:
             break
         time.sleep(0.05)
-    assert g["monitors_running"] >= 1
+    assert g["active_source_streams"] >= 1
     client.delete("/api/v1/monitors/m", headers={"If-Match": "*"})
 
 
@@ -142,6 +141,6 @@ def test_disconnect_storm_no_unbounded_growth(client, fake_rtsp):
     for _ in range(5):
         with client.stream("GET", "/api/v1/sources/cam/stream") as r:
             next(r.iter_bytes(), b"")
-    g = client.get("/api/v1/metrics/").json()["gauges"]
-    assert g["viewers_active"] <= 1  # disconnects released
+    g = client.get("/api/v1/metrics/").json()
+    assert g["active_source_streams"] <= 1  # disconnects released
     assert client.get("/api/v1/health/ready").status_code == 200

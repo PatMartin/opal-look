@@ -42,7 +42,7 @@ def test_cli_health(cli):
 
 def test_cli_metrics(cli):
     r = cli.invoke(cli_app, ["metrics", "show"])
-    assert r.exit_code == 0 and "counters" in r.output
+    assert r.exit_code == 0 and "captured_frames" in r.output
 
 
 def test_cli_events_status(cli):
@@ -73,15 +73,24 @@ def test_cli_media_upload_and_download(cli, tmp_path):
     r = cli.invoke(cli_app, ["media", "upload", str(img)])
     assert r.exit_code == 0, r.output
     mid = json.loads(r.output)["id"]
-    out = tmp_path / "dl.bin"
-    r = cli.invoke(cli_app, ["media", "download", mid, "--out", str(out)])
+    # media download is gone upstream; binary content lives on captures
+    out = tmp_path / "cap.jpg"
+    r = cli.invoke(cli_app, ["sources", "add", "--body",
+                             '{"id":"ms","name":"M","kind":"media",'
+                             f'"locator":"{mid}"' + '}'])
+    assert r.exit_code == 0, r.output
+    r = cli.invoke(cli_app, ["sources", "capture", "ms"])
+    assert r.exit_code == 0, r.output
+    cap_id = json.loads(r.output)["id"]
+    r = cli.invoke(cli_app, ["captures", "download", cap_id, "--out", str(out)])
     assert r.exit_code == 0 and out.read_bytes()[:2] == b"\xff\xd8"
 
 
 def test_cli_pipelines_validate(cli):
     r = cli.invoke(cli_app, ["pipelines", "validate", "--body",
-                             '{"id": "p", "name": "P", "model_id": "synthetic-vision", '
-                             '"task": "detection"}'])
+                             '{"id": "p", "name": "P", "stages": [{"id": "s1", "kind": '
+                             '"inference", "model_id": "synthetic-vision", '
+                             '"task": "detection"}]}'])
     assert r.exit_code == 0
 
 
@@ -99,7 +108,7 @@ def test_cli_configuration_export(cli):
 
 def test_cli_obsolete_commands_gone(cli):
     """v1.4 resources have no REST op — the CLI must not expose them."""
-    for group in ("profiles", "sessions", "results", "snapshots", "backup"):
+    for group in ("results", "snapshots", "backup"):
         r = cli.invoke(cli_app, [group, "list"])
         assert r.exit_code != 0, f"{group} still exposed"
 

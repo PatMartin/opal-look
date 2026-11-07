@@ -19,8 +19,10 @@ def _media(client, color=(10, 20, 30)):
 
 def _pipeline(client, pid="p", **over):
     body = {"id": pid, "name": "P", **over}
-    if "model_id" not in over and "stages" not in over:
-        body.update(model_id="synthetic-vision", task="detection")
+    if "stages" not in over:
+        body.update(stages=[{"id": "s1", "kind": "inference",
+                             "model_id": "synthetic-vision",
+                             "task": "detection"}])
     return client.post("/api/v1/pipelines/", json=body, headers={"If-Match": "*"})
 
 
@@ -31,7 +33,7 @@ def test_media_still_detections(client):
         "pipeline_id": "p", "source": {"media_id": mid}})
     assert resp.status_code == 200
     body = resp.json()
-    assert set(body) <= {"observations", "processing_ms", "media_id"}
+    assert set(body) <= {"observations", "image", "processing_ms", "media_id"}
     obs = body["observations"][0]
     assert obs["pipeline_id"] == "p"
     assert obs["pipeline_revision"] == "1"
@@ -188,5 +190,4 @@ def test_no_public_session_created(client):
     client.post("/api/v1/analyze/", json={
         "pipeline_id": "p", "source": {"media_id": mid}})
     # sessions list should have no rows for this source/media
-    page = client.get("/api/v1/sessions/").json()
-    assert page.get("items", page) in ([], page) or not page.get("items")
+    assert client.get("/api/v1/sessions/").json() == []

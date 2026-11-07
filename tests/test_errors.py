@@ -60,8 +60,13 @@ def test_retryable_flag_on_transient_errors(client):
               "locator": "Z:/no/such/file.mp4"},
         headers={"If-Match": "*"},
     )
+    client.post("/api/v1/pipelines/", json={
+        "id": "p", "name": "P", "stages": [
+            {"id": "s1", "kind": "inference",
+             "model_id": "synthetic-vision", "task": "detection"}]},
+        headers={"If-Match": "*"})
     resp = client.post("/api/v1/sessions/", json={
-        "source_id": "vid", "stages": [{"id": "s1", "kind": "inference", "model_id": "synthetic-vision", "task": "detection"}],
+        "source_id": "vid", "pipeline_id": "p",
     })
     assert resp.status_code == 503
     assert resp.json()["error"]["retryable"] is True

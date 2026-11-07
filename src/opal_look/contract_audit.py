@@ -1,4 +1,4 @@
-"""Offline contract audit: pinned opal_look_v1.5.0.yaml vs implemented routes.
+"""Offline contract audit: pinned openapi/opal_look_v1.5.0.yaml (+ shared kernel) vs implemented routes.
 
 Reads the pinned YAML contract and the live FastAPI application, then reports:
 
@@ -33,7 +33,7 @@ HTTP_METHODS = frozenset(
 API_PREFIX = "/api/v1"
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-DEFAULT_CONTRACT = REPO_ROOT / "opal_look_v1.5.0.yaml"
+DEFAULT_CONTRACT = REPO_ROOT / "openapi" / "opal_look_v1.5.0.yaml"
 
 
 @dataclass(frozen=True)
@@ -76,12 +76,10 @@ def _walk_refs(node: Any) -> Iterator[str]:
             yield from _walk_refs(item)
 
 
-def _resolve_pointer(doc: Any, ref: str) -> bool:
-    """True when a local '#/a/b' JSON pointer resolves inside the document."""
-    if not ref.startswith("#"):
-        return False
+def _resolve_pointer(doc: Any, pointer: str) -> bool:
+    """True when a local '/a/b' JSON pointer resolves inside the document."""
     target = doc
-    for raw in ref[1:].split("/"):
+    for raw in pointer.split("/"):
         if raw == "":
             continue
         token = raw.replace("~1", "/").replace("~0", "~")
@@ -94,11 +92,68 @@ def _resolve_pointer(doc: Any, ref: str) -> bool:
     return True
 
 
+def _doc_at(docs: dict[Path, Any], path: Path) -> Any:
+    """Load (and cache) a YAML doc; None when unreadable/not a mapping."""
+    resolved = path.resolve()
+    if resolved not in docs:
+        try:
+            docs[resolved] = yaml.safe_load(resolved.read_text(encoding="utf-8"))
+        except OSError:
+            docs[resolved] = None
+    return docs[resolved]
+
+
+def _split_ref(ref: str) -> tuple[str | None, str]:
+    """'./shared/k.yaml#/a/b' -> ('./shared/k.yaml', '/a/b'); '#/a' -> (None, '/a')."""
+    file_part, _, frag = ref.partition("#")
+    return (file_part or None), frag
+
+
+def _ref_target(docs: dict[Path, Any], base_dir: Path, owner: Any, ref: str) -> Any:
+    """Return the document a $ref points into, or None."""
+    file_part, _ = _split_ref(ref)
+    if file_part is None:
+        return owner
+    return _doc_at(docs, base_dir / file_part)
+
+
+def _ref_resolves(docs: dict[Path, Any], base_dir: Path, owner: Any, ref: str) -> bool:
+    file_part, frag = _split_ref(ref)
+    target = _ref_target(docs, base_dir, owner, ref) if file_part else owner
+    if not isinstance(target, dict):
+        return False
+    return _resolve_pointer(target, frag)
+
+
+def _deref_path_item(docs: dict[Path, Any], base_dir: Path, owner: Any,
+                     item: dict) -> dict | None:
+    """Resolve a path-level '$ref' (e.g. kernel pathItems) to the target mapping."""
+    ref = item.get("$ref")
+    if not isinstance(ref, str):
+        return item
+    file_part, frag = _split_ref(ref)
+    target_doc = _ref_target(docs, base_dir, owner, ref)
+    if not isinstance(target_doc, dict):
+        return None
+    node: Any = target_doc
+    for raw in frag.split("/"):
+        if raw == "":
+            continue
+        token = raw.replace("~1", "/").replace("~0", "~")
+        if isinstance(node, dict) and token in node:
+            node = node[token]
+        else:
+            return None
+    return node if isinstance(node, dict) else None
+
+
 def load_contract(path: Path) -> ContractInventory:
     raw = path.read_bytes()
     doc = yaml.safe_load(raw.decode("utf-8"))
     if not isinstance(doc, dict):
         raise ValueError(f"{path}: top-level YAML document is not a mapping")
+    base_dir = path.parent
+    docs: dict[Path, Any] = {path.resolve(): doc}
 
     operations: list[ContractOperation] = []
     problems: list[str] = []
@@ -111,13 +166,22 @@ def load_contract(path: Path) -> ContractInventory:
         if not isinstance(item, dict):
             problems.append(f"path {api_path}: item is not a mapping")
             continue
-        for method, op in item.items():
+        # Path-level "$ref" pulls a pathItem from another document (kernel);
+        # a sibling "x-opal-cli" map carries per-method group/command.
+        resolved = _deref_path_item(docs, base_dir, doc, item)
+        cli_by_method = item.get("x-opal-cli") or {}
+        if resolved is None:
+            problems.append(f"path {api_path}: unresolved $ref {item['$ref']!r}")
+            continue
+        for method, op in resolved.items():
             if method.lower() not in HTTP_METHODS:
                 continue
             if not isinstance(op, dict):
                 problems.append(f"{method.upper()} {api_path}: operation is not a mapping")
                 continue
-            cli = op.get("x-opal-cli") or {}
+            cli = (cli_by_method.get(method) or {}) if isinstance(cli_by_method, dict) else {}
+            if not cli:
+                cli = op.get("x-opal-cli") or {}
             op_id = op.get("operationId")
             if not op_id:
                 problems.append(f"{method.upper()} {api_path}: missing operationId")
@@ -143,10 +207,19 @@ def load_contract(path: Path) -> ContractInventory:
                 problems.append(f"duplicate operationId {op.operation_id!r}")
             seen.add(op.operation_id)
 
-    dangling = sorted(
-        {ref for ref in _walk_refs(doc) if not _resolve_pointer(doc, ref)}
-    )
-    for ref in dangling:
+    dangling: set[str] = set()
+    for ref in set(_walk_refs(doc)):
+        if not _ref_resolves(docs, base_dir, doc, ref):
+            dangling.add(ref)
+    # Refs inside externally-loaded docs (e.g. the shared kernel) resolve
+    # against that document, not the main contract.
+    for doc_path, ext_doc in list(docs.items()):
+        if doc_path == path.resolve() or not isinstance(ext_doc, dict):
+            continue
+        for ref in set(_walk_refs(ext_doc)):
+            if not _ref_resolves(docs, doc_path.parent, ext_doc, ref):
+                dangling.add(f"{doc_path.name}: {ref}")
+    for ref in sorted(dangling):
         problems.append(f"dangling $ref {ref!r}")
 
     return ContractInventory(
@@ -314,7 +387,7 @@ def main(argv: list[str] | None = None) -> int:
         description="Audit implemented routes against the pinned v1.5.0 contract.",
     )
     parser.add_argument("--contract", type=Path, default=DEFAULT_CONTRACT,
-                        help="pinned OpenAPI YAML (default: repo-root opal_look_v1.5.0.yaml)")
+                        help="pinned OpenAPI YAML (default: openapi/opal_look_v1.5.0.yaml)")
     parser.add_argument("--strict", action="store_true",
                         help="exit 1 on missing/legacy routes or contract problems")
     parser.add_argument("--json", action="store_true", dest="as_json",

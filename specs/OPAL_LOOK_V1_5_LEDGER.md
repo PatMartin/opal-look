@@ -4,6 +4,47 @@ Living record of the v1.4.0 → v1.5.0 migration on `feature/opal-look-1.5`.
 Update the coverage line after every step commit. The numbers below come from
 the tools, not estimates — see "How to reproduce".
 
+---
+
+## Upstream v1.5.0 re-target (steps U01+, spec `openapi/`)
+
+The upstream `openapi/opal_look_v1.5.0.yaml` + `openapi/shared/opal_kernel.yaml`
+(OPAL Suite Kernel 1.2.0) is now the authoritative contract, superseding the
+local "Simplified" draft below. Upstream keeps sessions, profiles, rules,
+zones, captures and artifacts as resources; suite-standard surfaces (engines,
+profiles, settings, configuration, health) arrive via kernel `pathItems`.
+
+### Upstream pinned inputs
+
+- Contract: `openapi/opal_look_v1.5.0.yaml` SHA-256
+  `71b785e340be7534b0bfdd901ce0d4ee251bcf90922de189a206dcdec3877247`.
+- Kernel: `openapi/shared/opal_kernel.yaml` (v1.2.0) SHA-256
+  `53ee85eaa6c1d3db52940c6aca6c2fc61ba380565cd41073a971e4a87848331d`.
+  Do not edit either; amendments go upstream first.
+- Step prompts: `specs/OPAL_LOOK_UPSTREAM_V1_5_IMPLEMENTATION_PROMPTS.md`.
+- Audit tool resolves external `./shared/*` `$ref`s (pathItems + components).
+
+### Upstream baseline (Step U01)
+
+| Measure | Value |
+|---|---|
+| Contract inventory | 58 paths / 90 operations |
+| Implemented routes | 64 ops |
+| Covered | **58/90** |
+| Missing | **32/90** — profiles (6), zones (5), rules (5), sessions (7), captures (5), artifacts (4) |
+| Legacy-only `/api/v1` ops | 4 — `media/{id}/content`, `monitors/{id}/observations/stream`, `sources/{id}/capture`, `sources/{id}/observations/stream` |
+| Contract structural problems | 0 |
+
+### Upstream step log
+
+| Step | Commit | Covered /90 | Notes |
+|---|---|---|---|
+| U01 pin+audit retarget | (this commit) | 58 | openapi/ committed, audit resolves external $refs, draft dup deleted |
+
+---
+
+## Simplified-draft migration (steps 01–28, completed)
+
 ## Pinned inputs
 
 - Contract: `opal_look_v1.5.0.yaml` (repo root, byte-for-byte copy of the

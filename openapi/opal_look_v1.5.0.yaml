@@ -1,0 +1,5719 @@
+openapi: 3.1.0
+jsonSchemaDialect: https://json-schema.org/draft/2020-12/schema
+info:
+  title: OPAL Look — Visual Observation API
+  version: 1.5.0
+  description: 'Clean-sheet, implementation-neutral visual perception API for OPAL 1.4.0. OpenAPI is normative for
+    REST, generated CLI, and SPA clients. A source provides frames; a pipeline is an ordered acyclic graph of inference
+    and processing stages; a stage produces immutable observations; sessions run live pipelines; jobs run finite
+    work; monitors express durable desired state. A given frame can produce multiple typed observations from multiple
+    stages, without repeated decode. Engine/model-specific options are validated against advertised capability schemas,
+    never silently ignored. Optional tasks (segmentation, pose, OCR, caption, VQA, depth, embeddings, anomaly) use
+    typed observation items and capability discovery; the base implementation must support image/video detection.
+    No model download, training, provider provisioning, identity recognition, or arbitrary host shell execution
+    is exposed by this contract.
+
+
+    OPAL suite standard: X-Opal-Session-Id denotes logical context (distinct from Look session resource IDs); X-Opal-Transaction-Id
+    is one end-to-end operation; X-Opal-Request-Id is per HTTP hop; X-Opal-Causation-Id identifies immediate parent.
+    Correlation headers are returned for successes, failures, streams and binary responses; IDs are propagated in
+    event data.metadata. Each client ID must be 1..128 printable non-whitespace ASCII bytes or 422. Request IDs
+    are newly generated on each downstream HTTP hop. These IDs never grant access.
+
+
+    Configuration: portable logical configuration has one strong ETag, returned on configuration GETs and successful
+    writes; all configuration mutations require If-Match strong validator (or ''*''). Missing 428, stale 412, malformed
+    422. Validation never mutates and returns valid=false with issues. Runtime state does not advance portable configuration
+    revision; concurrent runtime jobs/sessions may block incompatible configuration mutation with 409. Write operations
+    are atomic. Source locators are redacted in GET/exports; secrets are never exportable. Filesystem/provider resources
+    are referenced, not installed/deleted by this API.
+
+
+    Collection paths end with /. Creates return 201 with Location; async admissions return 202 with Location; delete
+    returns 204. Cursor collections are newest-first then ID tie-breaker, filter-bound and expiry-limited; bounded
+    catalogs are full arrays with documented caps. Settings allow atomic whole-map PATCH and individual leaf GET/PUT/DELETE,
+    where DELETE resets the default. Runtime admissions can use Idempotency-Key; exact replay reuses original admission,
+    differing payload returns 409, reservation lifetime 24 hours. Unsupported controls, source tasks, media types,
+    schemas and pipeline topologies fail explicitly with 422. GET never starts inference.
+
+
+    Live results use SSE (event IDs and bounded replay via Last-Event-ID; stale replay returns 409, not an inaccurate
+    new stream); streams end on terminal session and send heartbeats. Binary endpoints send exact MIME and correlation
+    headers; snapshot/exact-frame retrieval never silently substitutes a different frame. Normalized coordinates
+    refer to original orientation-corrected image, with explicit metadata; confidence values are model-derived,
+    not comparable across engines. Track identities are ephemeral within a track epoch, not identity recognition.
+
+
+    Observations are metadata by default. Persisting observations, images, video, audio and clips is explicit and
+    independent with retention caps. Uploaded inputs, results, captures, and generated artifacts have separate TTLs
+    and quotas. Video recording and annotated export are capability-gated; recording is not implied by inference.
+    Closed or expired media returns 404/410 policy consistently; runtime resource quota returns 429. Rule evaluation
+    is limited to visual observation conditions, not shell actions. Event output is disabled by default, uses an
+    allowlist and bounded queue, never blocks inference, and follows opal-event''s two-frame ZeroMQ protocol and
+    BusEvent envelope (metadata under data.metadata, no extra top-level fields). Event publication is best effort
+    and never promises delivery, ordering or exactly-once execution. Deployment binds loopback by default; non-loopback
+    requires bearer auth and secure broker transport. Remote providers can receive image content only when explicitly
+    enabled.
+
+
+    P0 required: image/frame inference, class detection, source registration and health, discovery, model registration,
+    video live sessions and finite jobs, standardized observations, SSE, snapshots and operational controls. P1
+    optional-but-specified: tracking, zones, visual rules, monitors, recordings, annotated export, OCR, image classification
+    and event publication. P2/P3 features are capability-advertised extensions and may be absent.
+
+
+    CLI METADATA (normative): Every operation has x-opal-cli.group and x-opal-cli.command.
+
+    Resource management uses add, remove, update, list, show as its five canonical verbs.
+
+    Operational actions keep explicit verbs (start, stop, upload, download, stream, capture,
+
+    probe, status, validate, cancel, reset, patch, etc.). Generated Typer CLI root is
+
+    `opal look` and each command is `opal look <group> <command>`. Options use kebab-case.
+
+    No implicit aliases (create/delete/get/set) are generated. CLI must call only public REST
+
+    endpoints. Runtime operations retain their lifecycle verbs; settings reset corresponds
+
+    to removal of an override, not deletion of the setting definition. CLI metadata does
+
+    not change HTTP routing or payloads. operationId values intentionally use the
+
+    canonical CLI vocabulary and may affect existing generated SDK clients.
+
+
+
+    CAMERA VIEWING AND FILTERING EXTENSION (clean-sheet 1.4.0 revision):
+
+    - Raw viewing uses GET /api/v1/sources/{source_id}/stream with MJPEG; no durable viewer resource. Optional pipeline_id
+    invokes sessionless transient processing and optional annotation query parameters. A stream is an ephemeral
+    viewer, not a session or a recording.
+
+    - Pipeline stages support portable image processing, motion filtering and motion-gated downstream inference.
+    Filter-only pipelines are valid, and all unsupported options are rejected. Motion gating skips inference but
+    never implies object absence and never suppresses source display. Periodic sampling avoids permanent blind spots.
+
+    - Presentation options are independent from inference settings and persisted observations. All source/session
+    preview query parameters are fixed at stream start; clients reconnect to change them.
+
+    - Source frame GET may apply optional processing as a fresh single frame. POST /analyze/image supports rendered
+    JPEG via Accept negotiation, while JSON remains the default response.
+
+    - Side-by-side viewing uses two existing stream requests in the SPA. Pipeline duplication is GET followed by
+    POST with a new id, not a new HTTP operation. Pipeline dry run uses POST /analyze/image, or POST /analyze/ with
+    an existing source.
+
+    - Source/output FPS and resizing are bounded by advertised source/encoder capabilities. Preprocess transforms
+    change inference coordinate space internally; returned observation coordinates always map to the original orientation-corrected
+    frame.
+
+    - A motion filter requires temporal input and is invalid for a single independent still unless the engine explicitly
+    supports a specified baseline; validation rejects unsupported modes. Frame drops or reconnections cannot be
+    interpreted as no motion.
+
+    '
+servers:
+- url: http://127.0.0.1:8080
+security:
+- BearerAuth: []
+tags:
+- name: discovery
+- name: engines
+- name: models
+- name: sources
+- name: pipelines
+- name: profiles
+- name: analyze
+- name: sessions
+- name: jobs
+- name: observations
+- name: media
+- name: captures
+- name: artifacts
+- name: zones
+- name: rules
+- name: monitors
+- name: settings
+- name: backup
+- name: operations
+components:
+  schemas:
+    Id:
+      type: string
+      minLength: 1
+      maxLength: 128
+    Timestamp:
+      type: string
+      format: date-time
+    CapabilityDescriptor:
+      type: object
+      properties:
+        task:
+          type: string
+        supported_inputs:
+          type: array
+          items:
+            type: string
+        output_types:
+          type: array
+          items:
+            type: string
+        controls_schema:
+          type: object
+          additionalProperties: true
+        supports_streaming:
+          type: boolean
+        supports_tracking:
+          type: boolean
+        supports_annotation:
+          type: boolean
+      additionalProperties: false
+      required:
+      - task
+      - supported_inputs
+      - output_types
+      - supports_streaming
+    ModelCreate:
+      type: object
+      properties:
+        id:
+          type: string
+          minLength: 1
+          maxLength: 128
+        engine_id:
+          type: string
+          minLength: 1
+          maxLength: 128
+        resource_ref:
+          type: string
+          description: Host-controlled filesystem reference or provider-side identifier; never returned with embedded
+            credentials.
+        tasks:
+          type: array
+          items:
+            type: string
+        options:
+          type: object
+          additionalProperties: true
+      additionalProperties: false
+      required:
+      - id
+      - engine_id
+      - resource_ref
+      - tasks
+    Model:
+      type: object
+      properties:
+        id:
+          type: string
+          minLength: 1
+          maxLength: 128
+        engine_id:
+          type: string
+          minLength: 1
+          maxLength: 128
+        display_name:
+          type: string
+        tasks:
+          type: array
+          items:
+            type: string
+        state:
+          type: string
+          enum:
+          - registered
+          - ready
+          - unavailable
+          - error
+        resource_label:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+      additionalProperties: false
+      required:
+      - id
+      - engine_id
+      - tasks
+      - state
+      - created_at
+    ModelPatch:
+      type: object
+      properties:
+        display_name:
+          type: string
+        options:
+          type: object
+          additionalProperties: true
+      additionalProperties: false
+    SourceCreate:
+      type: object
+      properties:
+        id:
+          type: string
+          minLength: 1
+          maxLength: 128
+        kind:
+          type: string
+          enum:
+          - usb
+          - rtsp
+          - http_mjpeg
+          - file
+          - media
+          - adapter
+        name:
+          type: string
+        locator:
+          type: string
+          description: Never return embedded credentials; use secret_ref for authentication.
+        secret_ref:
+          type: string
+        options:
+          type: object
+          additionalProperties: true
+        enabled:
+          type: boolean
+      additionalProperties: false
+      required:
+      - id
+      - kind
+      - name
+      - locator
+    Source:
+      type: object
+      properties:
+        id:
+          type: string
+          minLength: 1
+          maxLength: 128
+        kind:
+          type: string
+        name:
+          type: string
+        enabled:
+          type: boolean
+        state:
+          type: string
+          enum:
+          - unknown
+          - ready
+          - disconnected
+          - error
+          - disabled
+        redacted_locator:
+          type: string
+        last_frame_at:
+          oneOf:
+          - type: string
+            format: date-time
+          - type: 'null'
+        capabilities:
+          type: array
+          items:
+            type: string
+      additionalProperties: false
+      required:
+      - id
+      - kind
+      - name
+      - enabled
+      - state
+    SourcePatch:
+      type: object
+      properties:
+        name:
+          type: string
+        locator:
+          type: string
+        secret_ref:
+          type: string
+        enabled:
+          type: boolean
+        options:
+          type: object
+          additionalProperties: true
+      additionalProperties: false
+    PipelineStage:
+      type: object
+      properties:
+        id:
+          type: string
+          minLength: 1
+          maxLength: 128
+        kind:
+          type: string
+          enum:
+          - preprocess
+          - inference
+          - tracker
+          - filter
+          - transform
+          - annotate
+        model_id:
+          type: string
+          minLength: 1
+          maxLength: 128
+        task:
+          type: string
+        inputs:
+          type: array
+          items:
+            type: string
+            minLength: 1
+            maxLength: 128
+        options:
+          type: object
+          additionalProperties: true
+        enabled:
+          type: boolean
+        portable:
+          $ref: '#/components/schemas/ProcessingStageOptions'
+          description: Typed portable filter, gate, overlay and frame limits. Unknown parameters rejected.
+        phase:
+          type: string
+          enum:
+          - inference_input
+          - presentation
+          description: 'For filter/transform stages: whether processing affects inference input or presentation
+            only. Motion detectors run on ordered source frames and must not use presentation-only frames.'
+      additionalProperties: false
+      required:
+      - id
+      - kind
+      description: Ordered DAG node; inputs reference prior stage IDs only. Inference stage requires model_id and
+        task. Filters can run without inference. An inference stage may specify a motion gate referencing a previous
+        motion filter. Presentation filters must not mutate source frames or results; inference filters transform
+        only inference inputs. Unsupported stages fail pipeline validation.
+    PipelineCreate:
+      type: object
+      properties:
+        id:
+          type: string
+          minLength: 1
+          maxLength: 128
+        name:
+          type: string
+        stages:
+          type: array
+          items:
+            $ref: '#/components/schemas/PipelineStage'
+          minItems: 1
+        description:
+          type: string
+      additionalProperties: false
+      required:
+      - id
+      - name
+      - stages
+      description: Pipelines may consist solely of supported image-processing filters; no model required for such
+        pipelines. Ordered stages and dependencies are validated before admission.
+    Pipeline:
+      type: object
+      properties:
+        id:
+          type: string
+          minLength: 1
+          maxLength: 128
+        name:
+          type: string
+        stages:
+          type: array
+          items:
+            $ref: '#/components/schemas/PipelineStage'
+        description:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+      additionalProperties: false
+      required:
+      - id
+      - name
+      - stages
+      - created_at
+    PipelinePatch:
+      type: object
+      properties:
+        name:
+          type: string
+        description:
+          type: string
+        stages:
+          type: array
+          items:
+            $ref: '#/components/schemas/PipelineStage'
+      additionalProperties: false
+    ValidationIssue:
+      type: object
+      properties:
+        code:
+          type: string
+        message:
+          type: string
+        path:
+          type: string
+        severity:
+          type: string
+          enum:
+          - error
+          - warning
+      additionalProperties: false
+      required:
+      - code
+      - message
+      - severity
+    InferenceOptions:
+      type: object
+      properties:
+        target_fps:
+          type: number
+          minimum: 0.1
+        max_frames:
+          type: integer
+          minimum: 1
+        confidence_threshold:
+          type: number
+          minimum: 0
+          maximum: 1
+        classes:
+          type: array
+          items:
+            type: string
+        roi:
+          $ref: '#/components/schemas/NormalizedPolygon'
+        engine_options:
+          type: object
+          additionalProperties: true
+        video:
+          $ref: '#/components/schemas/VideoProcessingOptions'
+        annotations:
+          $ref: '#/components/schemas/AnnotationOptions'
+      additionalProperties: false
+    RetentionOptions:
+      type: object
+      properties:
+        persist_results:
+          type: boolean
+        save_raw_frames:
+          type: boolean
+        save_annotated_frames:
+          type: boolean
+        ttl_seconds:
+          type: integer
+          minimum: 0
+      additionalProperties: false
+      description: No video/image retention by default; applies only when explicitly opted in.
+    Point:
+      type: object
+      properties:
+        x:
+          type: number
+          minimum: 0
+          maximum: 1
+        y:
+          type: number
+          minimum: 0
+          maximum: 1
+      additionalProperties: false
+      required:
+      - x
+      - y
+    NormalizedPolygon:
+      type: object
+      properties:
+        points:
+          type: array
+          items:
+            $ref: '#/components/schemas/Point'
+          minItems: 3
+      additionalProperties: false
+      required:
+      - points
+    NormalizedBox:
+      type: object
+      properties:
+        x:
+          type: number
+          minimum: 0
+          maximum: 1
+        y:
+          type: number
+          minimum: 0
+          maximum: 1
+        width:
+          type: number
+          minimum: 0
+          maximum: 1
+        height:
+          type: number
+          minimum: 0
+          maximum: 1
+      additionalProperties: false
+      required:
+      - x
+      - y
+      - width
+      - height
+    ImageMetadata:
+      type: object
+      properties:
+        width:
+          type: integer
+          minimum: 1
+        height:
+          type: integer
+          minimum: 1
+        orientation_applied:
+          type: boolean
+        mime_type:
+          type: string
+      additionalProperties: false
+      required:
+      - width
+      - height
+    ObservationItem:
+      type: object
+      properties:
+        id:
+          type: string
+          minLength: 1
+          maxLength: 128
+        type:
+          type: string
+          enum:
+          - detection
+          - classification
+          - ocr
+          - track
+          - pose
+          - instance_mask
+          - semantic_mask
+          - caption
+          - answer
+          - embedding
+          - anomaly
+          - depth
+          - custom
+        label:
+          type: string
+        score:
+          type: number
+          minimum: 0
+          maximum: 1
+        box:
+          $ref: '#/components/schemas/NormalizedBox'
+        polygon:
+          $ref: '#/components/schemas/NormalizedPolygon'
+        track_id:
+          type: string
+        track_epoch:
+          type: string
+        text:
+          type: string
+        attributes:
+          type: object
+          additionalProperties: true
+        payload:
+          type: object
+          additionalProperties: true
+      additionalProperties: false
+      required:
+      - id
+      - type
+      description: 'Task-specific result: payload schema is declared in engine capabilities; unknown item types
+        are safely ignored by generic clients. No person identity implied by track ID.'
+    Observation:
+      type: object
+      properties:
+        id:
+          type: string
+          minLength: 1
+          maxLength: 128
+        created_at:
+          type: string
+          format: date-time
+        observed_at:
+          type: string
+          format: date-time
+        source_id:
+          oneOf:
+          - type: string
+            minLength: 1
+            maxLength: 128
+          - type: 'null'
+        session_id:
+          oneOf:
+          - type: string
+            minLength: 1
+            maxLength: 128
+          - type: 'null'
+        job_id:
+          oneOf:
+          - type: string
+            minLength: 1
+            maxLength: 128
+          - type: 'null'
+        pipeline_id:
+          type: string
+          minLength: 1
+          maxLength: 128
+        pipeline_revision:
+          type: string
+        stage_id:
+          type: string
+          minLength: 1
+          maxLength: 128
+        engine_id:
+          type: string
+          minLength: 1
+          maxLength: 128
+        model_id:
+          type: string
+          minLength: 1
+          maxLength: 128
+        task:
+          type: string
+        frame_index:
+          oneOf:
+          - type: integer
+            minimum: 0
+          - type: 'null'
+        media_time_ms:
+          oneOf:
+          - type: integer
+            minimum: 0
+          - type: 'null'
+        image:
+          $ref: '#/components/schemas/ImageMetadata'
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/ObservationItem'
+        warnings:
+          type: array
+          items:
+            type: string
+        session_context_id:
+          oneOf:
+          - type: string
+            minLength: 1
+            maxLength: 128
+          - type: 'null'
+        transaction_id:
+          type: string
+          minLength: 1
+          maxLength: 128
+        request_id:
+          type: string
+          minLength: 1
+          maxLength: 128
+      additionalProperties: false
+      required:
+      - id
+      - created_at
+      - observed_at
+      - pipeline_id
+      - stage_id
+      - engine_id
+      - model_id
+      - task
+      - image
+      - items
+      - transaction_id
+      - request_id
+      description: Immutable atomic output from a processing stage. Multiple observations can arise from the same
+        frame. Empty items means processed with no matching observations.
+    ObservationPage:
+      type: object
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/Observation'
+        next_cursor:
+          oneOf:
+          - type: string
+          - type: 'null'
+        has_more:
+          type: boolean
+      additionalProperties: false
+      required:
+      - items
+      - next_cursor
+      - has_more
+    SourceInput:
+      type: object
+      properties:
+        source_id:
+          type: string
+          minLength: 1
+          maxLength: 128
+        media_id:
+          type: string
+          minLength: 1
+          maxLength: 128
+        capture_id:
+          type: string
+          minLength: 1
+          maxLength: 128
+        frame_at_ms:
+          type: integer
+          minimum: 0
+      additionalProperties: false
+      description: Exactly one of source_id, media_id, capture_id is permitted; source_id may imply a current-frame
+        read.
+      oneOf:
+      - required:
+        - source_id
+      - required:
+        - media_id
+      - required:
+        - capture_id
+    AnalyzeRequest:
+      type: object
+      properties:
+        pipeline_id:
+          type: string
+          minLength: 1
+          maxLength: 128
+        profile_id:
+          type: string
+          minLength: 1
+          maxLength: 128
+        source:
+          $ref: '#/components/schemas/SourceInput'
+          additionalProperties: false
+        options:
+          $ref: '#/components/schemas/InferenceOptions'
+        retention:
+          $ref: '#/components/schemas/RetentionOptions'
+      additionalProperties: false
+      required:
+      - source
+      description: Exactly one pipeline_id or profile_id, unless an active profile is configured. Synchronous single
+        frame. Upload multipart images through /analyze/image.
+    AnalyzeResponse:
+      type: object
+      properties:
+        observations:
+          type: array
+          items:
+            $ref: '#/components/schemas/Observation'
+        image:
+          $ref: '#/components/schemas/ImageMetadata'
+        processing_ms:
+          type: number
+          minimum: 0
+      additionalProperties: false
+      required:
+      - observations
+      - image
+      - processing_ms
+    SessionCreate:
+      type: object
+      properties:
+        source_id:
+          type: string
+          minLength: 1
+          maxLength: 128
+        pipeline_id:
+          type: string
+          minLength: 1
+          maxLength: 128
+        profile_id:
+          type: string
+          minLength: 1
+          maxLength: 128
+        options:
+          $ref: '#/components/schemas/InferenceOptions'
+        retention:
+          $ref: '#/components/schemas/RetentionOptions'
+        auto_start:
+          type: boolean
+      additionalProperties: false
+      required:
+      - source_id
+      description: Exactly one pipeline_id or profile_id unless active profile exists. Resolves configuration at
+        admission and snapshots it for session lifetime.
+    Session:
+      type: object
+      properties:
+        id:
+          type: string
+          minLength: 1
+          maxLength: 128
+        state:
+          type: string
+          enum:
+          - queued
+          - starting
+          - running
+          - stopping
+          - stopped
+          - completed
+          - failed
+        source_id:
+          type: string
+          minLength: 1
+          maxLength: 128
+        pipeline_id:
+          type: string
+          minLength: 1
+          maxLength: 128
+        created_at:
+          type: string
+          format: date-time
+        started_at:
+          oneOf:
+          - type: string
+            format: date-time
+          - type: 'null'
+        ended_at:
+          oneOf:
+          - type: string
+            format: date-time
+          - type: 'null'
+        processed_frames:
+          type: integer
+          minimum: 0
+        dropped_frames:
+          type: integer
+          minimum: 0
+        last_observation_at:
+          oneOf:
+          - type: string
+            format: date-time
+          - type: 'null'
+        failure:
+          oneOf:
+          - $ref: ./shared/opal_kernel.yaml#/components/schemas/OpalErrorBody
+          - type: 'null'
+      additionalProperties: false
+      required:
+      - id
+      - state
+      - source_id
+      - pipeline_id
+      - created_at
+      - processed_frames
+      - dropped_frames
+    SessionPage:
+      type: object
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/Session'
+        next_cursor:
+          oneOf:
+          - type: string
+          - type: 'null'
+        has_more:
+          type: boolean
+      additionalProperties: false
+      required:
+      - items
+      - next_cursor
+      - has_more
+    JobCreate:
+      type: object
+      properties:
+        kind:
+          type: string
+          enum:
+          - analyze_video
+          - export_annotated_video
+          - extract_clip
+        source_id:
+          type: string
+          minLength: 1
+          maxLength: 128
+        media_id:
+          type: string
+          minLength: 1
+          maxLength: 128
+        pipeline_id:
+          type: string
+          minLength: 1
+          maxLength: 128
+        profile_id:
+          type: string
+          minLength: 1
+          maxLength: 128
+        range:
+          $ref: '#/components/schemas/MediaRange'
+        options:
+          $ref: '#/components/schemas/InferenceOptions'
+        retention:
+          $ref: '#/components/schemas/RetentionOptions'
+        output:
+          $ref: '#/components/schemas/ExportOptions'
+      additionalProperties: false
+      required:
+      - kind
+      description: Analyze video needs source_id or media_id and pipeline/profile; exports require a supported encoder.
+      oneOf:
+      - required:
+        - source_id
+      - required:
+        - media_id
+    MediaRange:
+      type: object
+      properties:
+        start_ms:
+          type: integer
+          minimum: 0
+        end_ms:
+          type: integer
+          minimum: 0
+      additionalProperties: false
+      required:
+      - start_ms
+      - end_ms
+    ExportOptions:
+      type: object
+      properties:
+        container:
+          type: string
+          enum:
+          - mp4
+        video_codec:
+          type: string
+          enum:
+          - h264
+        annotations:
+          type: boolean
+        include_audio:
+          type: boolean
+      additionalProperties: false
+    Job:
+      type: object
+      properties:
+        id:
+          type: string
+          minLength: 1
+          maxLength: 128
+        kind:
+          type: string
+        state:
+          type: string
+          enum:
+          - queued
+          - running
+          - completed
+          - failed
+          - cancelled
+          - timed_out
+        created_at:
+          type: string
+          format: date-time
+        started_at:
+          oneOf:
+          - type: string
+            format: date-time
+          - type: 'null'
+        ended_at:
+          oneOf:
+          - type: string
+            format: date-time
+          - type: 'null'
+        progress:
+          type: number
+          minimum: 0
+          maximum: 1
+        artifact_ids:
+          type: array
+          items:
+            type: string
+            minLength: 1
+            maxLength: 128
+        failure:
+          oneOf:
+          - $ref: ./shared/opal_kernel.yaml#/components/schemas/OpalErrorBody
+          - type: 'null'
+      additionalProperties: false
+      required:
+      - id
+      - kind
+      - state
+      - created_at
+      - progress
+      - artifact_ids
+    JobPage:
+      type: object
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/Job'
+        next_cursor:
+          oneOf:
+          - type: string
+          - type: 'null'
+        has_more:
+          type: boolean
+      additionalProperties: false
+      required:
+      - items
+      - next_cursor
+      - has_more
+    Media:
+      type: object
+      properties:
+        id:
+          type: string
+          minLength: 1
+          maxLength: 128
+        kind:
+          type: string
+          enum:
+          - image
+          - video
+        mime_type:
+          type: string
+        size_bytes:
+          type: integer
+          minimum: 0
+        created_at:
+          type: string
+          format: date-time
+        expires_at:
+          type: string
+          format: date-time
+        duration_ms:
+          oneOf:
+          - type: integer
+            minimum: 0
+          - type: 'null'
+      additionalProperties: false
+      required:
+      - id
+      - kind
+      - mime_type
+      - size_bytes
+      - created_at
+      - expires_at
+    MediaPage:
+      type: object
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/Media'
+        next_cursor:
+          oneOf:
+          - type: string
+          - type: 'null'
+        has_more:
+          type: boolean
+      additionalProperties: false
+      required:
+      - items
+      - next_cursor
+      - has_more
+    CaptureCreate:
+      type: object
+      properties:
+        retain:
+          type: boolean
+        annotate:
+          type: boolean
+        session_id:
+          type: string
+          minLength: 1
+          maxLength: 128
+        observation_id:
+          type: string
+          minLength: 1
+          maxLength: 128
+      additionalProperties: false
+      required:
+      - retain
+    Capture:
+      type: object
+      properties:
+        id:
+          type: string
+          minLength: 1
+          maxLength: 128
+        source_id:
+          type: string
+          minLength: 1
+          maxLength: 128
+        created_at:
+          type: string
+          format: date-time
+        expires_at:
+          type: string
+          format: date-time
+        mime_type:
+          type: string
+        annotated:
+          type: boolean
+        frame_time:
+          type: string
+          format: date-time
+      additionalProperties: false
+      required:
+      - id
+      - source_id
+      - created_at
+      - expires_at
+      - mime_type
+      - annotated
+      - frame_time
+    CapturePage:
+      type: object
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/Capture'
+        next_cursor:
+          oneOf:
+          - type: string
+          - type: 'null'
+        has_more:
+          type: boolean
+      additionalProperties: false
+      required:
+      - items
+      - next_cursor
+      - has_more
+    Artifact:
+      type: object
+      properties:
+        id:
+          type: string
+          minLength: 1
+          maxLength: 128
+        kind:
+          type: string
+          enum:
+          - video
+          - clip
+          - snapshot
+        mime_type:
+          type: string
+        size_bytes:
+          type: integer
+          minimum: 0
+        created_at:
+          type: string
+          format: date-time
+        expires_at:
+          type: string
+          format: date-time
+        source_id:
+          oneOf:
+          - type: string
+            minLength: 1
+            maxLength: 128
+          - type: 'null'
+        job_id:
+          oneOf:
+          - type: string
+            minLength: 1
+            maxLength: 128
+          - type: 'null'
+      additionalProperties: false
+      required:
+      - id
+      - kind
+      - mime_type
+      - size_bytes
+      - created_at
+      - expires_at
+    ArtifactPage:
+      type: object
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/Artifact'
+        next_cursor:
+          oneOf:
+          - type: string
+          - type: 'null'
+        has_more:
+          type: boolean
+      additionalProperties: false
+      required:
+      - items
+      - next_cursor
+      - has_more
+    ZoneCreate:
+      type: object
+      properties:
+        id: &id001
+          type: string
+          minLength: 1
+          maxLength: 128
+        source_id: &id002
+          type: string
+          minLength: 1
+          maxLength: 128
+        name: &id003
+          type: string
+        kind: &id004
+          type: string
+          enum:
+          - polygon
+          - line
+        points: &id005
+          type: array
+          items:
+            $ref: '#/components/schemas/Point'
+        enabled: &id006
+          type: boolean
+      additionalProperties: false
+      required:
+      - id
+      - source_id
+      - name
+      - kind
+      - points
+    Zone:
+      type: object
+      properties:
+        id: *id001
+        source_id: *id002
+        name: *id003
+        kind: *id004
+        points: *id005
+        enabled: *id006
+      additionalProperties: false
+      required:
+      - id
+      - source_id
+      - name
+      - kind
+      - points
+    ZonePatch:
+      type: object
+      properties:
+        name:
+          type: string
+        points:
+          type: array
+          items:
+            $ref: '#/components/schemas/Point'
+        enabled:
+          type: boolean
+      additionalProperties: false
+    RuleCreate:
+      type: object
+      properties:
+        id: &id007
+          type: string
+          minLength: 1
+          maxLength: 128
+        name: &id008
+          type: string
+        source_id: &id009
+          type: string
+          minLength: 1
+          maxLength: 128
+        zone_id: &id010
+          type: string
+          minLength: 1
+          maxLength: 128
+        kind: &id011
+          type: string
+          enum:
+          - object_appears
+          - object_disappears
+          - enters_zone
+          - exits_zone
+          - line_crosses
+          - count_threshold
+          - dwell_time
+        class_filters: &id012
+          type: array
+          items:
+            type: string
+        threshold: &id013
+          type: number
+          minimum: 0
+        minimum_duration_ms: &id014
+          type: integer
+          minimum: 0
+        cooldown_ms: &id015
+          type: integer
+          minimum: 0
+        enabled: &id016
+          type: boolean
+        capture_on_match: &id017
+          type: boolean
+        clip_on_match: &id018
+          type: boolean
+      additionalProperties: false
+      required:
+      - id
+      - name
+      - source_id
+      - kind
+      description: Only evaluates observations. Does not execute arbitrary actions; notifications are sent to opal-event
+        when enabled.
+    Rule:
+      type: object
+      properties:
+        id: *id007
+        name: *id008
+        source_id: *id009
+        zone_id: *id010
+        kind: *id011
+        class_filters: *id012
+        threshold: *id013
+        minimum_duration_ms: *id014
+        cooldown_ms: *id015
+        enabled: *id016
+        capture_on_match: *id017
+        clip_on_match: *id018
+        last_triggered_at:
+          oneOf:
+          - type: string
+            format: date-time
+          - type: 'null'
+      additionalProperties: false
+      required:
+      - id
+      - name
+      - source_id
+      - kind
+    RulePatch:
+      type: object
+      properties:
+        name: *id008
+        source_id: *id009
+        zone_id: *id010
+        kind: *id011
+        class_filters: *id012
+        threshold: *id013
+        minimum_duration_ms: *id014
+        cooldown_ms: *id015
+        enabled: *id016
+        capture_on_match: *id017
+        clip_on_match: *id018
+      additionalProperties: false
+    MonitorCreate:
+      type: object
+      properties:
+        id: &id019
+          type: string
+          minLength: 1
+          maxLength: 128
+        name: &id020
+          type: string
+        source_id: &id021
+          type: string
+          minLength: 1
+          maxLength: 128
+        pipeline_id: &id022
+          type: string
+          minLength: 1
+          maxLength: 128
+        profile_id: &id023
+          type: string
+          minLength: 1
+          maxLength: 128
+        enabled: &id024
+          type: boolean
+        restart_policy: &id025
+          type: string
+          enum:
+          - on_failure
+          - always
+          - never
+        options: &id026
+          $ref: '#/components/schemas/InferenceOptions'
+      additionalProperties: false
+      required:
+      - id
+      - name
+      - source_id
+      description: Durable desired state for always-on source analysis. A restarted monitor gets a new execution
+        session ID.
+    Monitor:
+      type: object
+      properties:
+        id: *id019
+        name: *id020
+        source_id: *id021
+        pipeline_id: *id022
+        profile_id: *id023
+        enabled: *id024
+        restart_policy: *id025
+        options: *id026
+        state:
+          type: string
+        current_session_id:
+          oneOf:
+          - type: string
+            minLength: 1
+            maxLength: 128
+          - type: 'null'
+        last_failure:
+          oneOf:
+          - type: string
+          - type: 'null'
+      additionalProperties: false
+      required:
+      - id
+      - name
+      - source_id
+    MonitorPatch:
+      type: object
+      properties:
+        name: *id020
+        source_id: *id021
+        pipeline_id: *id022
+        profile_id: *id023
+        enabled: *id024
+        restart_policy: *id025
+        options: *id026
+      additionalProperties: false
+    SettingValue:
+      description: Typed JSON leaf value; key determines required type. Unknown keys and incorrect types return
+        422.
+      oneOf:
+      - type: string
+      - type: integer
+        minimum: 0
+      - type: number
+      - type: boolean
+      - type: array
+        items:
+          type: string
+      - type: 'null'
+    Metrics:
+      type: object
+      properties:
+        captured_frames:
+          type: integer
+          minimum: 0
+        processed_frames:
+          type: integer
+          minimum: 0
+        dropped_frames:
+          type: integer
+          minimum: 0
+        observations_total:
+          type: integer
+          minimum: 0
+        event_publish_drops:
+          type: integer
+          minimum: 0
+        active_sessions:
+          type: integer
+          minimum: 0
+        queued_jobs:
+          type: integer
+          minimum: 0
+        mean_inference_ms:
+          type: number
+          minimum: 0
+        inference_skipped_frames:
+          type: integer
+          minimum: 0
+        active_source_streams:
+          type: integer
+          minimum: 0
+        mean_processing_ms:
+          type: number
+          minimum: 0
+        source_reconnections:
+          type: integer
+          minimum: 0
+      additionalProperties: false
+      required:
+      - captured_frames
+      - processed_frames
+      - dropped_frames
+      - observations_total
+      - event_publish_drops
+      - active_sessions
+      - queued_jobs
+      - mean_inference_ms
+    EventPublication:
+      type: object
+      properties:
+        enabled:
+          type: boolean
+        topics:
+          type: array
+          items:
+            type: string
+        queue_capacity:
+          type: integer
+          minimum: 0
+        drops:
+          type: integer
+          minimum: 0
+        transport_status:
+          type: string
+      additionalProperties: false
+      required:
+      - enabled
+      - topics
+      - queue_capacity
+      - drops
+      - transport_status
+    CapabilityCatalog:
+      type: object
+      properties:
+        tasks:
+          type: array
+          items:
+            $ref: '#/components/schemas/CapabilityDescriptor'
+        source_kinds:
+          type: array
+          items:
+            type: string
+        media_types:
+          type: array
+          items:
+            type: string
+        stream_transports:
+          type: array
+          items:
+            type: string
+        export_formats:
+          type: array
+          items:
+            type: string
+        limits:
+          type: object
+          additionalProperties: true
+        filters:
+          type: array
+          items:
+            type: string
+          description: Available portable filter types.
+        visualization_modes:
+          type: array
+          items:
+            type: string
+          description: Supported motion overlay modes.
+        supports_raw_stream:
+          type: boolean
+        supports_motion_gate:
+          type: boolean
+      additionalProperties: false
+      required:
+      - tasks
+      - source_kinds
+      - media_types
+      - stream_transports
+      - export_formats
+      - limits
+    RecordingCreate:
+      type: object
+      properties:
+        source_id:
+          type: string
+          minLength: 1
+          maxLength: 128
+        include_audio:
+          type: boolean
+        max_duration_seconds:
+          type: integer
+          minimum: 1
+        output:
+          $ref: '#/components/schemas/ExportOptions'
+      additionalProperties: false
+      required:
+      - source_id
+    Recording:
+      type: object
+      properties:
+        id:
+          type: string
+          minLength: 1
+          maxLength: 128
+        source_id:
+          type: string
+          minLength: 1
+          maxLength: 128
+        state:
+          type: string
+          enum:
+          - starting
+          - recording
+          - stopping
+          - completed
+          - failed
+        created_at:
+          type: string
+          format: date-time
+        started_at:
+          oneOf:
+          - type: string
+            format: date-time
+          - type: 'null'
+        finished_at:
+          oneOf:
+          - type: string
+            format: date-time
+          - type: 'null'
+        artifact_id:
+          oneOf:
+          - type: string
+            minLength: 1
+            maxLength: 128
+          - type: 'null'
+      additionalProperties: false
+      required:
+      - id
+      - source_id
+      - state
+      - created_at
+    RecordingPage:
+      type: object
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/Recording'
+        next_cursor:
+          oneOf:
+          - type: string
+          - type: 'null'
+        has_more:
+          type: boolean
+      additionalProperties: false
+      required:
+      - items
+      - next_cursor
+      - has_more
+    VideoProcessingOptions:
+      type: object
+      additionalProperties: false
+      description: Limits for source stream and preview. Values are requests subject to service and source capability
+        limits; unsupported parameters yield 422, never silently ignored.
+      properties:
+        target_fps:
+          type: number
+          description: Maximum output FPS; never accelerate source.
+          minimum: 0.1
+        width:
+          type: integer
+          description: Requested output width (preserve aspect ratio if height omitted).
+          minimum: 1
+        height:
+          type: integer
+          description: Requested output height (preserve aspect ratio if width omitted).
+          minimum: 1
+        quality:
+          type: integer
+          description: JPEG quality 1..100.
+          minimum: 1
+          maximum: 100
+    AnnotationOptions:
+      type: object
+      additionalProperties: false
+      properties:
+        enabled:
+          type: boolean
+          default: true
+        show_boxes:
+          type: boolean
+          default: true
+        show_labels:
+          type: boolean
+          default: true
+        show_confidence:
+          type: boolean
+          default: true
+        show_track_ids:
+          type: boolean
+          default: false
+        classes:
+          type: array
+          items:
+            type: string
+        min_confidence:
+          type: number
+          minimum: 0
+          maximum: 1
+        show_zones:
+          type: boolean
+          default: false
+      description: 'Presentation-only options: they must never change underlying inference or persisted results.
+        Class names are validated against pipeline/model capability.'
+    FilterSpec:
+      type: object
+      additionalProperties: false
+      required:
+      - type
+      properties:
+        type:
+          type: string
+          enum:
+          - grayscale
+          - brightness_contrast
+          - blur
+          - sharpen
+          - threshold
+          - edges
+          - rotate
+          - flip
+          - crop
+          - resize
+          - motion
+        parameters:
+          type: object
+          additionalProperties: true
+          description: Validated against the selected filter type. See x-opal-filter-catalog for required keys and
+            ranges.
+      description: Portable filter type and parameter object. Unknown types/parameters and unsupported implementations
+        yield 422.
+    MotionFilterParameters:
+      type: object
+      additionalProperties: false
+      properties:
+        sensitivity:
+          type: number
+          minimum: 0
+          maximum: 1
+          default: 0.5
+        minimum_area:
+          type: integer
+          minimum: 1
+          default: 500
+        warmup_frames:
+          type: integer
+          minimum: 1
+          default: 3
+        visualization:
+          type: string
+          enum:
+          - none
+          - highlight
+          - mask
+          default: highlight
+        roi:
+          $ref: '#/components/schemas/NormalizedPolygon'
+      description: Motion compares frames from the same source, in sequence. Missing baseline/warmup produces motion_state=unknown,
+        never false.
+    MotionGateOptions:
+      type: object
+      additionalProperties: false
+      required:
+      - motion_stage_id
+      properties:
+        motion_stage_id:
+          type: string
+          minLength: 1
+        when:
+          type: string
+          const: motion_present
+        periodic_sample_frames:
+          type: integer
+          minimum: 1
+          default: 30
+        on_unknown:
+          type: string
+          enum:
+          - run
+          - skip
+          default: run
+      description: Gates expensive downstream inference only. Frames and previews continue. Periodic samples count
+        incoming frames; no fake negative detections on skipped frames. Motion stage must be prior to gated node.
+    ProcessingStageOptions:
+      type: object
+      additionalProperties: false
+      properties:
+        filter:
+          $ref: '#/components/schemas/FilterSpec'
+        gate:
+          $ref: '#/components/schemas/MotionGateOptions'
+        annotation:
+          $ref: '#/components/schemas/AnnotationOptions'
+        video:
+          $ref: '#/components/schemas/VideoProcessingOptions'
+      description: Portable stage controls. Stage kind determines which keys are valid; the generic options object
+        on PipelineStage remains for existing engine-specific options.
+    FrameDiagnostics:
+      type: object
+      additionalProperties: false
+      properties:
+        source_fps:
+          type: number
+          minimum: 0
+        output_fps:
+          type: number
+          minimum: 0
+        processing_latency_ms:
+          type: number
+          minimum: 0
+        dropped_frames:
+          type: integer
+          minimum: 0
+        motion_state:
+          type: string
+          enum:
+          - unknown
+          - present
+          - absent
+        inference_skipped_frames:
+          type: integer
+          minimum: 0
+      description: Non-guaranteed live counters; may reset when a source reconnects.
+  parameters:
+    IdempotencyKey:
+      name: Idempotency-Key
+      in: header
+      required: false
+      description: 1–128 characters; persist key/fingerprint for 24 hours. Retry with changed body yields 409.
+      schema:
+        type: string
+        minLength: 1
+        maxLength: 128
+  responses:
+    RangeNotSatisfiable:
+      description: RangeNotSatisfiable
+      content:
+        application/json:
+          schema:
+            $ref: ./shared/opal_kernel.yaml#/components/schemas/OpalError
+      headers:
+        X-Opal-Session-Id: &id027
+          $ref: ./shared/opal_kernel.yaml#/components/headers/OpalSessionIdHeader
+        X-Opal-Transaction-Id: &id028
+          $ref: ./shared/opal_kernel.yaml#/components/headers/OpalTransactionIdHeader
+        X-Opal-Request-Id: &id029
+          $ref: ./shared/opal_kernel.yaml#/components/headers/OpalRequestIdHeader
+        X-Opal-Causation-Id: &id030
+          $ref: ./shared/opal_kernel.yaml#/components/headers/OpalCausationIdHeader
+    CapacityExceeded:
+      description: CapacityExceeded
+      content:
+        application/json:
+          schema:
+            $ref: ./shared/opal_kernel.yaml#/components/schemas/OpalError
+      headers:
+        X-Opal-Session-Id: *id027
+        X-Opal-Transaction-Id: *id028
+        X-Opal-Request-Id: *id029
+        X-Opal-Causation-Id: *id030
+  securitySchemes:
+    BearerAuth:
+      $ref: ./shared/opal_kernel.yaml#/components/securitySchemes/BearerAuth
+paths:
+  /api/v1/capabilities/:
+    get:
+      tags:
+      - discovery
+      summary: Discover runtime feature/task/format support
+      operationId: show_capabilities
+      description: ''
+      parameters:
+      - &id031
+        $ref: ./shared/opal_kernel.yaml#/components/parameters/OpalSessionIdParameter
+      - &id032
+        $ref: ./shared/opal_kernel.yaml#/components/parameters/OpalTransactionIdParameter
+      - &id033
+        $ref: ./shared/opal_kernel.yaml#/components/parameters/OpalRequestIdParameter
+      - &id034
+        $ref: ./shared/opal_kernel.yaml#/components/parameters/OpalCausationIdParameter
+      responses:
+        '401':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/Unauthorized
+        '403':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/Forbidden
+        '200':
+          description: OK
+          headers:
+            X-Opal-Session-Id: *id027
+            X-Opal-Transaction-Id: *id028
+            X-Opal-Request-Id: *id029
+            X-Opal-Causation-Id: *id030
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CapabilityCatalog'
+        '422':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/UnprocessableEntity
+        '429':
+          $ref: '#/components/responses/CapacityExceeded'
+        '404':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/NotFound
+        '503':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/ServiceUnavailable
+        '409':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/Conflict
+      x-opal-cli:
+        group: capabilities
+        command: show
+  /api/v1/engines/:
+    $ref: ./shared/opal_kernel.yaml#/components/pathItems/engines_collection
+    x-opal-cli:
+      get:
+        group: engines
+        command: list
+  /api/v1/engines/{engine_id}:
+    $ref: ./shared/opal_kernel.yaml#/components/pathItems/engine_item
+    x-opal-cli:
+      get:
+        group: engines
+        command: show
+      patch:
+        group: engines
+        command: update
+  /api/v1/models/:
+    get:
+      tags:
+      - models
+      summary: List models
+      operationId: list_models
+      description: ''
+      parameters:
+      - *id031
+      - *id032
+      - *id033
+      - *id034
+      responses:
+        '401':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/Unauthorized
+        '403':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/Forbidden
+        '200':
+          description: OK
+          headers:
+            X-Opal-Session-Id: *id027
+            X-Opal-Transaction-Id: *id028
+            X-Opal-Request-Id: *id029
+            X-Opal-Causation-Id: *id030
+            ETag:
+              $ref: ./shared/opal_kernel.yaml#/components/headers/ETag
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Model'
+        '422':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/UnprocessableEntity
+        '429':
+          $ref: '#/components/responses/CapacityExceeded'
+        '404':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/NotFound
+        '503':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/ServiceUnavailable
+        '409':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/Conflict
+      x-opal-cli:
+        group: models
+        command: list
+    post:
+      tags:
+      - models
+      summary: Register model
+      operationId: add_models
+      description: ''
+      parameters:
+      - *id031
+      - *id032
+      - *id033
+      - *id034
+      - $ref: ./shared/opal_kernel.yaml#/components/parameters/IfMatch
+      responses:
+        '401':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/Unauthorized
+        '403':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/Forbidden
+        '201':
+          description: Created
+          headers:
+            X-Opal-Session-Id: *id027
+            X-Opal-Transaction-Id: *id028
+            X-Opal-Request-Id: *id029
+            X-Opal-Causation-Id: *id030
+            Location:
+              $ref: ./shared/opal_kernel.yaml#/components/headers/Location
+            ETag:
+              $ref: ./shared/opal_kernel.yaml#/components/headers/ETag
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Model'
+        '422':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/UnprocessableEntity
+        '428':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/PreconditionRequired
+        '429':
+          $ref: '#/components/responses/CapacityExceeded'
+        '404':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/NotFound
+        '503':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/ServiceUnavailable
+        '409':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/Conflict
+        '412':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/PreconditionFailed
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ModelCreate'
+      x-opal-cli:
+        group: models
+        command: add
+  /api/v1/models/{model_id}:
+    get:
+      tags:
+      - models
+      summary: Get model
+      operationId: show_models
+      description: ''
+      parameters:
+      - *id031
+      - *id032
+      - *id033
+      - *id034
+      responses:
+        '401':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/Unauthorized
+        '403':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/Forbidden
+        '200':
+          description: OK
+          headers:
+            X-Opal-Session-Id: *id027
+            X-Opal-Transaction-Id: *id028
+            X-Opal-Request-Id: *id029
+            X-Opal-Causation-Id: *id030
+            ETag:
+              $ref: ./shared/opal_kernel.yaml#/components/headers/ETag
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Model'
+        '422':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/UnprocessableEntity
+        '429':
+          $ref: '#/components/responses/CapacityExceeded'
+        '404':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/NotFound
+        '503':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/ServiceUnavailable
+        '409':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/Conflict
+      x-opal-cli:
+        group: models
+        command: show
+    patch:
+      tags:
+      - models
+      summary: Update model
+      operationId: update_models
+      description: ''
+      parameters:
+      - *id031
+      - *id032
+      - *id033
+      - *id034
+      - $ref: ./shared/opal_kernel.yaml#/components/parameters/IfMatch
+      responses:
+        '401':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/Unauthorized
+        '403':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/Forbidden
+        '200':
+          description: OK
+          headers:
+            X-Opal-Session-Id: *id027
+            X-Opal-Transaction-Id: *id028
+            X-Opal-Request-Id: *id029
+            X-Opal-Causation-Id: *id030
+            ETag:
+              $ref: ./shared/opal_kernel.yaml#/components/headers/ETag
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Model'
+        '422':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/UnprocessableEntity
+        '428':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/PreconditionRequired
+        '429':
+          $ref: '#/components/responses/CapacityExceeded'
+        '404':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/NotFound
+        '503':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/ServiceUnavailable
+        '409':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/Conflict
+        '412':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/PreconditionFailed
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ModelPatch'
+      x-opal-cli:
+        group: models
+        command: update
+    delete:
+      tags:
+      - models
+      summary: Delete model
+      operationId: remove_models
+      description: ''
+      parameters:
+      - *id031
+      - *id032
+      - *id033
+      - *id034
+      - $ref: ./shared/opal_kernel.yaml#/components/parameters/IfMatch
+      responses:
+        '401':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/Unauthorized
+        '403':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/Forbidden
+        '204':
+          description: Deleted
+          headers:
+            X-Opal-Session-Id: *id027
+            X-Opal-Transaction-Id: *id028
+            X-Opal-Request-Id: *id029
+            X-Opal-Causation-Id: *id030
+            ETag:
+              $ref: ./shared/opal_kernel.yaml#/components/headers/ETag
+        '422':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/UnprocessableEntity
+        '428':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/PreconditionRequired
+        '429':
+          $ref: '#/components/responses/CapacityExceeded'
+        '404':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/NotFound
+        '503':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/ServiceUnavailable
+        '409':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/Conflict
+        '412':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/PreconditionFailed
+      x-opal-cli:
+        group: models
+        command: remove
+    parameters:
+    - name: model_id
+      in: path
+      required: true
+      schema:
+        type: string
+        minLength: 1
+        maxLength: 128
+  /api/v1/sources/:
+    get:
+      tags:
+      - sources
+      summary: List sources
+      operationId: list_sources
+      description: ''
+      parameters:
+      - *id031
+      - *id032
+      - *id033
+      - *id034
+      responses:
+        '401':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/Unauthorized
+        '403':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/Forbidden
+        '200':
+          description: OK
+          headers:
+            X-Opal-Session-Id: *id027
+            X-Opal-Transaction-Id: *id028
+            X-Opal-Request-Id: *id029
+            X-Opal-Causation-Id: *id030
+            ETag:
+              $ref: ./shared/opal_kernel.yaml#/components/headers/ETag
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Source'
+        '422':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/UnprocessableEntity
+        '429':
+          $ref: '#/components/responses/CapacityExceeded'
+        '404':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/NotFound
+        '503':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/ServiceUnavailable
+        '409':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/Conflict
+      x-opal-cli:
+        group: sources
+        command: list
+    post:
+      tags:
+      - sources
+      summary: Register source
+      operationId: add_sources
+      description: ''
+      parameters:
+      - *id031
+      - *id032
+      - *id033
+      - *id034
+      - $ref: ./shared/opal_kernel.yaml#/components/parameters/IfMatch
+      responses:
+        '401':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/Unauthorized
+        '403':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/Forbidden
+        '201':
+          description: Created
+          headers:
+            X-Opal-Session-Id: *id027
+            X-Opal-Transaction-Id: *id028
+            X-Opal-Request-Id: *id029
+            X-Opal-Causation-Id: *id030
+            Location:
+              $ref: ./shared/opal_kernel.yaml#/components/headers/Location
+            ETag:
+              $ref: ./shared/opal_kernel.yaml#/components/headers/ETag
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Source'
+        '422':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/UnprocessableEntity
+        '428':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/PreconditionRequired
+        '429':
+          $ref: '#/components/responses/CapacityExceeded'
+        '404':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/NotFound
+        '503':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/ServiceUnavailable
+        '409':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/Conflict
+        '412':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/PreconditionFailed
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SourceCreate'
+      x-opal-cli:
+        group: sources
+        command: add
+  /api/v1/sources/{source_id}:
+    get:
+      tags:
+      - sources
+      summary: Get source
+      operationId: show_sources
+      description: ''
+      parameters:
+      - *id031
+      - *id032
+      - *id033
+      - *id034
+      responses:
+        '401':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/Unauthorized
+        '403':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/Forbidden
+        '200':
+          description: OK
+          headers:
+            X-Opal-Session-Id: *id027
+            X-Opal-Transaction-Id: *id028
+            X-Opal-Request-Id: *id029
+            X-Opal-Causation-Id: *id030
+            ETag:
+              $ref: ./shared/opal_kernel.yaml#/components/headers/ETag
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Source'
+        '422':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/UnprocessableEntity
+        '429':
+          $ref: '#/components/responses/CapacityExceeded'
+        '404':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/NotFound
+        '503':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/ServiceUnavailable
+        '409':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/Conflict
+      x-opal-cli:
+        group: sources
+        command: show
+    patch:
+      tags:
+      - sources
+      summary: Update source
+      operationId: update_sources
+      description: ''
+      parameters:
+      - *id031
+      - *id032
+      - *id033
+      - *id034
+      - $ref: ./shared/opal_kernel.yaml#/components/parameters/IfMatch
+      responses:
+        '401':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/Unauthorized
+        '403':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/Forbidden
+        '200':
+          description: OK
+          headers:
+            X-Opal-Session-Id: *id027
+            X-Opal-Transaction-Id: *id028
+            X-Opal-Request-Id: *id029
+            X-Opal-Causation-Id: *id030
+            ETag:
+              $ref: ./shared/opal_kernel.yaml#/components/headers/ETag
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Source'
+        '422':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/UnprocessableEntity
+        '428':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/PreconditionRequired
+        '429':
+          $ref: '#/components/responses/CapacityExceeded'
+        '404':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/NotFound
+        '503':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/ServiceUnavailable
+        '409':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/Conflict
+        '412':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/PreconditionFailed
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SourcePatch'
+      x-opal-cli:
+        group: sources
+        command: update
+    delete:
+      tags:
+      - sources
+      summary: Delete source
+      operationId: remove_sources
+      description: ''
+      parameters:
+      - *id031
+      - *id032
+      - *id033
+      - *id034
+      - $ref: ./shared/opal_kernel.yaml#/components/parameters/IfMatch
+      responses:
+        '401':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/Unauthorized
+        '403':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/Forbidden
+        '204':
+          description: Deleted
+          headers:
+            X-Opal-Session-Id: *id027
+            X-Opal-Transaction-Id: *id028
+            X-Opal-Request-Id: *id029
+            X-Opal-Causation-Id: *id030
+            ETag:
+              $ref: ./shared/opal_kernel.yaml#/components/headers/ETag
+        '422':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/UnprocessableEntity
+        '428':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/PreconditionRequired
+        '429':
+          $ref: '#/components/responses/CapacityExceeded'
+        '404':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/NotFound
+        '503':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/ServiceUnavailable
+        '409':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/Conflict
+        '412':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/PreconditionFailed
+      x-opal-cli:
+        group: sources
+        command: remove
+    parameters:
+    - name: source_id
+      in: path
+      required: true
+      schema:
+        type: string
+        minLength: 1
+        maxLength: 128
+  /api/v1/pipelines/:
+    get:
+      tags:
+      - pipelines
+      summary: List pipelines
+      operationId: list_pipelines
+      description: ''
+      parameters:
+      - *id031
+      - *id032
+      - *id033
+      - *id034
+      responses:
+        '401':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/Unauthorized
+        '403':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/Forbidden
+        '200':
+          description: OK
+          headers:
+            X-Opal-Session-Id: *id027
+            X-Opal-Transaction-Id: *id028
+            X-Opal-Request-Id: *id029
+            X-Opal-Causation-Id: *id030
+            ETag:
+              $ref: ./shared/opal_kernel.yaml#/components/headers/ETag
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Pipeline'
+        '422':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/UnprocessableEntity
+        '429':
+          $ref: '#/components/responses/CapacityExceeded'
+        '404':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/NotFound
+        '503':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/ServiceUnavailable
+        '409':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/Conflict
+      x-opal-cli:
+        group: pipelines
+        command: list
+    post:
+      tags:
+      - pipelines
+      summary: Register pipeline
+      operationId: add_pipelines
+      description: ''
+      parameters:
+      - *id031
+      - *id032
+      - *id033
+      - *id034
+      - $ref: ./shared/opal_kernel.yaml#/components/parameters/IfMatch
+      responses:
+        '401':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/Unauthorized
+        '403':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/Forbidden
+        '201':
+          description: Created
+          headers:
+            X-Opal-Session-Id: *id027
+            X-Opal-Transaction-Id: *id028
+            X-Opal-Request-Id: *id029
+            X-Opal-Causation-Id: *id030
+            Location:
+              $ref: ./shared/opal_kernel.yaml#/components/headers/Location
+            ETag:
+              $ref: ./shared/opal_kernel.yaml#/components/headers/ETag
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Pipeline'
+        '422':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/UnprocessableEntity
+        '428':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/PreconditionRequired
+        '429':
+          $ref: '#/components/responses/CapacityExceeded'
+        '404':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/NotFound
+        '503':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/ServiceUnavailable
+        '409':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/Conflict
+        '412':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/PreconditionFailed
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PipelineCreate'
+      x-opal-cli:
+        group: pipelines
+        command: add
+  /api/v1/pipelines/{pipeline_id}:
+    get:
+      tags:
+      - pipelines
+      summary: Get pipeline
+      operationId: show_pipelines
+      description: ''
+      parameters:
+      - *id031
+      - *id032
+      - *id033
+      - *id034
+      responses:
+        '401':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/Unauthorized
+        '403':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/Forbidden
+        '200':
+          description: OK
+          headers:
+            X-Opal-Session-Id: *id027
+            X-Opal-Transaction-Id: *id028
+            X-Opal-Request-Id: *id029
+            X-Opal-Causation-Id: *id030
+            ETag:
+              $ref: ./shared/opal_kernel.yaml#/components/headers/ETag
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Pipeline'
+        '422':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/UnprocessableEntity
+        '429':
+          $ref: '#/components/responses/CapacityExceeded'
+        '404':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/NotFound
+        '503':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/ServiceUnavailable
+        '409':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/Conflict
+      x-opal-cli:
+        group: pipelines
+        command: show
+    patch:
+      tags:
+      - pipelines
+      summary: Update pipeline
+      operationId: update_pipelines
+      description: ''
+      parameters:
+      - *id031
+      - *id032
+      - *id033
+      - *id034
+      - $ref: ./shared/opal_kernel.yaml#/components/parameters/IfMatch
+      responses:
+        '401':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/Unauthorized
+        '403':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/Forbidden
+        '200':
+          description: OK
+          headers:
+            X-Opal-Session-Id: *id027
+            X-Opal-Transaction-Id: *id028
+            X-Opal-Request-Id: *id029
+            X-Opal-Causation-Id: *id030
+            ETag:
+              $ref: ./shared/opal_kernel.yaml#/components/headers/ETag
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Pipeline'
+        '422':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/UnprocessableEntity
+        '428':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/PreconditionRequired
+        '429':
+          $ref: '#/components/responses/CapacityExceeded'
+        '404':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/NotFound
+        '503':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/ServiceUnavailable
+        '409':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/Conflict
+        '412':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/PreconditionFailed
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PipelinePatch'
+      x-opal-cli:
+        group: pipelines
+        command: update
+    delete:
+      tags:
+      - pipelines
+      summary: Delete pipeline
+      operationId: remove_pipelines
+      description: ''
+      parameters:
+      - *id031
+      - *id032
+      - *id033
+      - *id034
+      - $ref: ./shared/opal_kernel.yaml#/components/parameters/IfMatch
+      responses:
+        '401':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/Unauthorized
+        '403':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/Forbidden
+        '204':
+          description: Deleted
+          headers:
+            X-Opal-Session-Id: *id027
+            X-Opal-Transaction-Id: *id028
+            X-Opal-Request-Id: *id029
+            X-Opal-Causation-Id: *id030
+            ETag:
+              $ref: ./shared/opal_kernel.yaml#/components/headers/ETag
+        '422':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/UnprocessableEntity
+        '428':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/PreconditionRequired
+        '429':
+          $ref: '#/components/responses/CapacityExceeded'
+        '404':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/NotFound
+        '503':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/ServiceUnavailable
+        '409':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/Conflict
+        '412':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/PreconditionFailed
+      x-opal-cli:
+        group: pipelines
+        command: remove
+    parameters:
+    - name: pipeline_id
+      in: path
+      required: true
+      schema:
+        type: string
+        minLength: 1
+        maxLength: 128
+  /api/v1/profiles/:
+    $ref: ./shared/opal_kernel.yaml#/components/pathItems/profiles_collection
+    x-opal-cli:
+      get:
+        group: profiles
+        command: list
+      post:
+        group: profiles
+        command: add
+  /api/v1/profiles/{profile_id}:
+    $ref: ./shared/opal_kernel.yaml#/components/pathItems/profile_item
+    x-opal-cli:
+      get:
+        group: profiles
+        command: show
+      patch:
+        group: profiles
+        command: update
+      delete:
+        group: profiles
+        command: remove
+  /api/v1/zones/:
+    get:
+      tags:
+      - zones
+      summary: List zones
+      operationId: list_zones
+      description: ''
+      parameters:
+      - *id031
+      - *id032
+      - *id033
+      - *id034
+      responses:
+        '401':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/Unauthorized
+        '403':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/Forbidden
+        '200':
+          description: OK
+          headers:
+            X-Opal-Session-Id: *id027
+            X-Opal-Transaction-Id: *id028
+            X-Opal-Request-Id: *id029
+            X-Opal-Causation-Id: *id030
+            ETag:
+              $ref: ./shared/opal_kernel.yaml#/components/headers/ETag
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Zone'
+        '422':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/UnprocessableEntity
+        '429':
+          $ref: '#/components/responses/CapacityExceeded'
+        '404':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/NotFound
+        '503':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/ServiceUnavailable
+        '409':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/Conflict
+      x-opal-cli:
+        group: zones
+        command: list
+    post:
+      tags:
+      - zones
+      summary: Register zone
+      operationId: add_zones
+      description: ''
+      parameters:
+      - *id031
+      - *id032
+      - *id033
+      - *id034
+      - $ref: ./shared/opal_kernel.yaml#/components/parameters/IfMatch
+      responses:
+        '401':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/Unauthorized
+        '403':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/Forbidden
+        '201':
+          description: Created
+          headers:
+            X-Opal-Session-Id: *id027
+            X-Opal-Transaction-Id: *id028
+            X-Opal-Request-Id: *id029
+            X-Opal-Causation-Id: *id030
+            Location:
+              $ref: ./shared/opal_kernel.yaml#/components/headers/Location
+            ETag:
+              $ref: ./shared/opal_kernel.yaml#/components/headers/ETag
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Zone'
+        '422':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/UnprocessableEntity
+        '428':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/PreconditionRequired
+        '429':
+          $ref: '#/components/responses/CapacityExceeded'
+        '404':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/NotFound
+        '503':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/ServiceUnavailable
+        '409':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/Conflict
+        '412':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/PreconditionFailed
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ZoneCreate'
+      x-opal-cli:
+        group: zones
+        command: add
+  /api/v1/zones/{zone_id}:
+    get:
+      tags:
+      - zones
+      summary: Get zone
+      operationId: show_zones
+      description: ''
+      parameters:
+      - *id031
+      - *id032
+      - *id033
+      - *id034
+      responses:
+        '401':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/Unauthorized
+        '403':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/Forbidden
+        '200':
+          description: OK
+          headers:
+            X-Opal-Session-Id: *id027
+            X-Opal-Transaction-Id: *id028
+            X-Opal-Request-Id: *id029
+            X-Opal-Causation-Id: *id030
+            ETag:
+              $ref: ./shared/opal_kernel.yaml#/components/headers/ETag
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Zone'
+        '422':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/UnprocessableEntity
+        '429':
+          $ref: '#/components/responses/CapacityExceeded'
+        '404':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/NotFound
+        '503':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/ServiceUnavailable
+        '409':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/Conflict
+      x-opal-cli:
+        group: zones
+        command: show
+    patch:
+      tags:
+      - zones
+      summary: Update zone
+      operationId: update_zones
+      description: ''
+      parameters:
+      - *id031
+      - *id032
+      - *id033
+      - *id034
+      - $ref: ./shared/opal_kernel.yaml#/components/parameters/IfMatch
+      responses:
+        '401':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/Unauthorized
+        '403':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/Forbidden
+        '200':
+          description: OK
+          headers:
+            X-Opal-Session-Id: *id027
+            X-Opal-Transaction-Id: *id028
+            X-Opal-Request-Id: *id029
+            X-Opal-Causation-Id: *id030
+            ETag:
+              $ref: ./shared/opal_kernel.yaml#/components/headers/ETag
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Zone'
+        '422':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/UnprocessableEntity
+        '428':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/PreconditionRequired
+        '429':
+          $ref: '#/components/responses/CapacityExceeded'
+        '404':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/NotFound
+        '503':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/ServiceUnavailable
+        '409':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/Conflict
+        '412':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/PreconditionFailed
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ZonePatch'
+      x-opal-cli:
+        group: zones
+        command: update
+    delete:
+      tags:
+      - zones
+      summary: Delete zone
+      operationId: remove_zones
+      description: ''
+      parameters:
+      - *id031
+      - *id032
+      - *id033
+      - *id034
+      - $ref: ./shared/opal_kernel.yaml#/components/parameters/IfMatch
+      responses:
+        '401':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/Unauthorized
+        '403':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/Forbidden
+        '204':
+          description: Deleted
+          headers:
+            X-Opal-Session-Id: *id027
+            X-Opal-Transaction-Id: *id028
+            X-Opal-Request-Id: *id029
+            X-Opal-Causation-Id: *id030
+            ETag:
+              $ref: ./shared/opal_kernel.yaml#/components/headers/ETag
+        '422':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/UnprocessableEntity
+        '428':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/PreconditionRequired
+        '429':
+          $ref: '#/components/responses/CapacityExceeded'
+        '404':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/NotFound
+        '503':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/ServiceUnavailable
+        '409':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/Conflict
+        '412':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/PreconditionFailed
+      x-opal-cli:
+        group: zones
+        command: remove
+    parameters:
+    - name: zone_id
+      in: path
+      required: true
+      schema:
+        type: string
+        minLength: 1
+        maxLength: 128
+  /api/v1/rules/:
+    get:
+      tags:
+      - rules
+      summary: List rules
+      operationId: list_rules
+      description: ''
+      parameters:
+      - *id031
+      - *id032
+      - *id033
+      - *id034
+      responses:
+        '401':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/Unauthorized
+        '403':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/Forbidden
+        '200':
+          description: OK
+          headers:
+            X-Opal-Session-Id: *id027
+            X-Opal-Transaction-Id: *id028
+            X-Opal-Request-Id: *id029
+            X-Opal-Causation-Id: *id030
+            ETag:
+              $ref: ./shared/opal_kernel.yaml#/components/headers/ETag
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Rule'
+        '422':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/UnprocessableEntity
+        '429':
+          $ref: '#/components/responses/CapacityExceeded'
+        '404':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/NotFound
+        '503':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/ServiceUnavailable
+        '409':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/Conflict
+      x-opal-cli:
+        group: rules
+        command: list
+    post:
+      tags:
+      - rules
+      summary: Register rule
+      operationId: add_rules
+      description: ''
+      parameters:
+      - *id031
+      - *id032
+      - *id033
+      - *id034
+      - $ref: ./shared/opal_kernel.yaml#/components/parameters/IfMatch
+      responses:
+        '401':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/Unauthorized
+        '403':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/Forbidden
+        '201':
+          description: Created
+          headers:
+            X-Opal-Session-Id: *id027
+            X-Opal-Transaction-Id: *id028
+            X-Opal-Request-Id: *id029
+            X-Opal-Causation-Id: *id030
+            Location:
+              $ref: ./shared/opal_kernel.yaml#/components/headers/Location
+            ETag:
+              $ref: ./shared/opal_kernel.yaml#/components/headers/ETag
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Rule'
+        '422':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/UnprocessableEntity
+        '428':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/PreconditionRequired
+        '429':
+          $ref: '#/components/responses/CapacityExceeded'
+        '404':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/NotFound
+        '503':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/ServiceUnavailable
+        '409':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/Conflict
+        '412':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/PreconditionFailed
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RuleCreate'
+      x-opal-cli:
+        group: rules
+        command: add
+  /api/v1/rules/{rule_id}:
+    get:
+      tags:
+      - rules
+      summary: Get rule
+      operationId: show_rules
+      description: ''
+      parameters:
+      - *id031
+      - *id032
+      - *id033
+      - *id034
+      responses:
+        '401':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/Unauthorized
+        '403':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/Forbidden
+        '200':
+          description: OK
+          headers:
+            X-Opal-Session-Id: *id027
+            X-Opal-Transaction-Id: *id028
+            X-Opal-Request-Id: *id029
+            X-Opal-Causation-Id: *id030
+            ETag:
+              $ref: ./shared/opal_kernel.yaml#/components/headers/ETag
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Rule'
+        '422':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/UnprocessableEntity
+        '429':
+          $ref: '#/components/responses/CapacityExceeded'
+        '404':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/NotFound
+        '503':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/ServiceUnavailable
+        '409':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/Conflict
+      x-opal-cli:
+        group: rules
+        command: show
+    patch:
+      tags:
+      - rules
+      summary: Update rule
+      operationId: update_rules
+      description: ''
+      parameters:
+      - *id031
+      - *id032
+      - *id033
+      - *id034
+      - $ref: ./shared/opal_kernel.yaml#/components/parameters/IfMatch
+      responses:
+        '401':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/Unauthorized
+        '403':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/Forbidden
+        '200':
+          description: OK
+          headers:
+            X-Opal-Session-Id: *id027
+            X-Opal-Transaction-Id: *id028
+            X-Opal-Request-Id: *id029
+            X-Opal-Causation-Id: *id030
+            ETag:
+              $ref: ./shared/opal_kernel.yaml#/components/headers/ETag
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Rule'
+        '422':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/UnprocessableEntity
+        '428':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/PreconditionRequired
+        '429':
+          $ref: '#/components/responses/CapacityExceeded'
+        '404':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/NotFound
+        '503':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/ServiceUnavailable
+        '409':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/Conflict
+        '412':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/PreconditionFailed
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RulePatch'
+      x-opal-cli:
+        group: rules
+        command: update
+    delete:
+      tags:
+      - rules
+      summary: Delete rule
+      operationId: remove_rules
+      description: ''
+      parameters:
+      - *id031
+      - *id032
+      - *id033
+      - *id034
+      - $ref: ./shared/opal_kernel.yaml#/components/parameters/IfMatch
+      responses:
+        '401':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/Unauthorized
+        '403':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/Forbidden
+        '204':
+          description: Deleted
+          headers:
+            X-Opal-Session-Id: *id027
+            X-Opal-Transaction-Id: *id028
+            X-Opal-Request-Id: *id029
+            X-Opal-Causation-Id: *id030
+            ETag:
+              $ref: ./shared/opal_kernel.yaml#/components/headers/ETag
+        '422':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/UnprocessableEntity
+        '428':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/PreconditionRequired
+        '429':
+          $ref: '#/components/responses/CapacityExceeded'
+        '404':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/NotFound
+        '503':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/ServiceUnavailable
+        '409':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/Conflict
+        '412':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/PreconditionFailed
+      x-opal-cli:
+        group: rules
+        command: remove
+    parameters:
+    - name: rule_id
+      in: path
+      required: true
+      schema:
+        type: string
+        minLength: 1
+        maxLength: 128
+  /api/v1/monitors/:
+    get:
+      tags:
+      - monitors
+      summary: List monitors
+      operationId: list_monitors
+      description: ''
+      parameters:
+      - *id031
+      - *id032
+      - *id033
+      - *id034
+      responses:
+        '401':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/Unauthorized
+        '403':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/Forbidden
+        '200':
+          description: OK
+          headers:
+            X-Opal-Session-Id: *id027
+            X-Opal-Transaction-Id: *id028
+            X-Opal-Request-Id: *id029
+            X-Opal-Causation-Id: *id030
+            ETag:
+              $ref: ./shared/opal_kernel.yaml#/components/headers/ETag
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Monitor'
+        '422':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/UnprocessableEntity
+        '429':
+          $ref: '#/components/responses/CapacityExceeded'
+        '404':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/NotFound
+        '503':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/ServiceUnavailable
+        '409':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/Conflict
+      x-opal-cli:
+        group: monitors
+        command: list
+    post:
+      tags:
+      - monitors
+      summary: Register monitor
+      operationId: add_monitors
+      description: ''
+      parameters:
+      - *id031
+      - *id032
+      - *id033
+      - *id034
+      - $ref: ./shared/opal_kernel.yaml#/components/parameters/IfMatch
+      responses:
+        '401':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/Unauthorized
+        '403':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/Forbidden
+        '201':
+          description: Created
+          headers:
+            X-Opal-Session-Id: *id027
+            X-Opal-Transaction-Id: *id028
+            X-Opal-Request-Id: *id029
+            X-Opal-Causation-Id: *id030
+            Location:
+              $ref: ./shared/opal_kernel.yaml#/components/headers/Location
+            ETag:
+              $ref: ./shared/opal_kernel.yaml#/components/headers/ETag
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Monitor'
+        '422':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/UnprocessableEntity
+        '428':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/PreconditionRequired
+        '429':
+          $ref: '#/components/responses/CapacityExceeded'
+        '404':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/NotFound
+        '503':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/ServiceUnavailable
+        '409':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/Conflict
+        '412':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/PreconditionFailed
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MonitorCreate'
+      x-opal-cli:
+        group: monitors
+        command: add
+  /api/v1/monitors/{monitor_id}:
+    get:
+      tags:
+      - monitors
+      summary: Get monitor
+      operationId: show_monitors
+      description: ''
+      parameters:
+      - *id031
+      - *id032
+      - *id033
+      - *id034
+      responses:
+        '401':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/Unauthorized
+        '403':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/Forbidden
+        '200':
+          description: OK
+          headers:
+            X-Opal-Session-Id: *id027
+            X-Opal-Transaction-Id: *id028
+            X-Opal-Request-Id: *id029
+            X-Opal-Causation-Id: *id030
+            ETag:
+              $ref: ./shared/opal_kernel.yaml#/components/headers/ETag
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Monitor'
+        '422':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/UnprocessableEntity
+        '429':
+          $ref: '#/components/responses/CapacityExceeded'
+        '404':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/NotFound
+        '503':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/ServiceUnavailable
+        '409':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/Conflict
+      x-opal-cli:
+        group: monitors
+        command: show
+    patch:
+      tags:
+      - monitors
+      summary: Update monitor
+      operationId: update_monitors
+      description: ''
+      parameters:
+      - *id031
+      - *id032
+      - *id033
+      - *id034
+      - $ref: ./shared/opal_kernel.yaml#/components/parameters/IfMatch
+      responses:
+        '401':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/Unauthorized
+        '403':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/Forbidden
+        '200':
+          description: OK
+          headers:
+            X-Opal-Session-Id: *id027
+            X-Opal-Transaction-Id: *id028
+            X-Opal-Request-Id: *id029
+            X-Opal-Causation-Id: *id030
+            ETag:
+              $ref: ./shared/opal_kernel.yaml#/components/headers/ETag
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Monitor'
+        '422':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/UnprocessableEntity
+        '428':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/PreconditionRequired
+        '429':
+          $ref: '#/components/responses/CapacityExceeded'
+        '404':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/NotFound
+        '503':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/ServiceUnavailable
+        '409':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/Conflict
+        '412':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/PreconditionFailed
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MonitorPatch'
+      x-opal-cli:
+        group: monitors
+        command: update
+    delete:
+      tags:
+      - monitors
+      summary: Delete monitor
+      operationId: remove_monitors
+      description: ''
+      parameters:
+      - *id031
+      - *id032
+      - *id033
+      - *id034
+      - $ref: ./shared/opal_kernel.yaml#/components/parameters/IfMatch
+      responses:
+        '401':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/Unauthorized
+        '403':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/Forbidden
+        '204':
+          description: Deleted
+          headers:
+            X-Opal-Session-Id: *id027
+            X-Opal-Transaction-Id: *id028
+            X-Opal-Request-Id: *id029
+            X-Opal-Causation-Id: *id030
+            ETag:
+              $ref: ./shared/opal_kernel.yaml#/components/headers/ETag
+        '422':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/UnprocessableEntity
+        '428':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/PreconditionRequired
+        '429':
+          $ref: '#/components/responses/CapacityExceeded'
+        '404':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/NotFound
+        '503':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/ServiceUnavailable
+        '409':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/Conflict
+        '412':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/PreconditionFailed
+      x-opal-cli:
+        group: monitors
+        command: remove
+    parameters:
+    - name: monitor_id
+      in: path
+      required: true
+      schema:
+        type: string
+        minLength: 1
+        maxLength: 128
+  /api/v1/pipelines/validate:
+    post:
+      tags:
+      - pipelines
+      summary: Validate topology, task compatibility and capability requirements without mutation
+      operationId: validate_pipelines
+      description: ''
+      parameters:
+      - *id031
+      - *id032
+      - *id033
+      - *id034
+      responses:
+        '401':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/Unauthorized
+        '403':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/Forbidden
+        '200':
+          description: OK
+          headers:
+            X-Opal-Session-Id: *id027
+            X-Opal-Transaction-Id: *id028
+            X-Opal-Request-Id: *id029
+            X-Opal-Causation-Id: *id030
+          content:
+            application/json:
+              schema:
+                $ref: ./shared/opal_kernel.yaml#/components/schemas/OpalValidationReport
+        '422':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/UnprocessableEntity
+        '429':
+          $ref: '#/components/responses/CapacityExceeded'
+        '404':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/NotFound
+        '503':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/ServiceUnavailable
+        '409':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/Conflict
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PipelineCreate'
+      x-opal-cli:
+        group: pipelines
+        command: validate
+  /api/v1/profiles/{profile_id}/activate:
+    $ref: ./shared/opal_kernel.yaml#/components/pathItems/profile_activate
+    x-opal-cli:
+      post:
+        group: profiles
+        command: activate
+  /api/v1/sources/{source_id}/status:
+    get:
+      tags:
+      - sources
+      summary: Source connectivity and last-frame state
+      operationId: status_sources
+      description: ''
+      parameters:
+      - *id031
+      - *id032
+      - *id033
+      - *id034
+      responses:
+        '401':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/Unauthorized
+        '403':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/Forbidden
+        '200':
+          description: OK
+          headers:
+            X-Opal-Session-Id: *id027
+            X-Opal-Transaction-Id: *id028
+            X-Opal-Request-Id: *id029
+            X-Opal-Causation-Id: *id030
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Source'
+        '422':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/UnprocessableEntity
+        '429':
+          $ref: '#/components/responses/CapacityExceeded'
+        '404':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/NotFound
+        '503':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/ServiceUnavailable
+        '409':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/Conflict
+      x-opal-cli:
+        group: sources
+        command: status
+    parameters:
+    - name: source_id
+      in: path
+      required: true
+      schema:
+        type: string
+        minLength: 1
+        maxLength: 128
+  /api/v1/sources/{source_id}/probe:
+    post:
+      tags:
+      - sources
+      summary: Probe source connectivity without persistent mutation
+      operationId: probe_sources
+      description: ''
+      parameters:
+      - *id031
+      - *id032
+      - *id033
+      - *id034
+      responses:
+        '401':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/Unauthorized
+        '403':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/Forbidden
+        '200':
+          description: OK
+          headers:
+            X-Opal-Session-Id: *id027
+            X-Opal-Transaction-Id: *id028
+            X-Opal-Request-Id: *id029
+            X-Opal-Causation-Id: *id030
+          content:
+            application/json:
+              schema:
+                $ref: ./shared/opal_kernel.yaml#/components/schemas/OpalValidationReport
+        '422':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/UnprocessableEntity
+        '429':
+          $ref: '#/components/responses/CapacityExceeded'
+        '404':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/NotFound
+        '503':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/ServiceUnavailable
+        '409':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/Conflict
+      x-opal-cli:
+        group: sources
+        command: probe
+    parameters:
+    - name: source_id
+      in: path
+      required: true
+      schema:
+        type: string
+        minLength: 1
+        maxLength: 128
+  /api/v1/analyze/:
+    post:
+      tags:
+      - analyze
+      summary: Analyze one current frame or retained media image synchronously
+      operationId: run_analyze
+      description: ''
+      parameters:
+      - *id031
+      - *id032
+      - *id033
+      - *id034
+      responses:
+        '401':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/Unauthorized
+        '403':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/Forbidden
+        '200':
+          description: OK
+          headers:
+            X-Opal-Session-Id: *id027
+            X-Opal-Transaction-Id: *id028
+            X-Opal-Request-Id: *id029
+            X-Opal-Causation-Id: *id030
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AnalyzeResponse'
+        '422':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/UnprocessableEntity
+        '429':
+          $ref: '#/components/responses/CapacityExceeded'
+        '404':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/NotFound
+        '503':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/ServiceUnavailable
+        '409':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/Conflict
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AnalyzeRequest'
+      x-opal-cli:
+        group: analyze
+        command: run
+  /api/v1/analyze/image:
+    post:
+      tags:
+      - analyze
+      summary: Analyze uploaded still image synchronously
+      operationId: image_analyze
+      description: 'Accept: application/json yields observations; Accept: image/jpeg yields the processed and rendered
+        image (pipeline effects and overlays), without embedded observation JSON. Unsupported Accept returns 406.
+        Client can request both through separate calls; processing is not guaranteed on the same frame unless source
+        bytes are identical.'
+      parameters:
+      - *id031
+      - *id032
+      - *id033
+      - *id034
+      responses:
+        '401':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/Unauthorized
+        '403':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/Forbidden
+        '200':
+          description: OK
+          headers:
+            X-Opal-Session-Id: *id027
+            X-Opal-Transaction-Id: *id028
+            X-Opal-Request-Id: *id029
+            X-Opal-Causation-Id: *id030
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AnalyzeResponse'
+            image/jpeg:
+              schema:
+                type: string
+                format: binary
+        '422':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/UnprocessableEntity
+        '429':
+          $ref: '#/components/responses/CapacityExceeded'
+        '404':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/NotFound
+        '503':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/ServiceUnavailable
+        '409':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/Conflict
+        '406':
+          description: Requested media type not supported
+          headers:
+            X-Opal-Session-Id:
+              $ref: ./shared/opal_kernel.yaml#/components/headers/OpalSessionIdHeader
+            X-Opal-Transaction-Id:
+              $ref: ./shared/opal_kernel.yaml#/components/headers/OpalTransactionIdHeader
+            X-Opal-Request-Id:
+              $ref: ./shared/opal_kernel.yaml#/components/headers/OpalRequestIdHeader
+            X-Opal-Causation-Id:
+              $ref: ./shared/opal_kernel.yaml#/components/headers/OpalCausationIdHeader
+          content:
+            application/json:
+              schema:
+                $ref: ./shared/opal_kernel.yaml#/components/schemas/OpalError
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              properties:
+                image:
+                  type: string
+                  format: binary
+                pipeline_id:
+                  type: string
+                  minLength: 1
+                  maxLength: 128
+                profile_id:
+                  type: string
+                  minLength: 1
+                  maxLength: 128
+                options_json:
+                  type: string
+                  description: JSON encoded InferenceOptions, validated strictly
+                persist_results:
+                  type: boolean
+              additionalProperties: false
+              required:
+              - image
+      x-opal-cli:
+        group: analyze
+        command: image
+  /api/v1/sessions/:
+    post:
+      tags:
+      - sessions
+      summary: Admit live video analysis
+      operationId: start_sessions
+      description: ''
+      parameters:
+      - *id031
+      - *id032
+      - *id033
+      - *id034
+      - $ref: '#/components/parameters/IdempotencyKey'
+      responses:
+        '401':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/Unauthorized
+        '403':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/Forbidden
+        '202':
+          description: Accepted
+          headers:
+            X-Opal-Session-Id: *id027
+            X-Opal-Transaction-Id: *id028
+            X-Opal-Request-Id: *id029
+            X-Opal-Causation-Id: *id030
+            Location:
+              $ref: ./shared/opal_kernel.yaml#/components/headers/Location
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Session'
+        '422':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/UnprocessableEntity
+        '429':
+          $ref: '#/components/responses/CapacityExceeded'
+        '404':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/NotFound
+        '503':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/ServiceUnavailable
+        '409':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/Conflict
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SessionCreate'
+      x-opal-cli:
+        group: sessions
+        command: start
+    get:
+      tags:
+      - sessions
+      summary: List session executions
+      operationId: list_sessions
+      description: ''
+      parameters:
+      - *id031
+      - *id032
+      - *id033
+      - *id034
+      - $ref: ./shared/opal_kernel.yaml#/components/parameters/Cursor
+      - $ref: ./shared/opal_kernel.yaml#/components/parameters/Limit
+      - name: state
+        in: query
+        required: false
+        schema:
+          type: string
+      - name: source_id
+        in: query
+        required: false
+        schema:
+          type: string
+          minLength: 1
+          maxLength: 128
+      responses:
+        '401':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/Unauthorized
+        '403':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/Forbidden
+        '200':
+          description: OK
+          headers:
+            X-Opal-Session-Id: *id027
+            X-Opal-Transaction-Id: *id028
+            X-Opal-Request-Id: *id029
+            X-Opal-Causation-Id: *id030
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SessionPage'
+        '422':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/UnprocessableEntity
+        '429':
+          $ref: '#/components/responses/CapacityExceeded'
+        '404':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/NotFound
+        '503':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/ServiceUnavailable
+        '409':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/Conflict
+      x-opal-cli:
+        group: sessions
+        command: list
+  /api/v1/sessions/{session_id}:
+    get:
+      tags:
+      - sessions
+      summary: Read session state
+      operationId: show_sessions
+      description: ''
+      parameters:
+      - *id031
+      - *id032
+      - *id033
+      - *id034
+      responses:
+        '401':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/Unauthorized
+        '403':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/Forbidden
+        '200':
+          description: OK
+          headers:
+            X-Opal-Session-Id: *id027
+            X-Opal-Transaction-Id: *id028
+            X-Opal-Request-Id: *id029
+            X-Opal-Causation-Id: *id030
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Session'
+        '422':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/UnprocessableEntity
+        '429':
+          $ref: '#/components/responses/CapacityExceeded'
+        '404':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/NotFound
+        '503':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/ServiceUnavailable
+        '409':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/Conflict
+      x-opal-cli:
+        group: sessions
+        command: show
+    parameters:
+    - name: session_id
+      in: path
+      required: true
+      schema:
+        type: string
+        minLength: 1
+        maxLength: 128
+  /api/v1/sessions/{session_id}/stop:
+    post:
+      tags:
+      - sessions
+      summary: Request session stop
+      operationId: stop_sessions
+      description: ''
+      parameters:
+      - *id031
+      - *id032
+      - *id033
+      - *id034
+      responses:
+        '401':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/Unauthorized
+        '403':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/Forbidden
+        '202':
+          description: Accepted
+          headers:
+            X-Opal-Session-Id: *id027
+            X-Opal-Transaction-Id: *id028
+            X-Opal-Request-Id: *id029
+            X-Opal-Causation-Id: *id030
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Session'
+        '422':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/UnprocessableEntity
+        '429':
+          $ref: '#/components/responses/CapacityExceeded'
+        '404':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/NotFound
+        '503':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/ServiceUnavailable
+        '409':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/Conflict
+      x-opal-cli:
+        group: sessions
+        command: stop
+    parameters:
+    - name: session_id
+      in: path
+      required: true
+      schema:
+        type: string
+        minLength: 1
+        maxLength: 128
+  /api/v1/sessions/{session_id}/observations/:
+    get:
+      tags:
+      - sessions
+      summary: List observations produced by session
+      operationId: observations_sessions
+      description: ''
+      parameters:
+      - *id031
+      - *id032
+      - *id033
+      - *id034
+      - $ref: ./shared/opal_kernel.yaml#/components/parameters/Cursor
+      - $ref: ./shared/opal_kernel.yaml#/components/parameters/Limit
+      responses:
+        '401':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/Unauthorized
+        '403':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/Forbidden
+        '200':
+          description: OK
+          headers:
+            X-Opal-Session-Id: *id027
+            X-Opal-Transaction-Id: *id028
+            X-Opal-Request-Id: *id029
+            X-Opal-Causation-Id: *id030
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ObservationPage'
+        '422':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/UnprocessableEntity
+        '429':
+          $ref: '#/components/responses/CapacityExceeded'
+        '404':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/NotFound
+        '503':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/ServiceUnavailable
+        '409':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/Conflict
+      x-opal-cli:
+        group: sessions
+        command: observations
+    parameters:
+    - name: session_id
+      in: path
+      required: true
+      schema:
+        type: string
+        minLength: 1
+        maxLength: 128
+  /api/v1/sessions/{session_id}/stream:
+    get:
+      tags:
+      - sessions
+      summary: Stream session observations over text/event-stream
+      operationId: stream_sessions
+      description: 'SSE event types: observation, heartbeat, session-state, error. Event ID is monotonic per session;
+        Last-Event-ID resumes from bounded cache; expired cursor returns 409. No guaranteed unlimited replay.'
+      parameters:
+      - *id031
+      - *id032
+      - *id033
+      - *id034
+      - name: Last-Event-ID
+        in: header
+        schema:
+          type: string
+      responses:
+        '401':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/Unauthorized
+        '403':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/Forbidden
+        '200':
+          description: OK
+          headers:
+            X-Opal-Session-Id: *id027
+            X-Opal-Transaction-Id: *id028
+            X-Opal-Request-Id: *id029
+            X-Opal-Causation-Id: *id030
+          content:
+            text/event-stream:
+              schema:
+                type: string
+        '422':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/UnprocessableEntity
+        '429':
+          $ref: '#/components/responses/CapacityExceeded'
+        '404':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/NotFound
+        '503':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/ServiceUnavailable
+        '409':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/Conflict
+      x-opal-cli:
+        group: sessions
+        command: stream
+    parameters:
+    - name: session_id
+      in: path
+      required: true
+      schema:
+        type: string
+        minLength: 1
+        maxLength: 128
+  /api/v1/sessions/{session_id}/preview:
+    get:
+      tags:
+      - sessions
+      summary: Live annotated multipart MJPEG preview
+      operationId: preview_sessions
+      description: Best-effort preview; no guaranteed exact frame replay. Can be unavailable for engine/pipeline
+        without annotations. Optional presentation controls apply only to this preview HTTP connection, never alter
+        session or stored observations. Reconnect to change controls.
+      parameters:
+      - *id031
+      - *id032
+      - *id033
+      - *id034
+      - name: classes
+        in: query
+        description: Comma-separated class names to display (presentation only).
+        schema:
+          type: string
+      - name: min_confidence
+        in: query
+        schema:
+          type: number
+          minimum: 0
+          maximum: 1
+      - name: show_labels
+        in: query
+        schema:
+          type: boolean
+          default: true
+      - name: show_boxes
+        in: query
+        schema:
+          type: boolean
+          default: true
+      - name: show_confidence
+        in: query
+        schema:
+          type: boolean
+          default: true
+      - name: target_fps
+        in: query
+        schema:
+          type: number
+          minimum: 0.1
+      - name: width
+        in: query
+        schema:
+          type: integer
+          minimum: 1
+      - name: height
+        in: query
+        schema:
+          type: integer
+          minimum: 1
+      - name: quality
+        in: query
+        schema:
+          type: integer
+          minimum: 1
+          maximum: 100
+      - name: presentation_filter
+        in: query
+        schema:
+          type: string
+        description: Compact JSON FilterSpec applied to presentation, not inference.
+      responses:
+        '401':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/Unauthorized
+        '403':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/Forbidden
+        '200':
+          description: OK
+          headers:
+            X-Opal-Session-Id: *id027
+            X-Opal-Transaction-Id: *id028
+            X-Opal-Request-Id: *id029
+            X-Opal-Causation-Id: *id030
+          content:
+            multipart/x-mixed-replace:
+              schema:
+                type: string
+                format: binary
+        '422':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/UnprocessableEntity
+        '429':
+          $ref: '#/components/responses/CapacityExceeded'
+        '404':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/NotFound
+        '503':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/ServiceUnavailable
+        '409':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/Conflict
+      x-opal-cli:
+        group: sessions
+        command: preview
+    parameters:
+    - name: session_id
+      in: path
+      required: true
+      schema:
+        type: string
+        minLength: 1
+        maxLength: 128
+  /api/v1/jobs/:
+    post:
+      tags:
+      - jobs
+      summary: Admit finite video analysis or media export
+      operationId: submit_jobs
+      description: ''
+      parameters:
+      - *id031
+      - *id032
+      - *id033
+      - *id034
+      - $ref: '#/components/parameters/IdempotencyKey'
+      responses:
+        '401':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/Unauthorized
+        '403':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/Forbidden
+        '202':
+          description: Accepted
+          headers:
+            X-Opal-Session-Id: *id027
+            X-Opal-Transaction-Id: *id028
+            X-Opal-Request-Id: *id029
+            X-Opal-Causation-Id: *id030
+            Location:
+              $ref: ./shared/opal_kernel.yaml#/components/headers/Location
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Job'
+        '422':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/UnprocessableEntity
+        '429':
+          $ref: '#/components/responses/CapacityExceeded'
+        '404':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/NotFound
+        '503':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/ServiceUnavailable
+        '409':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/Conflict
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/JobCreate'
+      x-opal-cli:
+        group: jobs
+        command: submit
+    get:
+      tags:
+      - jobs
+      summary: List finite processing jobs
+      operationId: list_jobs
+      description: ''
+      parameters:
+      - *id031
+      - *id032
+      - *id033
+      - *id034
+      - $ref: ./shared/opal_kernel.yaml#/components/parameters/Cursor
+      - $ref: ./shared/opal_kernel.yaml#/components/parameters/Limit
+      - name: state
+        in: query
+        required: false
+        schema:
+          type: string
+      - name: kind
+        in: query
+        required: false
+        schema:
+          type: string
+      responses:
+        '401':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/Unauthorized
+        '403':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/Forbidden
+        '200':
+          description: OK
+          headers:
+            X-Opal-Session-Id: *id027
+            X-Opal-Transaction-Id: *id028
+            X-Opal-Request-Id: *id029
+            X-Opal-Causation-Id: *id030
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/JobPage'
+        '422':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/UnprocessableEntity
+        '429':
+          $ref: '#/components/responses/CapacityExceeded'
+        '404':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/NotFound
+        '503':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/ServiceUnavailable
+        '409':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/Conflict
+      x-opal-cli:
+        group: jobs
+        command: list
+  /api/v1/jobs/{job_id}:
+    get:
+      tags:
+      - jobs
+      summary: Read job
+      operationId: show_jobs
+      description: ''
+      parameters:
+      - *id031
+      - *id032
+      - *id033
+      - *id034
+      responses:
+        '401':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/Unauthorized
+        '403':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/Forbidden
+        '200':
+          description: OK
+          headers:
+            X-Opal-Session-Id: *id027
+            X-Opal-Transaction-Id: *id028
+            X-Opal-Request-Id: *id029
+            X-Opal-Causation-Id: *id030
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Job'
+        '422':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/UnprocessableEntity
+        '429':
+          $ref: '#/components/responses/CapacityExceeded'
+        '404':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/NotFound
+        '503':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/ServiceUnavailable
+        '409':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/Conflict
+      x-opal-cli:
+        group: jobs
+        command: show
+    parameters:
+    - name: job_id
+      in: path
+      required: true
+      schema:
+        type: string
+        minLength: 1
+        maxLength: 128
+  /api/v1/jobs/{job_id}/cancel:
+    post:
+      tags:
+      - jobs
+      summary: Cancel finite job
+      operationId: cancel_jobs
+      description: ''
+      parameters:
+      - *id031
+      - *id032
+      - *id033
+      - *id034
+      responses:
+        '401':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/Unauthorized
+        '403':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/Forbidden
+        '202':
+          description: Accepted
+          headers:
+            X-Opal-Session-Id: *id027
+            X-Opal-Transaction-Id: *id028
+            X-Opal-Request-Id: *id029
+            X-Opal-Causation-Id: *id030
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Job'
+        '422':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/UnprocessableEntity
+        '429':
+          $ref: '#/components/responses/CapacityExceeded'
+        '404':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/NotFound
+        '503':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/ServiceUnavailable
+        '409':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/Conflict
+      x-opal-cli:
+        group: jobs
+        command: cancel
+    parameters:
+    - name: job_id
+      in: path
+      required: true
+      schema:
+        type: string
+        minLength: 1
+        maxLength: 128
+  /api/v1/observations/:
+    get:
+      tags:
+      - observations
+      summary: Search immutable observations
+      operationId: list_observations
+      description: ''
+      parameters:
+      - *id031
+      - *id032
+      - *id033
+      - *id034
+      - $ref: ./shared/opal_kernel.yaml#/components/parameters/Cursor
+      - $ref: ./shared/opal_kernel.yaml#/components/parameters/Limit
+      - name: source_id
+        in: query
+        required: false
+        schema:
+          type: string
+          minLength: 1
+          maxLength: 128
+      - name: session_id
+        in: query
+        required: false
+        schema:
+          type: string
+          minLength: 1
+          maxLength: 128
+      - name: job_id
+        in: query
+        required: false
+        schema:
+          type: string
+          minLength: 1
+          maxLength: 128
+      - name: task
+        in: query
+        required: false
+        schema:
+          type: string
+      - name: label
+        in: query
+        required: false
+        schema:
+          type: string
+      - name: after
+        in: query
+        required: false
+        schema:
+          type: string
+          format: date-time
+      - name: before
+        in: query
+        required: false
+        schema:
+          type: string
+          format: date-time
+      responses:
+        '401':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/Unauthorized
+        '403':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/Forbidden
+        '200':
+          description: OK
+          headers:
+            X-Opal-Session-Id: *id027
+            X-Opal-Transaction-Id: *id028
+            X-Opal-Request-Id: *id029
+            X-Opal-Causation-Id: *id030
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ObservationPage'
+        '422':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/UnprocessableEntity
+        '429':
+          $ref: '#/components/responses/CapacityExceeded'
+        '404':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/NotFound
+        '503':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/ServiceUnavailable
+        '409':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/Conflict
+      x-opal-cli:
+        group: observations
+        command: list
+  /api/v1/observations/{observation_id}:
+    get:
+      tags:
+      - observations
+      summary: Get exact immutable observation by ID
+      operationId: show_observations
+      description: ''
+      parameters:
+      - *id031
+      - *id032
+      - *id033
+      - *id034
+      responses:
+        '401':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/Unauthorized
+        '403':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/Forbidden
+        '200':
+          description: OK
+          headers:
+            X-Opal-Session-Id: *id027
+            X-Opal-Transaction-Id: *id028
+            X-Opal-Request-Id: *id029
+            X-Opal-Causation-Id: *id030
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Observation'
+        '422':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/UnprocessableEntity
+        '429':
+          $ref: '#/components/responses/CapacityExceeded'
+        '404':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/NotFound
+        '503':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/ServiceUnavailable
+        '409':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/Conflict
+      x-opal-cli:
+        group: observations
+        command: show
+    parameters:
+    - name: observation_id
+      in: path
+      required: true
+      schema:
+        type: string
+        minLength: 1
+        maxLength: 128
+  /api/v1/media/:
+    post:
+      tags:
+      - media
+      summary: Upload finite video or image input
+      operationId: upload_media
+      description: ''
+      parameters:
+      - *id031
+      - *id032
+      - *id033
+      - *id034
+      - name: Content-Type
+        in: header
+        required: true
+        schema:
+          type: string
+        description: Required supported media MIME type e.g. video/mp4, image/jpeg.
+      responses:
+        '401':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/Unauthorized
+        '403':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/Forbidden
+        '201':
+          description: Created
+          headers:
+            X-Opal-Session-Id: *id027
+            X-Opal-Transaction-Id: *id028
+            X-Opal-Request-Id: *id029
+            X-Opal-Causation-Id: *id030
+            Location:
+              $ref: ./shared/opal_kernel.yaml#/components/headers/Location
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Media'
+        '422':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/UnprocessableEntity
+        '429':
+          $ref: '#/components/responses/CapacityExceeded'
+        '404':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/NotFound
+        '503':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/ServiceUnavailable
+        '409':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/Conflict
+        '413':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/PayloadTooLarge
+      requestBody:
+        required: true
+        content:
+          application/octet-stream:
+            schema:
+              type: string
+              format: binary
+      x-opal-cli:
+        group: media
+        command: upload
+    get:
+      tags:
+      - media
+      summary: List uploaded input media
+      operationId: list_media
+      description: ''
+      parameters:
+      - *id031
+      - *id032
+      - *id033
+      - *id034
+      - $ref: ./shared/opal_kernel.yaml#/components/parameters/Cursor
+      - $ref: ./shared/opal_kernel.yaml#/components/parameters/Limit
+      responses:
+        '401':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/Unauthorized
+        '403':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/Forbidden
+        '200':
+          description: OK
+          headers:
+            X-Opal-Session-Id: *id027
+            X-Opal-Transaction-Id: *id028
+            X-Opal-Request-Id: *id029
+            X-Opal-Causation-Id: *id030
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MediaPage'
+        '422':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/UnprocessableEntity
+        '429':
+          $ref: '#/components/responses/CapacityExceeded'
+        '404':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/NotFound
+        '503':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/ServiceUnavailable
+        '409':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/Conflict
+      x-opal-cli:
+        group: media
+        command: list
+  /api/v1/media/{media_id}:
+    get:
+      tags:
+      - media
+      summary: Get media metadata
+      operationId: show_media
+      description: ''
+      parameters:
+      - *id031
+      - *id032
+      - *id033
+      - *id034
+      responses:
+        '401':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/Unauthorized
+        '403':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/Forbidden
+        '200':
+          description: OK
+          headers:
+            X-Opal-Session-Id: *id027
+            X-Opal-Transaction-Id: *id028
+            X-Opal-Request-Id: *id029
+            X-Opal-Causation-Id: *id030
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Media'
+        '422':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/UnprocessableEntity
+        '429':
+          $ref: '#/components/responses/CapacityExceeded'
+        '404':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/NotFound
+        '503':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/ServiceUnavailable
+        '409':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/Conflict
+      x-opal-cli:
+        group: media
+        command: show
+    delete:
+      tags:
+      - media
+      summary: Delete media metadata and bytes when no active users
+      operationId: remove_media
+      description: ''
+      parameters:
+      - *id031
+      - *id032
+      - *id033
+      - *id034
+      responses:
+        '401':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/Unauthorized
+        '403':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/Forbidden
+        '204':
+          description: Deleted
+          headers:
+            X-Opal-Session-Id: *id027
+            X-Opal-Transaction-Id: *id028
+            X-Opal-Request-Id: *id029
+            X-Opal-Causation-Id: *id030
+        '422':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/UnprocessableEntity
+        '429':
+          $ref: '#/components/responses/CapacityExceeded'
+        '404':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/NotFound
+        '503':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/ServiceUnavailable
+        '409':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/Conflict
+      x-opal-cli:
+        group: media
+        command: remove
+    parameters:
+    - name: media_id
+      in: path
+      required: true
+      schema:
+        type: string
+        minLength: 1
+        maxLength: 128
+  /api/v1/sources/{source_id}/frame:
+    get:
+      tags:
+      - captures
+      summary: Get current JPEG frame without inference/retention
+      operationId: frame_sources
+      description: Capture and return one JPEG. With pipeline_id and presentation_filter, return the processed frame.
+        This is a new capture and is not guaranteed to be the same frame as a running preview; use exact-frame identity
+        or session snapshot in a future enhancement if required.
+      parameters:
+      - *id031
+      - *id032
+      - *id033
+      - *id034
+      - name: pipeline_id
+        in: query
+        schema:
+          type: string
+      - name: target_fps
+        in: query
+        schema:
+          type: number
+          minimum: 0.1
+      - name: width
+        in: query
+        schema:
+          type: integer
+          minimum: 1
+      - name: height
+        in: query
+        schema:
+          type: integer
+          minimum: 1
+      - name: quality
+        in: query
+        schema:
+          type: integer
+          minimum: 1
+          maximum: 100
+      - name: presentation_filter
+        in: query
+        description: One portable presentation filter encoded as compact JSON FilterSpec. Multiple filters belong
+          in a pipeline.
+        schema:
+          type: string
+      responses:
+        '401':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/Unauthorized
+        '403':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/Forbidden
+        '200':
+          description: OK
+          headers:
+            X-Opal-Session-Id: *id027
+            X-Opal-Transaction-Id: *id028
+            X-Opal-Request-Id: *id029
+            X-Opal-Causation-Id: *id030
+          content:
+            image/jpeg:
+              schema:
+                type: string
+                format: binary
+        '422':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/UnprocessableEntity
+        '429':
+          $ref: '#/components/responses/CapacityExceeded'
+        '404':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/NotFound
+        '503':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/ServiceUnavailable
+        '409':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/Conflict
+      x-opal-cli:
+        group: sources
+        command: frame
+    parameters:
+    - name: source_id
+      in: path
+      required: true
+      schema:
+        type: string
+        minLength: 1
+        maxLength: 128
+  /api/v1/sources/{source_id}/captures/:
+    post:
+      tags:
+      - captures
+      summary: Capture current frame, optionally retain
+      operationId: capture_sources
+      description: retain=true creates Capture; retain=false returns immediate JPEG and uses status 200 (documented
+        alternate response).
+      parameters:
+      - *id031
+      - *id032
+      - *id033
+      - *id034
+      responses:
+        '401':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/Unauthorized
+        '403':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/Forbidden
+        '201':
+          description: Created
+          headers:
+            X-Opal-Session-Id: *id027
+            X-Opal-Transaction-Id: *id028
+            X-Opal-Request-Id: *id029
+            X-Opal-Causation-Id: *id030
+            Location:
+              $ref: ./shared/opal_kernel.yaml#/components/headers/Location
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Capture'
+        '422':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/UnprocessableEntity
+        '429':
+          $ref: '#/components/responses/CapacityExceeded'
+        '404':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/NotFound
+        '503':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/ServiceUnavailable
+        '409':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/Conflict
+        '200':
+          description: OK
+          headers:
+            X-Opal-Session-Id: *id027
+            X-Opal-Transaction-Id: *id028
+            X-Opal-Request-Id: *id029
+            X-Opal-Causation-Id: *id030
+          content:
+            image/jpeg:
+              schema:
+                type: string
+                format: binary
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CaptureCreate'
+      x-opal-cli:
+        group: sources
+        command: capture
+    parameters:
+    - name: source_id
+      in: path
+      required: true
+      schema:
+        type: string
+        minLength: 1
+        maxLength: 128
+  /api/v1/captures/:
+    get:
+      tags:
+      - captures
+      summary: List retained captures
+      operationId: list_captures
+      description: ''
+      parameters:
+      - *id031
+      - *id032
+      - *id033
+      - *id034
+      - $ref: ./shared/opal_kernel.yaml#/components/parameters/Cursor
+      - $ref: ./shared/opal_kernel.yaml#/components/parameters/Limit
+      responses:
+        '401':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/Unauthorized
+        '403':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/Forbidden
+        '200':
+          description: OK
+          headers:
+            X-Opal-Session-Id: *id027
+            X-Opal-Transaction-Id: *id028
+            X-Opal-Request-Id: *id029
+            X-Opal-Causation-Id: *id030
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CapturePage'
+        '422':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/UnprocessableEntity
+        '429':
+          $ref: '#/components/responses/CapacityExceeded'
+        '404':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/NotFound
+        '503':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/ServiceUnavailable
+        '409':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/Conflict
+      x-opal-cli:
+        group: captures
+        command: list
+  /api/v1/captures/{capture_id}:
+    get:
+      tags:
+      - captures
+      summary: Get capture metadata
+      operationId: show_captures
+      description: ''
+      parameters:
+      - *id031
+      - *id032
+      - *id033
+      - *id034
+      responses:
+        '401':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/Unauthorized
+        '403':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/Forbidden
+        '200':
+          description: OK
+          headers:
+            X-Opal-Session-Id: *id027
+            X-Opal-Transaction-Id: *id028
+            X-Opal-Request-Id: *id029
+            X-Opal-Causation-Id: *id030
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Capture'
+        '422':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/UnprocessableEntity
+        '429':
+          $ref: '#/components/responses/CapacityExceeded'
+        '404':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/NotFound
+        '503':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/ServiceUnavailable
+        '409':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/Conflict
+      x-opal-cli:
+        group: captures
+        command: show
+    delete:
+      tags:
+      - captures
+      summary: Delete capture
+      operationId: remove_captures
+      description: ''
+      parameters:
+      - *id031
+      - *id032
+      - *id033
+      - *id034
+      responses:
+        '401':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/Unauthorized
+        '403':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/Forbidden
+        '204':
+          description: Deleted
+          headers:
+            X-Opal-Session-Id: *id027
+            X-Opal-Transaction-Id: *id028
+            X-Opal-Request-Id: *id029
+            X-Opal-Causation-Id: *id030
+        '422':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/UnprocessableEntity
+        '429':
+          $ref: '#/components/responses/CapacityExceeded'
+        '404':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/NotFound
+        '503':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/ServiceUnavailable
+        '409':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/Conflict
+      x-opal-cli:
+        group: captures
+        command: remove
+    parameters:
+    - name: capture_id
+      in: path
+      required: true
+      schema:
+        type: string
+        minLength: 1
+        maxLength: 128
+  /api/v1/captures/{capture_id}/content:
+    get:
+      tags:
+      - captures
+      summary: Download exact capture
+      operationId: download_captures
+      description: ''
+      parameters:
+      - *id031
+      - *id032
+      - *id033
+      - *id034
+      responses:
+        '401':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/Unauthorized
+        '403':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/Forbidden
+        '200':
+          description: OK
+          headers:
+            X-Opal-Session-Id: *id027
+            X-Opal-Transaction-Id: *id028
+            X-Opal-Request-Id: *id029
+            X-Opal-Causation-Id: *id030
+          content:
+            image/jpeg:
+              schema:
+                type: string
+                format: binary
+        '422':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/UnprocessableEntity
+        '429':
+          $ref: '#/components/responses/CapacityExceeded'
+        '404':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/NotFound
+        '503':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/ServiceUnavailable
+        '409':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/Conflict
+      x-opal-cli:
+        group: captures
+        command: download
+    parameters:
+    - name: capture_id
+      in: path
+      required: true
+      schema:
+        type: string
+        minLength: 1
+        maxLength: 128
+  /api/v1/artifacts/:
+    get:
+      tags:
+      - artifacts
+      summary: List derived videos, clips and snapshots
+      operationId: list_artifacts
+      description: ''
+      parameters:
+      - *id031
+      - *id032
+      - *id033
+      - *id034
+      - $ref: ./shared/opal_kernel.yaml#/components/parameters/Cursor
+      - $ref: ./shared/opal_kernel.yaml#/components/parameters/Limit
+      responses:
+        '401':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/Unauthorized
+        '403':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/Forbidden
+        '200':
+          description: OK
+          headers:
+            X-Opal-Session-Id: *id027
+            X-Opal-Transaction-Id: *id028
+            X-Opal-Request-Id: *id029
+            X-Opal-Causation-Id: *id030
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ArtifactPage'
+        '422':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/UnprocessableEntity
+        '429':
+          $ref: '#/components/responses/CapacityExceeded'
+        '404':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/NotFound
+        '503':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/ServiceUnavailable
+        '409':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/Conflict
+      x-opal-cli:
+        group: artifacts
+        command: list
+  /api/v1/artifacts/{artifact_id}:
+    get:
+      tags:
+      - artifacts
+      summary: Get artifact metadata
+      operationId: show_artifacts
+      description: ''
+      parameters:
+      - *id031
+      - *id032
+      - *id033
+      - *id034
+      responses:
+        '401':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/Unauthorized
+        '403':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/Forbidden
+        '200':
+          description: OK
+          headers:
+            X-Opal-Session-Id: *id027
+            X-Opal-Transaction-Id: *id028
+            X-Opal-Request-Id: *id029
+            X-Opal-Causation-Id: *id030
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Artifact'
+        '422':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/UnprocessableEntity
+        '429':
+          $ref: '#/components/responses/CapacityExceeded'
+        '404':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/NotFound
+        '503':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/ServiceUnavailable
+        '409':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/Conflict
+      x-opal-cli:
+        group: artifacts
+        command: show
+    delete:
+      tags:
+      - artifacts
+      summary: Delete artifact and derived bytes
+      operationId: remove_artifacts
+      description: ''
+      parameters:
+      - *id031
+      - *id032
+      - *id033
+      - *id034
+      responses:
+        '401':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/Unauthorized
+        '403':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/Forbidden
+        '204':
+          description: Deleted
+          headers:
+            X-Opal-Session-Id: *id027
+            X-Opal-Transaction-Id: *id028
+            X-Opal-Request-Id: *id029
+            X-Opal-Causation-Id: *id030
+        '422':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/UnprocessableEntity
+        '429':
+          $ref: '#/components/responses/CapacityExceeded'
+        '404':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/NotFound
+        '503':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/ServiceUnavailable
+        '409':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/Conflict
+      x-opal-cli:
+        group: artifacts
+        command: remove
+    parameters:
+    - name: artifact_id
+      in: path
+      required: true
+      schema:
+        type: string
+        minLength: 1
+        maxLength: 128
+  /api/v1/artifacts/{artifact_id}/content:
+    get:
+      tags:
+      - artifacts
+      summary: Download complete artifact or one byte range
+      operationId: download_artifacts
+      description: 200 full body, 206 single Content-Range; bytes not available until artifact is complete and atomically
+        published.
+      parameters:
+      - *id031
+      - *id032
+      - *id033
+      - *id034
+      - name: Range
+        in: header
+        schema:
+          type: string
+        description: Optional single bytes range; unsupported multipart range rejected.
+      responses:
+        '401':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/Unauthorized
+        '403':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/Forbidden
+        '200':
+          description: OK
+          headers:
+            X-Opal-Session-Id: *id027
+            X-Opal-Transaction-Id: *id028
+            X-Opal-Request-Id: *id029
+            X-Opal-Causation-Id: *id030
+          content:
+            application/octet-stream:
+              schema:
+                type: string
+                format: binary
+        '416':
+          $ref: '#/components/responses/RangeNotSatisfiable'
+        '422':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/UnprocessableEntity
+        '429':
+          $ref: '#/components/responses/CapacityExceeded'
+        '404':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/NotFound
+        '503':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/ServiceUnavailable
+        '409':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/Conflict
+        '206':
+          description: Success
+          headers:
+            X-Opal-Session-Id: *id027
+            X-Opal-Transaction-Id: *id028
+            X-Opal-Request-Id: *id029
+            X-Opal-Causation-Id: *id030
+          content:
+            application/octet-stream:
+              schema:
+                type: string
+                format: binary
+      x-opal-cli:
+        group: artifacts
+        command: download
+    parameters:
+    - name: artifact_id
+      in: path
+      required: true
+      schema:
+        type: string
+        minLength: 1
+        maxLength: 128
+  /api/v1/settings/:
+    $ref: ./shared/opal_kernel.yaml#/components/pathItems/settings_collection
+    x-opal-cli:
+      get:
+        group: settings
+        command: list
+      patch:
+        group: settings
+        command: patch
+  /api/v1/settings/{key}:
+    $ref: ./shared/opal_kernel.yaml#/components/pathItems/settings_key
+    x-opal-cli:
+      get:
+        group: settings
+        command: show
+      put:
+        group: settings
+        command: update
+      delete:
+        group: settings
+        command: reset
+  /api/v1/configuration/export:
+    $ref: ./shared/opal_kernel.yaml#/components/pathItems/backup_export
+    x-opal-cli:
+      get:
+        group: configuration
+        command: export
+  /api/v1/configuration/validate:
+    $ref: ./shared/opal_kernel.yaml#/components/pathItems/backup_validate_post
+    x-opal-cli:
+      post:
+        group: configuration
+        command: validate
+  /api/v1/configuration/import:
+    $ref: ./shared/opal_kernel.yaml#/components/pathItems/backup_import
+    x-opal-cli:
+      post:
+        group: configuration
+        command: import
+  /api/v1/health/:
+    $ref: ./shared/opal_kernel.yaml#/components/pathItems/health
+    x-opal-cli:
+      get:
+        group: health
+        command: show
+  /api/v1/health/live:
+    $ref: ./shared/opal_kernel.yaml#/components/pathItems/health_live
+    x-opal-cli:
+      get:
+        group: health
+        command: live
+  /api/v1/health/ready:
+    $ref: ./shared/opal_kernel.yaml#/components/pathItems/health_ready
+    x-opal-cli:
+      get:
+        group: health
+        command: ready
+  /api/v1/metrics/:
+    get:
+      tags:
+      - operations
+      summary: Operational counters and latency
+      operationId: show_metrics
+      description: ''
+      parameters:
+      - *id031
+      - *id032
+      - *id033
+      - *id034
+      responses:
+        '401':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/Unauthorized
+        '403':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/Forbidden
+        '200':
+          description: OK
+          headers:
+            X-Opal-Session-Id: *id027
+            X-Opal-Transaction-Id: *id028
+            X-Opal-Request-Id: *id029
+            X-Opal-Causation-Id: *id030
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Metrics'
+        '422':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/UnprocessableEntity
+        '429':
+          $ref: '#/components/responses/CapacityExceeded'
+        '404':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/NotFound
+        '503':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/ServiceUnavailable
+        '409':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/Conflict
+      x-opal-cli:
+        group: metrics
+        command: show
+  /api/v1/events/status:
+    get:
+      tags:
+      - operations
+      summary: Inspect event publication queue and drops
+      operationId: status_events
+      description: ''
+      parameters:
+      - *id031
+      - *id032
+      - *id033
+      - *id034
+      responses:
+        '401':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/Unauthorized
+        '403':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/Forbidden
+        '200':
+          description: OK
+          headers:
+            X-Opal-Session-Id: *id027
+            X-Opal-Transaction-Id: *id028
+            X-Opal-Request-Id: *id029
+            X-Opal-Causation-Id: *id030
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EventPublication'
+        '422':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/UnprocessableEntity
+        '429':
+          $ref: '#/components/responses/CapacityExceeded'
+        '404':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/NotFound
+        '503':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/ServiceUnavailable
+        '409':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/Conflict
+      x-opal-cli:
+        group: events
+        command: status
+  /api/v1/recordings/:
+    post:
+      tags:
+      - artifacts
+      summary: Start independent recording
+      operationId: start_recordings
+      description: ''
+      parameters:
+      - *id031
+      - *id032
+      - *id033
+      - *id034
+      - $ref: '#/components/parameters/IdempotencyKey'
+      responses:
+        '401':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/Unauthorized
+        '403':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/Forbidden
+        '202':
+          description: Accepted
+          headers:
+            X-Opal-Session-Id: *id027
+            X-Opal-Transaction-Id: *id028
+            X-Opal-Request-Id: *id029
+            X-Opal-Causation-Id: *id030
+            Location:
+              $ref: ./shared/opal_kernel.yaml#/components/headers/Location
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Recording'
+        '422':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/UnprocessableEntity
+        '429':
+          $ref: '#/components/responses/CapacityExceeded'
+        '404':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/NotFound
+        '503':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/ServiceUnavailable
+        '409':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/Conflict
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RecordingCreate'
+      x-opal-cli:
+        group: recordings
+        command: start
+    get:
+      tags:
+      - artifacts
+      summary: List recordings
+      operationId: list_recordings
+      description: ''
+      parameters:
+      - *id031
+      - *id032
+      - *id033
+      - *id034
+      - $ref: ./shared/opal_kernel.yaml#/components/parameters/Cursor
+      - $ref: ./shared/opal_kernel.yaml#/components/parameters/Limit
+      responses:
+        '401':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/Unauthorized
+        '403':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/Forbidden
+        '200':
+          description: OK
+          headers:
+            X-Opal-Session-Id: *id027
+            X-Opal-Transaction-Id: *id028
+            X-Opal-Request-Id: *id029
+            X-Opal-Causation-Id: *id030
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RecordingPage'
+        '422':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/UnprocessableEntity
+        '429':
+          $ref: '#/components/responses/CapacityExceeded'
+        '404':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/NotFound
+        '503':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/ServiceUnavailable
+        '409':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/Conflict
+      x-opal-cli:
+        group: recordings
+        command: list
+  /api/v1/recordings/{recording_id}:
+    get:
+      tags:
+      - artifacts
+      summary: Inspect recording
+      operationId: show_recordings
+      description: ''
+      parameters:
+      - *id031
+      - *id032
+      - *id033
+      - *id034
+      responses:
+        '401':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/Unauthorized
+        '403':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/Forbidden
+        '200':
+          description: OK
+          headers:
+            X-Opal-Session-Id: *id027
+            X-Opal-Transaction-Id: *id028
+            X-Opal-Request-Id: *id029
+            X-Opal-Causation-Id: *id030
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Recording'
+        '422':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/UnprocessableEntity
+        '429':
+          $ref: '#/components/responses/CapacityExceeded'
+        '404':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/NotFound
+        '503':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/ServiceUnavailable
+        '409':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/Conflict
+      x-opal-cli:
+        group: recordings
+        command: show
+    parameters:
+    - name: recording_id
+      in: path
+      required: true
+      schema:
+        type: string
+        minLength: 1
+        maxLength: 128
+  /api/v1/recordings/{recording_id}/stop:
+    post:
+      tags:
+      - artifacts
+      summary: Stop recording and finalize artifact
+      operationId: stop_recordings
+      description: ''
+      parameters:
+      - *id031
+      - *id032
+      - *id033
+      - *id034
+      responses:
+        '401':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/Unauthorized
+        '403':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/Forbidden
+        '202':
+          description: Accepted
+          headers:
+            X-Opal-Session-Id: *id027
+            X-Opal-Transaction-Id: *id028
+            X-Opal-Request-Id: *id029
+            X-Opal-Causation-Id: *id030
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Recording'
+        '422':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/UnprocessableEntity
+        '429':
+          $ref: '#/components/responses/CapacityExceeded'
+        '404':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/NotFound
+        '503':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/ServiceUnavailable
+        '409':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/Conflict
+      x-opal-cli:
+        group: recordings
+        command: stop
+    parameters:
+    - name: recording_id
+      in: path
+      required: true
+      schema:
+        type: string
+        minLength: 1
+        maxLength: 128
+  /api/v1/sources/{source_id}/stream:
+    parameters:
+    - name: source_id
+      in: path
+      required: true
+      schema:
+        type: string
+        minLength: 1
+        maxLength: 128
+    get:
+      tags:
+      - sources
+      summary: View live source feed without requiring a model or analysis session
+      operationId: stream_sources
+      x-opal-cli:
+        group: sources
+        command: stream
+      description: GET opens an ephemeral MJPEG viewer connection. In absence of pipeline_id, streams decoded source
+        frames only. When pipeline_id is provided, evaluates the configured pipeline for this connection, subject
+        to bounded shared resources. Closing connection releases viewer-specific processing; does not stop independent
+        sessions/monitors. Does not persist observations, captures, or recordings. Overlay and filters are chosen
+        at request start; change URL to change settings. The server may share decoded frames and inference work
+        but must isolate presentation settings. Stream termination after headers is by clean close; clients reconnect
+        using their own policy. Backpressure drops frames instead of unlimited buffering. Unauthorized/unsupported
+        network access forbidden. No claim of synchronized SSE overlays.
+      parameters:
+      - $ref: ./shared/opal_kernel.yaml#/components/parameters/OpalSessionIdParameter
+      - $ref: ./shared/opal_kernel.yaml#/components/parameters/OpalTransactionIdParameter
+      - $ref: ./shared/opal_kernel.yaml#/components/parameters/OpalRequestIdParameter
+      - $ref: ./shared/opal_kernel.yaml#/components/parameters/OpalCausationIdParameter
+      - name: annotations
+        in: query
+        schema:
+          type: boolean
+          default: false
+        description: Source-only stream is unannotated by default. For annotated streaming, supply pipeline_id;
+          no new inference session is created explicitly by the caller.
+      - name: pipeline_id
+        in: query
+        schema:
+          type: string
+      - name: classes
+        in: query
+        description: Comma-separated class names to display (presentation only).
+        schema:
+          type: string
+      - name: min_confidence
+        in: query
+        schema:
+          type: number
+          minimum: 0
+          maximum: 1
+      - name: show_labels
+        in: query
+        schema:
+          type: boolean
+          default: true
+      - name: show_boxes
+        in: query
+        schema:
+          type: boolean
+          default: true
+      - name: show_confidence
+        in: query
+        schema:
+          type: boolean
+          default: true
+      - name: target_fps
+        in: query
+        schema:
+          type: number
+          minimum: 0.1
+      - name: width
+        in: query
+        schema:
+          type: integer
+          minimum: 1
+      - name: height
+        in: query
+        schema:
+          type: integer
+          minimum: 1
+      - name: quality
+        in: query
+        schema:
+          type: integer
+          minimum: 1
+          maximum: 100
+      - name: presentation_filter
+        in: query
+        description: One portable presentation filter encoded as compact JSON FilterSpec. Multiple filters belong
+          in a pipeline.
+        schema:
+          type: string
+      responses:
+        '401':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/Unauthorized
+        '403':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/Forbidden
+        '200':
+          description: Multipart motion JPEG; stream remains open until disconnect, EOS or error.
+          headers:
+            X-Opal-Session-Id:
+              $ref: ./shared/opal_kernel.yaml#/components/headers/OpalSessionIdHeader
+            X-Opal-Transaction-Id:
+              $ref: ./shared/opal_kernel.yaml#/components/headers/OpalTransactionIdHeader
+            X-Opal-Request-Id:
+              $ref: ./shared/opal_kernel.yaml#/components/headers/OpalRequestIdHeader
+            X-Opal-Causation-Id:
+              $ref: ./shared/opal_kernel.yaml#/components/headers/OpalCausationIdHeader
+          content:
+            multipart/x-mixed-replace:
+              schema:
+                type: string
+                format: binary
+        '422':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/UnprocessableEntity
+        '429':
+          $ref: '#/components/responses/CapacityExceeded'
+        '404':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/NotFound
+        '503':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/ServiceUnavailable
+        '409':
+          $ref: ./shared/opal_kernel.yaml#/components/responses/Conflict
+x-opal-filter-catalog:
+  portable_filters:
+    grayscale: No parameters
+    brightness_contrast: brightness [-1,1], contrast [0,4]
+    blur: kernel_size odd integer [3,31]
+    sharpen: amount [0,3]
+    threshold: threshold [0,255]
+    edges: low_threshold [0,255], high_threshold [0,255] with low<=high
+    rotate: degrees one of 0,90,180,270
+    flip: axis horizontal or vertical
+    crop: roi normalized rectangle
+    resize: width and/or height positive
+    motion: MotionFilterParameters; supported modes none, highlight, mask
+  scope: Runtime validates concrete parameters and rejects unknown or unsupported keys with 422. These definitions
+    are normative; filters are applied in stage order. Motion resets on source discontinuity and lighting-change
+    behavior is implementation-specific and disclosed via capabilities.
+x-opal-event-contract:
+  envelope: OPAL suite BusEvent versioned envelope; topic frame + JSON body with data.metadata and correlation IDs.
+  example_topics:
+  - opal.look.observation
+  - opal.look.condition.matched
+  - opal.look.monitor.failed
+  rules: Disabled by default, explicitly allowlisted, bounded drop-newest queue; never blocks source or inference;
+    best effort only.
+x-opal-context-standard:
+  version: '1.3'
+  headers:
+  - X-Opal-Session-Id
+  - X-Opal-Transaction-Id
+  - X-Opal-Request-Id
+  - X-Opal-Causation-Id
+  id_format: opaque-printable-ascii-1-to-128
+  concurrency:
+    settings_and_config_mutations: strong-etag-if-match-required
+    missing_status: 428
+    stale_status: 412
+  pagination:
+    configuration: none
+    history: cursor
+    ordering: newest-first-then-id-tiebreak
+  session_mode: context-only
+  streaming: HTTP context headers precede bytes; SSE streams carry monotonic per-session event IDs and
+    Last-Event-ID resume from a bounded cache (expired cursor returns 409); backpressure drops frames
+    instead of unbounded buffering; no unlimited replay.
+  transaction_atomicity: false
+  events:
+    $ref: './shared/opal_kernel.yaml#/x-opal-event-envelope'
+    metadata_schema_version: '1.0'
+x-opal-authorization:
+  $ref: ./shared/opal_kernel.yaml#/x-opal-authorization

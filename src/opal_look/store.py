@@ -378,6 +378,13 @@ class Store:
         if "session_id" not in obcols:
             self._conn.execute(
                 "ALTER TABLE observations ADD COLUMN session_id TEXT")
+        snpcols = {r["name"] for r in self._conn.execute(
+            "PRAGMA table_info(snapshots)")}
+        for col in ("source_id TEXT", "session_id TEXT",
+                    "observation_id TEXT", "frame_time TEXT",
+                    "mime_type TEXT"):
+            if col.split()[0] not in snpcols:
+                self._conn.execute(f"ALTER TABLE snapshots ADD COLUMN {col}")
         self._migrate_embedded_zones()
         self._migrate_profiles_to_pipelines()
         for row in self._conn.execute(

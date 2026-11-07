@@ -19,6 +19,22 @@ def snapshot_read(row: sqlite3.Row) -> dict[str, Any]:
     }
 
 
+def capture_read(row: sqlite3.Row) -> dict[str, Any]:
+    """Contract Capture shape (upstream v1.5)."""
+    cols = row.keys()
+    return {
+        "id": row["snapshot_id"],
+        "source_id": row["source_id"] if "source_id" in cols else None,
+        "created_at": row["created_at"],
+        "expires_at": row["expires_at"],
+        "mime_type": (row["mime_type"] if "mime_type" in cols and row["mime_type"]
+                      else "image/jpeg"),
+        "annotated": bool(row["annotated"]),
+        "frame_time": (row["frame_time"] if "frame_time" in cols
+                       else row["created_at"]),
+    }
+
+
 def annotate(image: Any, result: dict[str, Any]) -> Any:
     """Overlay the result payload on a copy of the exact analyzed frame."""
     from PIL import ImageDraw

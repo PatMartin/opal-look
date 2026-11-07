@@ -25,21 +25,37 @@ class SqliteSnapshotRepository:
     def insert(self, fields: dict[str, Any]) -> None:
         self._conn.execute(
             "INSERT INTO snapshots (snapshot_id, result_id, annotated, path, width, height, "
-            "created_at, expires_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            "created_at, expires_at, source_id, session_id, observation_id, "
+            "frame_time, mime_type) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (
                 fields["snapshot_id"],
-                fields["result_id"],
+                fields.get("result_id", ""),
                 int(fields["annotated"]),
                 fields["path"],
                 fields["width"],
                 fields["height"],
                 fields["created_at"],
                 fields["expires_at"],
+                fields.get("source_id"),
+                fields.get("session_id"),
+                fields.get("observation_id"),
+                fields.get("frame_time"),
+                fields.get("mime_type"),
             ),
         )
 
     def delete(self, snapshot_id: str) -> None:
         self._conn.execute("DELETE FROM snapshots WHERE snapshot_id = ?", (snapshot_id,))
+
+    def list_live(self, now: str, source_id: str | None = None) -> list[sqlite3.Row]:
+        """Non-expired captures (upstream /captures/ listing)."""
+        query = ("SELECT * FROM snapshots WHERE expires_at > ?")
+        params: list = [now]
+        if source_id is not None:
+            query += " AND source_id = ?"
+            params.append(source_id)
+        query += " ORDER BY created_at DESC, snapshot_id DESC"
+        return self._conn.execute(query, params).fetchall()
 
     def page(
         self, now: str, result_id: str | None, after: list | None, limit: int

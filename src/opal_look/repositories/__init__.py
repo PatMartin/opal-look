@@ -13,6 +13,7 @@ from .pipelines import PipelineRepository, SqlitePipelineRepository
 from .profiles import ProfileRepository, SqliteProfileRepository
 from .zones import SqliteZoneRepository, ZoneRepository
 from .rules import SqliteRuleRepository, RuleRepository
+from .artifacts import SqliteArtifactRepository, ArtifactRepository
 from .results import ResultRepository, SqliteResultRepository
 from .sessions import SessionRepository, SqliteSessionRepository
 from .settings import SettingsRepository, SqliteSettingsRepository
@@ -32,6 +33,7 @@ __all__ = [
     "ProfileRepository",
     "ZoneRepository",
     "RuleRepository",
+    "ArtifactRepository",
     "ResultRepository",
     "SettingsRepository",
     "SessionRepository",
@@ -49,9 +51,13 @@ __all__ = [
     "SqliteProfileRepository",
     "SqliteZoneRepository",
     "SqliteRuleRepository",
+    "SqliteArtifactRepository",
+    "ArtifactRepository",
     "RuleRepository",
+    "ArtifactRepository",
     "ZoneRepository",
     "RuleRepository",
+    "ArtifactRepository",
     "SqliteResultRepository",
     "SqliteSettingsRepository",
     "SqliteSessionRepository",

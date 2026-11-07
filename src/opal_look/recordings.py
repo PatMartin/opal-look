@@ -34,6 +34,8 @@ def recording_read(row: sqlite3.Row) -> dict[str, Any]:
         "started_at": row["started_at"],
         "finished_at": row["finished_at"],
         "media_id": row["media_id"],
+        "artifact_id": (row["artifact_id"] if "artifact_id" in row.keys()
+                        else None),
         "failure": (json.loads(row["failure"]) if row["failure"] else None),
     }
 
@@ -69,9 +71,20 @@ def _finalize(store, recording_id: str, pipeline_id=None) -> None:
         filename=f"recording-{recording_id}.mjpeg",
         content_type="video/x-motion-jpeg",
         source_id=row["source_id"])
+    # upstream: recording output is an Artifact of kind "video"
+    mrow = store.media.get(media_id)
+    artifact_id = f"art-{recording_id}"
+    store.artifacts.insert({
+        "artifact_id": artifact_id, "kind": "video",
+        "mime_type": "video/x-motion-jpeg",
+        "size_bytes": len(data), "created_at": now_iso(),
+        "expires_at": mrow["expires_at"] if mrow is not None else now_iso(),
+        "source_id": row["source_id"], "job_id": None,
+        "path": mrow["path"] if mrow is not None else str(partial),
+    })
     store.recordings.update(recording_id, {
         "state": "completed", "finished_at": now_iso(),
-        "media_id": media_id})
+        "media_id": media_id, "artifact_id": artifact_id})
     try:
         partial.unlink(missing_ok=True)
     except Exception:

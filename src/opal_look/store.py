@@ -27,6 +27,7 @@ from .repositories import (
     SqliteProfileRepository,
     SqliteZoneRepository,
     SqliteRuleRepository,
+    SqliteArtifactRepository,
     SqliteResultRepository,
     SqliteSessionRepository,
     SqliteSettingsRepository,
@@ -92,6 +93,7 @@ class Store:
         self.profiles = SqliteProfileRepository(self._conn)
         self.zones = SqliteZoneRepository(self._conn)
         self.rules = SqliteRuleRepository(self._conn)
+        self.artifacts = SqliteArtifactRepository(self._conn)
         self.media = SqliteMediaRepository(self._conn)
         self.results = SqliteResultRepository(self._conn)
         self.snapshots = SqliteSnapshotRepository(self._conn)
@@ -209,6 +211,17 @@ class Store:
                 retention TEXT NOT NULL DEFAULT '{}',
                 revision INTEGER NOT NULL DEFAULT 1,
                 created_at TEXT NOT NULL
+            );
+            CREATE TABLE IF NOT EXISTS artifacts (
+                artifact_id TEXT PRIMARY KEY,
+                kind TEXT NOT NULL,
+                mime_type TEXT NOT NULL,
+                size_bytes INTEGER NOT NULL,
+                created_at TEXT NOT NULL,
+                expires_at TEXT NOT NULL,
+                source_id TEXT,
+                job_id TEXT,
+                path TEXT NOT NULL
             );
             CREATE TABLE IF NOT EXISTS rules (
                 rule_id TEXT PRIMARY KEY,
@@ -367,6 +380,11 @@ class Store:
         self._conn.execute("UPDATE sources SET type = 'http_mjpeg' WHERE type = 'http'")
         self._conn.execute("UPDATE sources SET type = 'usb' WHERE type = 'camera'")
         self._conn.execute("UPDATE sources SET type = 'file' WHERE type = 'image'")
+        rcols = {r["name"] for r in self._conn.execute(
+            "PRAGMA table_info(recordings)")}
+        if "artifact_id" not in rcols:
+            self._conn.execute(
+                "ALTER TABLE recordings ADD COLUMN artifact_id TEXT")
         scols2 = {r["name"] for r in self._conn.execute(
             "PRAGMA table_info(sessions)")}
         for col in ("pipeline_id TEXT", "options TEXT", "retention TEXT",

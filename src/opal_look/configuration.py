@@ -108,7 +108,19 @@ def build_export(store) -> dict[str, Any]:
              "enabled": bool(z["enabled"])}
             for z in store.zones.list()
         ],
-        "rules": [],
+        "rules": [
+            {"id": r["rule_id"], "name": r["name"],
+             "source_id": r["source_id"], "zone_id": r["zone_id"],
+             "kind": r["kind"],
+             "class_filters": json.loads(r["class_filters"] or "[]"),
+             "threshold": r["threshold"],
+             "minimum_duration_ms": r["minimum_duration_ms"],
+             "cooldown_ms": r["cooldown_ms"],
+             "enabled": bool(r["enabled"]),
+             "capture_on_match": bool(r["capture_on_match"]),
+             "clip_on_match": bool(r["clip_on_match"])}
+            for r in store.rules.list()
+        ],
         "monitors": monitors,
     }
 
@@ -175,6 +187,14 @@ def validate_configuration(store, config: dict[str, Any],
         if z.get("kind") == "polygon" and len(z.get("points", [])) < 3:
             issues.append(_issue(f"zones[{i}].points",
                                  "polygon zones require >=3 points"))
+    for i, r in enumerate(config.get("rules", [])):
+        if r.get("source_id") not in source_ids:
+            issues.append(_issue(f"rules[{i}].source_id",
+                                 f"source {r.get('source_id')!r} not in configuration"))
+        zid = r.get("zone_id")
+        if zid and zid not in zone_ids:
+            issues.append(_issue(f"rules[{i}].zone_id",
+                                 f"zone {zid!r} not in configuration"))
     for i, mon in enumerate(config.get("monitors", [])):
         if mon.get("source_id") not in source_ids:
             issues.append(_issue(f"monitors[{i}].source_id",
@@ -235,6 +255,7 @@ def apply_import(store, request, config: dict[str, Any],
         store.monitors.delete(row["monitor_id"])
     for row in store.sources.list():
         store.sources.delete(row["source_id"])
+    store.rules.delete_all()
     store.zones.delete_all()
     for row in store.pipelines.list():
         store.pipelines.delete(row["pipeline_id"])
@@ -270,6 +291,19 @@ def apply_import(store, request, config: dict[str, Any],
             "name": z.get("name", z["id"]), "kind": z.get("kind", "polygon"),
             "points": z.get("points") or [],
             "enabled": bool(z.get("enabled", True)),
+        })
+    for r in config.get("rules", []):
+        store.rules.insert({
+            "rule_id": r["id"], "source_id": r["source_id"],
+            "zone_id": r.get("zone_id"), "name": r.get("name", r["id"]),
+            "kind": r.get("kind", "object_appears"),
+            "class_filters": r.get("class_filters"),
+            "threshold": r.get("threshold"),
+            "minimum_duration_ms": r.get("minimum_duration_ms"),
+            "cooldown_ms": r.get("cooldown_ms"),
+            "enabled": bool(r.get("enabled", True)),
+            "capture_on_match": bool(r.get("capture_on_match")),
+            "clip_on_match": bool(r.get("clip_on_match")),
         })
     for p in config.get("pipelines", []):
         store.pipelines.insert({

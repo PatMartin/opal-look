@@ -26,6 +26,7 @@ from .repositories import (
     SqlitePipelineRepository,
     SqliteProfileRepository,
     SqliteZoneRepository,
+    SqliteRuleRepository,
     SqliteResultRepository,
     SqliteSessionRepository,
     SqliteSettingsRepository,
@@ -90,6 +91,7 @@ class Store:
         self.sources = SqliteSourceRepository(self._conn)
         self.profiles = SqliteProfileRepository(self._conn)
         self.zones = SqliteZoneRepository(self._conn)
+        self.rules = SqliteRuleRepository(self._conn)
         self.media = SqliteMediaRepository(self._conn)
         self.results = SqliteResultRepository(self._conn)
         self.snapshots = SqliteSnapshotRepository(self._conn)
@@ -207,6 +209,21 @@ class Store:
                 retention TEXT NOT NULL DEFAULT '{}',
                 revision INTEGER NOT NULL DEFAULT 1,
                 created_at TEXT NOT NULL
+            );
+            CREATE TABLE IF NOT EXISTS rules (
+                rule_id TEXT PRIMARY KEY,
+                source_id TEXT NOT NULL,
+                zone_id TEXT,
+                name TEXT NOT NULL,
+                kind TEXT NOT NULL,
+                class_filters TEXT NOT NULL DEFAULT '[]',
+                threshold REAL,
+                minimum_duration_ms INTEGER,
+                cooldown_ms INTEGER,
+                enabled INTEGER NOT NULL DEFAULT 1,
+                capture_on_match INTEGER NOT NULL DEFAULT 0,
+                clip_on_match INTEGER NOT NULL DEFAULT 0,
+                last_triggered_at TEXT
             );
             CREATE TABLE IF NOT EXISTS zones (
                 zone_id TEXT PRIMARY KEY,

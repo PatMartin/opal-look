@@ -25,6 +25,7 @@ from .repositories import (
     SqliteObservationRepository,
     SqlitePipelineRepository,
     SqliteProfileRepository,
+    SqliteZoneRepository,
     SqliteResultRepository,
     SqliteSessionRepository,
     SqliteSettingsRepository,
@@ -88,6 +89,7 @@ class Store:
         self.recordings = SqliteRecordingRepository(self._conn)
         self.sources = SqliteSourceRepository(self._conn)
         self.profiles = SqliteProfileRepository(self._conn)
+        self.zones = SqliteZoneRepository(self._conn)
         self.media = SqliteMediaRepository(self._conn)
         self.results = SqliteResultRepository(self._conn)
         self.snapshots = SqliteSnapshotRepository(self._conn)
@@ -205,6 +207,14 @@ class Store:
                 retention TEXT NOT NULL DEFAULT '{}',
                 revision INTEGER NOT NULL DEFAULT 1,
                 created_at TEXT NOT NULL
+            );
+            CREATE TABLE IF NOT EXISTS zones (
+                zone_id TEXT PRIMARY KEY,
+                source_id TEXT NOT NULL,
+                name TEXT NOT NULL,
+                kind TEXT NOT NULL,
+                points TEXT NOT NULL,
+                enabled INTEGER NOT NULL DEFAULT 1
             );
             CREATE TABLE IF NOT EXISTS profiles (
                 profile_id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -340,6 +350,7 @@ class Store:
         self._conn.execute("UPDATE sources SET type = 'http_mjpeg' WHERE type = 'http'")
         self._conn.execute("UPDATE sources SET type = 'usb' WHERE type = 'camera'")
         self._conn.execute("UPDATE sources SET type = 'file' WHERE type = 'image'")
+        self._migrate_embedded_zones()
         self._migrate_profiles_to_pipelines()
         for row in self._conn.execute(
             "SELECT model_id, resource FROM models WHERE resource_ref IS NULL"
@@ -350,6 +361,41 @@ class Store:
                 "UPDATE models SET resource_ref = ? WHERE model_id = ?",
                 (ref, row["model_id"]),
             )
+
+    def _migrate_embedded_zones(self) -> None:
+        """One-shot: embedded sources.zones -> standalone zones rows.
+
+        Harvested ids keep the original source-local id when free; on
+        collision they gain a {source_id}:{id} prefix so references in
+        monitor conditions stay resolvable.
+        """
+        import json as _json
+
+        if self._conn.execute(
+            "SELECT value FROM meta WHERE key = 'zones_migrated'"
+        ).fetchone():
+            return
+        seen: set[str] = set()
+        for row in self._conn.execute("SELECT source_id, zones FROM sources"):
+            for z in _json.loads(row["zones"] or "[]"):
+                if not isinstance(z, dict):
+                    continue
+                zid = z.get("id")
+                if not zid:
+                    continue
+                if zid in seen:
+                    zid = f"{row['source_id']}:{zid}"
+                seen.add(zid)
+                self._conn.execute(
+                    "INSERT OR IGNORE INTO zones "
+                    "(zone_id, source_id, name, kind, points, enabled) "
+                    "VALUES (?, ?, ?, ?, ?, ?)",
+                    (zid, row["source_id"], z.get("name", zid),
+                     z.get("kind", "polygon"), _json.dumps(z.get("points") or []),
+                     int(bool(z.get("enabled", True)))),
+                )
+        self._conn.execute(
+            "INSERT INTO meta (key, value) VALUES ('zones_migrated', '1')")
 
     def _migrate_profiles_to_pipelines(self) -> None:
         """One-shot: profiles with model_id+task become simple pipelines.

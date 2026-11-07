@@ -43,7 +43,8 @@ profiles, settings, configuration, health) arrive via kernel `pathItems`.
 | U02 engines+health kernel | bbcdbd0 | 58 | OpalEngine/OpalHealthReport/OpalHealthProbe shapes; CONTRACT_VERSION 1.5.0; dead engine-validate handler removed; stale-test floor 43→39 |
 | U03 settings+config kernel | 56dadec | 58 |
 | U04 profiles CRUD+activate | da0f1df | 64 | kernel OpalProfile via data-blob column; single-active invariant; active_profile_id wired into health; export/import roundtrip; stale profile test retired; floor 37 |
-| U05 sources reconcile | (this commit) | 64 | Source: zones dropped, capabilities added, state enum aligned (disconnected); kind remap http->http_mjpeg/camera->usb/image->file migrated; stale validate/devices/zones tests retired | OpalSettingsMap/SettingRead/SettingUpdate (updated_at/default/is_default/pending_restart via new override column); OpalConfigExport/OpalValidationReport/OpalImportResult; import takes bare bundle (+legacy wrapper compat); float-hours poisoning fixed via strict validated _settings_apply — no unit conversion remains; floor 39→37 |
+| U05 sources reconcile | 1abf77f | 64 | Source: zones dropped, capabilities added, state enum aligned (disconnected); kind remap http->http_mjpeg/camera->usb/image->file migrated; stale validate/devices/zones tests retired |
+| U06 zones standalone | (this commit) | 69 | zones table+repo+router (list w/ source_id filter, create, show, patch, delete); embedded-zones harvest migration; monitor zone-eval reads zones table; export/import + validation wiring | OpalSettingsMap/SettingRead/SettingUpdate (updated_at/default/is_default/pending_restart via new override column); OpalConfigExport/OpalValidationReport/OpalImportResult; import takes bare bundle (+legacy wrapper compat); float-hours poisoning fixed via strict validated _settings_apply — no unit conversion remains; floor 39→37 |
 
 ---
 

@@ -101,7 +101,13 @@ def build_export(store) -> dict[str, Any]:
         "models": models,
         "sources": sources,
         "pipelines": pipelines,
-        "zones": [],
+        "zones": [
+            {"id": z["zone_id"], "source_id": z["source_id"],
+             "name": z["name"], "kind": z["kind"],
+             "points": json.loads(z["points"]),
+             "enabled": bool(z["enabled"])}
+            for z in store.zones.list()
+        ],
         "rules": [],
         "monitors": monitors,
     }
@@ -122,9 +128,7 @@ def validate_configuration(store, config: dict[str, Any],
     model_ids = {m.get("id") or m.get("model_id") for m in config.get("models", [])}
     pipeline_ids = {p.get("id") for p in config.get("pipelines", [])}
     source_ids = {s.get("id") for s in config.get("sources", [])}
-    zone_ids: dict[str, set] = {
-        s["id"]: {z["id"] for z in s.get("zones", [])}
-        for s in config.get("sources", []) if s.get("id")}
+    zone_ids: set = {z.get("id") for z in config.get("zones", [])}
 
     settings = config.get("settings") or {}
     if settings:
@@ -164,10 +168,13 @@ def validate_configuration(store, config: dict[str, Any],
                 f"source {sid!r} has no import binding; supply "
                 f"source_bindings[{sid!r}].locator or import over an "
                 "existing source with the same id", code="unresolved_binding"))
-        for z in s.get("zones", []):
-            if z.get("kind") == "polygon" and len(z.get("points", [])) < 3:
-                issues.append(_issue(f"sources[{i}].zones[{z.get('id')}]",
-                                     "polygon zones require >=3 points"))
+    for i, z in enumerate(config.get("zones", [])):
+        if z.get("source_id") not in source_ids:
+            issues.append(_issue(f"zones[{i}].source_id",
+                                 f"source {z.get('source_id')!r} not in configuration"))
+        if z.get("kind") == "polygon" and len(z.get("points", [])) < 3:
+            issues.append(_issue(f"zones[{i}].points",
+                                 "polygon zones require >=3 points"))
     for i, mon in enumerate(config.get("monitors", [])):
         if mon.get("source_id") not in source_ids:
             issues.append(_issue(f"monitors[{i}].source_id",
@@ -175,13 +182,12 @@ def validate_configuration(store, config: dict[str, Any],
         if mon.get("pipeline_id") not in pipeline_ids:
             issues.append(_issue(f"monitors[{i}].pipeline_id",
                                  f"pipeline {mon.get('pipeline_id')!r} not in configuration"))
-        mon_zones = zone_ids.get(mon.get("source_id"), set())
         for j, c in enumerate(mon.get("conditions", []) or []):
             zid = c.get("zone_id")
-            if zid and zid not in mon_zones:
+            if zid and zid not in zone_ids:
                 issues.append(_issue(
                     f"monitors[{i}].conditions[{j}].zone_id",
-                    f"zone {zid!r} not on monitor's source"))
+                    f"zone {zid!r} not in configuration"))
     return issues
 
 
@@ -229,6 +235,7 @@ def apply_import(store, request, config: dict[str, Any],
         store.monitors.delete(row["monitor_id"])
     for row in store.sources.list():
         store.sources.delete(row["source_id"])
+    store.zones.delete_all()
     for row in store.pipelines.list():
         store.pipelines.delete(row["pipeline_id"])
     for row in store.models.list():
@@ -255,7 +262,14 @@ def apply_import(store, request, config: dict[str, Any],
             "credential_ref": s.get("_credential_ref"),
             "enabled": 1 if s.get("enabled", True) else 0,
             "source_options": json.dumps(s.get("options") or {}),
-            "zones": json.dumps(s.get("zones") or []),
+            "zones": [],
+        })
+    for z in config.get("zones", []):
+        store.zones.insert({
+            "zone_id": z["id"], "source_id": z["source_id"],
+            "name": z.get("name", z["id"]), "kind": z.get("kind", "polygon"),
+            "points": z.get("points") or [],
+            "enabled": bool(z.get("enabled", True)),
         })
     for p in config.get("pipelines", []):
         store.pipelines.insert({

@@ -190,7 +190,9 @@ class MonitorRuntime:
                     # inline condition evaluation
                     try:
                         from .condition_eval import evaluate_conditions
-                        zones = json.loads(src["zones"] or "[]")
+                        from .repositories.zones import zone_read
+                        zones = [zone_read(z) for z in
+                                 self.store.zones.list_for_source(row["source_id"])]
                         tracking = any(
                             model_runtime(self.store, m).get("tracking")
                             for st in _stage_list(self.store, pipeline)

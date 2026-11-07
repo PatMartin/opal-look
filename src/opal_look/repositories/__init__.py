@@ -11,6 +11,7 @@ from .monitors import MonitorRepository, SqliteMonitorRepository
 from .observations import ObservationRepository, SqliteObservationRepository
 from .pipelines import PipelineRepository, SqlitePipelineRepository
 from .profiles import ProfileRepository, SqliteProfileRepository
+from .zones import SqliteZoneRepository, ZoneRepository
 from .results import ResultRepository, SqliteResultRepository
 from .sessions import SessionRepository, SqliteSessionRepository
 from .settings import SettingsRepository, SqliteSettingsRepository
@@ -28,6 +29,7 @@ __all__ = [
     "ObservationRepository",
     "PipelineRepository",
     "ProfileRepository",
+    "ZoneRepository",
     "ResultRepository",
     "SettingsRepository",
     "SessionRepository",
@@ -43,6 +45,8 @@ __all__ = [
     "SqliteObservationRepository",
     "SqlitePipelineRepository",
     "SqliteProfileRepository",
+    "SqliteZoneRepository",
+    "ZoneRepository",
     "SqliteResultRepository",
     "SqliteSettingsRepository",
     "SqliteSessionRepository",

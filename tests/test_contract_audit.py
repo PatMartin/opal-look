@@ -60,9 +60,9 @@ def test_audit_classifies_routes_honestly(app):
     assert len(report.covered) + len(report.missing) == report.contract.operation_count
     # The simplified-draft surface still implements the shared core.
     assert ("GET", "/api/v1/sources/") in {(op.method, op.path) for op in report.covered}
-    # Whole upstream resource families are not implemented yet.
+    # Remaining upstream resource families not implemented yet.
     missing = {(op.method, op.path) for op in report.missing}
-    for path in ("/api/v1/profiles/", "/api/v1/zones/", "/api/v1/rules/",
+    for path in ("/api/v1/zones/", "/api/v1/rules/",
                  "/api/v1/sessions/", "/api/v1/captures/", "/api/v1/artifacts/"):
         assert ("GET", path) in missing
     # Simplified-draft-only surface is flagged as legacy, never counted as covered.

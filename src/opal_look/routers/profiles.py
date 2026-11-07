@@ -1,187 +1,140 @@
-"""Profile endpoints: CRUD, activation, validation."""
+"""Profile endpoints (kernel OpalProfile): list/create/show/patch/delete/activate."""
 
 from __future__ import annotations
 
 import json
-import sqlite3
 
-from fastapi import APIRouter, Path, Request, Response
+from fastapi import APIRouter, Request, Response
 from fastapi.responses import JSONResponse
 
 from ..dependencies import StoreDep
-from ..engines import model_runtime
 from ..errors import ApiError
 from ..precondition import check_if_match, require_if_match
-from ..profiles import (
-    profile_errors,
-    profile_read,
-    resolve_settings,
-    supplied_settings_keys,
-)
-from ..refs import nonterminal_sessions_referencing
-from ..schemas import ProfileCreate, ProfileUpdate, reject_null_fields
-from ..store import Store
+from ..profiles import profile_read
+from ..timeutil import now_iso
 
 router = APIRouter()
 
+# Fields that map to real columns; everything else persists in the data blob.
+_PROFILE_CORE = {"id", "name", "is_active", "created_at", "updated_at"}
 
-def _get_profile_or_404(store: Store, profile_id: int):
-    row = store.profiles.get(profile_id)
+
+def _get_profile_or_404(store, profile_id: int):
+    try:
+        pid = int(profile_id)
+    except (TypeError, ValueError):
+        raise ApiError(404, f"Unknown profile: {profile_id}")
+    row = store.profiles.get(pid)
     if row is None:
         raise ApiError(404, f"Unknown profile: {profile_id}")
     return row
 
 
-def _model_or_404(store: Store, model_id: str):
-    row = store.models.get(model_id)
-    if row is None:
-        raise ApiError(404, f"Unknown model: {model_id!r}")
-    return row
-
-
-def _check_profile(
-    store: Store, model_id: str, task: str, supplied: dict, resolved: dict
-) -> sqlite3.Row:
-    """404 on unknown model; 422 on incompatibility. Returns the model row."""
-    model_row = _model_or_404(store, model_id)
-    errors, _ = profile_errors(store, model_row, task, supplied, resolved)
-    if errors:
-        raise ApiError(422, "Profile is incompatible with the referenced model.", details=errors)
-    return model_row
-
-
-def _session_refs(store: Store, profile_id: int) -> None:
-    if nonterminal_sessions_referencing(store, "profile", str(profile_id)):
-        raise ApiError(409, f"Profile {profile_id} is referenced by a nonterminal session.")
+def _validate_body(store, supplied: dict) -> None:
+    if "name" in supplied and not supplied["name"]:
+        raise ApiError(422, "Profile name must be non-empty.")
+    pid = supplied.get("pipeline_id")
+    if pid is not None and store.pipelines.get(pid) is None:
+        raise ApiError(422, f"Unknown pipeline: {pid!r}")
+    for key in ("inference", "retention", "confidence_thresholds",
+                "engine_options", "model_paths"):
+        if key in supplied and supplied[key] is not None \
+                and not isinstance(supplied[key], dict):
+            raise ApiError(422, f"{key} must be an object.")
+    if "is_active" in supplied and not isinstance(supplied["is_active"], bool):
+        raise ApiError(422, "is_active must be a boolean.")
 
 
 @router.get("/api/v1/profiles/")
-def get_api_v1_profiles(request: Request, store: StoreDep) -> JSONResponse:
-    body = [profile_read(row) for row in store.profiles.list()]
-    return JSONResponse(body, headers={"ETag": store.config_revision()})
+def get_api_v1_profiles(store: StoreDep) -> JSONResponse:
+    return JSONResponse([profile_read(r) for r in store.profiles.list()],
+                        headers={"ETag": store.config_revision()})
 
 
 @router.post("/api/v1/profiles/", status_code=201)
-def post_api_v1_profiles(request: Request, store: StoreDep, profile: ProfileCreate) -> JSONResponse:
-    supplied = supplied_settings_keys(profile.settings)
-    resolved = resolve_settings(profile.task, supplied)
-    _check_profile(store, profile.model_id, profile.task, supplied, resolved)
-
+def post_api_v1_profiles(request: Request, store: StoreDep, body: dict) -> JSONResponse:
+    require_if_match(request)
+    if not isinstance(body, dict):
+        raise ApiError(422, "Profile body must be a JSON object.")
+    if "name" not in body:
+        raise ApiError(422, "Profile 'name' is required.")
+    _validate_body(store, body)
+    data = {k: v for k, v in body.items() if k not in _PROFILE_CORE}
+    data["created_at"] = now_iso()
+    data["updated_at"] = data["created_at"]
     with store.write_txn():
         check_if_match(request, store)
-        active = store.profiles.count() == 0
-        profile_id = store.profiles.insert(
-            profile.name, profile.model_id, profile.task, resolved, active
-        )
+        pid = store.profiles.insert_kernel(
+            {"name": body["name"], "is_active": bool(body.get("is_active")),
+             "data": data})
+        if body.get("is_active"):
+            store.profiles.set_active(pid)
         revision = store.bump_revision()
-    row = store.profiles.get(profile_id)
-    return JSONResponse(
-        profile_read(row),
-        status_code=201,
-        headers={"ETag": revision, "Location": f"/api/v1/profiles/{profile_id}"},
-    )
+    return JSONResponse(profile_read(store.profiles.get(pid)),
+                        status_code=201, headers={"ETag": revision})
 
 
 @router.get("/api/v1/profiles/{profile_id}")
-def get_api_v1_profiles_profile_id(
-    request: Request, store: StoreDep, profile_id: int = Path(ge=1)
-) -> JSONResponse:
+def get_api_v1_profiles_profile_id(store: StoreDep, profile_id: str) -> JSONResponse:
     row = _get_profile_or_404(store, profile_id)
-    return JSONResponse(profile_read(row), headers={"ETag": store.config_revision()})
+    return JSONResponse(profile_read(row),
+                        headers={"ETag": store.config_revision()})
 
 
 @router.patch("/api/v1/profiles/{profile_id}")
 def patch_api_v1_profiles_profile_id(
-    request: Request,
-    store: StoreDep,
-    patch: ProfileUpdate,
-    profile_id: int = Path(ge=1, le=9223372036854775807),
-) -> JSONResponse:
-    supplied = patch.model_dump(exclude_unset=True)
-    reject_null_fields(supplied)
-
+        request: Request, store: StoreDep, profile_id: str, body: dict) -> JSONResponse:
     require_if_match(request)
     row = _get_profile_or_404(store, profile_id)
-    task = supplied.get("task") or row["task"]
-    model_id = supplied.get("model_id") or row["model_id"]
-    settings_supplied = supplied_settings_keys(patch.settings)
-    resolved = resolve_settings(
-        task, settings_supplied if "settings" in supplied else json.loads(row["settings"])
-    )
-
-    _check_profile(store, model_id, task, settings_supplied, resolved)
-    _session_refs(store, profile_id)
-
-    fields = {k: v for k, v in supplied.items() if k != "settings"}
-    if "settings" in supplied:
-        fields["settings"] = resolved
-
+    if not isinstance(body, dict):
+        raise ApiError(422, "Profile patch must be a JSON object.")
+    if any(v is None for v in body.values()):
+        raise ApiError(422, "Explicit null values are not allowed in updates.")
+    _validate_body(store, body)
+    data = json.loads(row["data"] or "{}")
+    fields: dict = {}
+    for k, v in body.items():
+        if k in ("id", "created_at"):
+            continue
+        if k == "updated_at":
+            continue
+        (fields if k in ("name", "is_active") else data)[k] = v
+    data["updated_at"] = now_iso()
+    update = {"data": data}
+    if "name" in fields:
+        update["name"] = fields["name"]
     with store.write_txn():
         check_if_match(request, store)
-        if fields:
-            store.profiles.update(profile_id, fields)
+        store.profiles.update(int(profile_id), update)
+        if "is_active" in fields:
+            if fields["is_active"]:
+                store.profiles.set_active(int(profile_id))
+            else:
+                store.profiles.update(int(profile_id), {"active": 0})
         revision = store.bump_revision()
-    row = store.profiles.get(profile_id)
-    return JSONResponse(profile_read(row), headers={"ETag": revision})
+    return JSONResponse(profile_read(store.profiles.get(int(profile_id))),
+                        headers={"ETag": revision})
 
 
 @router.delete("/api/v1/profiles/{profile_id}", status_code=204)
 def delete_api_v1_profiles_profile_id(
-    request: Request, response: Response, store: StoreDep,
-    profile_id: int = Path(ge=1, le=9223372036854775807)
-) -> None:
+        request: Request, response: Response, store: StoreDep, profile_id: str) -> None:
     require_if_match(request)
-    row = _get_profile_or_404(store, profile_id)
-    if row["active"]:
-        raise ApiError(409, "Cannot delete the active profile; activate another first.")
-    _session_refs(store, profile_id)
+    _get_profile_or_404(store, profile_id)
     with store.write_txn():
         check_if_match(request, store)
-        store.profiles.delete(profile_id)
+        store.profiles.delete(int(profile_id))
         response.headers["ETag"] = store.bump_revision()
-
-
-@router.post("/api/v1/profiles/{profile_id}/validate")
-def post_api_v1_profiles_profile_id_validate(
-    request: Request, store: StoreDep, profile_id: int = Path(ge=1)
-) -> dict:
-    row = _get_profile_or_404(store, profile_id)
-    read = profile_read(row)
-    model_row = store.models.get(read["model_id"])
-    if model_row is None:
-        return {
-            "valid": False,
-            "errors": [f"model {read['model_id']!r} is no longer registered"],
-            "warnings": [],
-            "details": {"model_id": read["model_id"], "task": read["task"]},
-        }
-    errors, warnings = profile_errors(store, model_row, read["task"], {}, read["settings"])
-    return {
-        "valid": not errors,
-        "errors": errors,
-        "warnings": warnings,
-        "details": {
-            "model_id": read["model_id"],
-            "engine_id": model_runtime(store, model_row)["engine_id"],
-            "task": read["task"],
-        },
-    }
 
 
 @router.post("/api/v1/profiles/{profile_id}/activate")
 def post_api_v1_profiles_profile_id_activate(
-    request: Request, store: StoreDep,
-    profile_id: int = Path(ge=1, le=9223372036854775807)
-) -> JSONResponse:
+        request: Request, store: StoreDep, profile_id: str) -> JSONResponse:
     require_if_match(request)
-    row = _get_profile_or_404(store, profile_id)
-    read = profile_read(row)
-    # Activation re-checks current compatibility; runtime unavailability is OK.
-    _check_profile(store, read["model_id"], read["task"], {}, read["settings"])
-
+    _get_profile_or_404(store, profile_id)
     with store.write_txn():
         check_if_match(request, store)
-        store.profiles.set_active(profile_id)
+        store.profiles.set_active(int(profile_id))
         revision = store.bump_revision()
-    row = store.profiles.get(profile_id)
-    return JSONResponse(profile_read(row), headers={"ETag": revision})
+    return JSONResponse(profile_read(store.profiles.get(int(profile_id))),
+                        headers={"ETag": revision})

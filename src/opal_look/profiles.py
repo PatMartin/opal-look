@@ -70,11 +70,11 @@ def profile_errors(
 
 
 def profile_read(row: sqlite3.Row) -> dict[str, Any]:
+    """Kernel OpalProfile: opaque fields persisted verbatim in `data`."""
+    data = json.loads(row["data"] or "{}") if "data" in row.keys() else {}
     return {
-        "profile_id": row["profile_id"],
+        "id": row["profile_id"],
         "name": row["name"],
-        "model_id": row["model_id"],
-        "task": row["task"],
-        "settings": json.loads(row["settings"]),
-        "active": bool(row["active"]),
+        "is_active": bool(row["active"]),
+        **data,
     }

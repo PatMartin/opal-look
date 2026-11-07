@@ -56,6 +56,29 @@ class SqliteProfileRepository:
     def delete_all(self) -> None:
         self._conn.execute("DELETE FROM profiles")
 
+    def insert_kernel(self, fields: dict) -> int:
+        """Insert a kernel OpalProfile blob; returns the integer profile_id."""
+        cursor = self._conn.execute(
+            "INSERT INTO profiles (name, model_id, task, settings, active, data) "
+            "VALUES (?, ?, ?, ?, ?, ?)",
+            (fields["name"], fields.get("model_id", ""),
+             fields.get("task", ""), json.dumps({}),
+             int(bool(fields.get("is_active"))),
+             json.dumps(fields.get("data", {}))),
+        )
+        return cursor.lastrowid
+
+    def insert_kernel_explicit(self, fields: dict) -> None:
+        """Insert preserving profile_id/active (configuration import)."""
+        self._conn.execute(
+            "INSERT INTO profiles (profile_id, name, model_id, task, settings, "
+            "active, data) VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (fields["profile_id"], fields["name"], fields.get("model_id", ""),
+             fields.get("task", ""), json.dumps({}),
+             int(bool(fields.get("is_active"))),
+             json.dumps(fields.get("data", {}))),
+        )
+
     def insert(self, name: str, model_id: str, task: str, settings: dict, active: bool) -> int:
         cursor = self._conn.execute(
             "INSERT INTO profiles (name, model_id, task, settings, active) VALUES (?, ?, ?, ?, ?)",

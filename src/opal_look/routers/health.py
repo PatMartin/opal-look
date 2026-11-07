@@ -79,7 +79,9 @@ def _health_read(request: Request, store) -> dict:
         "status": status,
         "version": SERVICE_VERSION,
         "ready": ready,
-        "active_profile_id": None,
+        "active_profile_id": (
+            store.profiles.get_active()["profile_id"]
+            if store.profiles.get_active() is not None else None),
         "engines": [
             {
                 "engine_id": e["engine_id"],

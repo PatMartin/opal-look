@@ -113,15 +113,15 @@ def test_model_patch_options_422_and_ok(client):
     assert resp.status_code == 200
 
 
-def test_delete_referenced_model_409(client):
-    """Models referenced by profiles cannot be deleted."""
-    pid = client.post(
+def test_kernel_profile_does_not_reference_model(client):
+    """Kernel OpalProfile has no model_id field: a profile does not block
+    model deletion the way the retired local profile resource did."""
+    resp = client.post(
         "/api/v1/profiles/",
         json={"name": "p", "model_id": "synthetic-vision", "task": "detection"},
         headers={"If-Match": "*"},
-    ).json()["profile_id"]
-    assert client.delete("/api/v1/models/synthetic-vision",
-                         headers={"If-Match": "*"}).status_code == 409
+    )
+    assert resp.status_code == 201
+    pid = resp.json()["id"]
     # Cleanup: remove profile so other tests are unaffected.
-    client.post(f"/api/v1/profiles/{pid}/activate", headers={"If-Match": "*"})
     client.delete(f"/api/v1/profiles/{pid}", headers={"If-Match": "*"})

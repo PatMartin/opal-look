@@ -328,6 +328,11 @@ class Store:
         if "updated_at" not in ocols:
             self._conn.execute(
                 "ALTER TABLE setting_overrides ADD COLUMN updated_at TEXT")
+        pcols = {r["name"] for r in self._conn.execute(
+            "PRAGMA table_info(profiles)")}
+        if "data" not in pcols:
+            self._conn.execute(
+                "ALTER TABLE profiles ADD COLUMN data TEXT NOT NULL DEFAULT '{}'")
         scols = {r["name"] for r in self._conn.execute("PRAGMA table_info(sources)")}
         if "zones" not in scols:
             self._conn.execute("ALTER TABLE sources ADD COLUMN zones TEXT NOT NULL DEFAULT '[]'")

@@ -93,7 +93,12 @@ def build_export(store) -> dict[str, Any]:
         "exported_at": now_iso(),
         "settings": effective_settings(store).model_dump(mode="json"),
         "engines": engines,
-        "profiles": [],
+        "profiles": [
+            {**json.loads(r["data"] or "{}"),
+             "id": r["profile_id"], "name": r["name"],
+             "is_active": bool(r["active"])}
+            for r in store.profiles.list()
+        ],
         "models": models,
         "sources": sources,
         "pipelines": pipelines,
@@ -229,6 +234,8 @@ def apply_import(store, request, config: dict[str, Any],
         store.pipelines.delete(row["pipeline_id"])
     for row in store.models.list():
         store.models.delete(row["model_id"])
+    for row in store.profiles.list():
+        store.profiles.delete(row["profile_id"])
 
     for e in config.get("engines", []):
         eid = e.get("engine_id") or e.get("id")
@@ -260,6 +267,17 @@ def apply_import(store, request, config: dict[str, Any],
             "options": p.get("options") or {},
             "retention": p.get("retention") or {},
         })
+    for p in config.get("profiles", []):
+        pid = p.get("id")
+        data = {k: v for k, v in p.items() if k not in ("id", "is_active")}
+        if isinstance(pid, int):
+            store.profiles.insert_kernel_explicit(
+                {"profile_id": pid, "name": data.pop("name", str(pid)),
+                 "is_active": bool(p.get("is_active")), "data": data})
+        else:
+            store.profiles.insert_kernel(
+                {"name": data.pop("name", "profile"),
+                 "is_active": bool(p.get("is_active")), "data": data})
     for mon in config.get("monitors", []):
         store.monitors.insert({
             "monitor_id": mon["id"], "name": mon.get("name", mon["id"]),

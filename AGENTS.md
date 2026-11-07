@@ -64,7 +64,7 @@ stays as historical reference — do not edit either contract file.
   Correlation so 401s keep X-Opal headers). Unset -> loopback dev mode;
   `main.py` refuses non-loopback binds without it. Never log/export/echo
   the token or accept it in query strings. CLI sends it automatically.
-- Planned clients (later phases): `opal-look-cli` (Typer, REST-only via
+- Planned clients (later phases): `opal-look` (Typer, REST-only via
   httpx; suite verb taxonomy add/remove/update/list/show + operational
   verbs per upstream x-opal-cli conventions) and a full-coverage SPA
   (static assets at /app/ calling REST, no business logic).

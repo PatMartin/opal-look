@@ -1,0 +1,6 @@
+{
+    "id":"side",
+    "name":"Side Yard",
+    "kind":"rtsp",
+    "locator":"rtsp://192.168.1.237:554/stream1"
+}

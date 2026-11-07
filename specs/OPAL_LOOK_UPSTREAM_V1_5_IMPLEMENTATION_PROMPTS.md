@@ -231,7 +231,7 @@ count must reach 0.
 
 ### 17 — CLI re-mirror
 
-Regenerate/hand-wire `opal-look-cli` from the new contract's `x-opal-cli`
+Regenerate/hand-wire `opal-look` from the new contract's `x-opal-cli`
 metadata: restore sessions/zones/rules/profiles/captures/artifacts groups;
 `download` verbs for captures/artifacts; remove `observe`, old `capture`,
 monitors `stream`, media `download`. Keep the error-handling fixes from the

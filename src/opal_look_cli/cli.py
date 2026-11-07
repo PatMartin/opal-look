@@ -1,4 +1,4 @@
-"""opal-look-cli: thin REST client mirroring the v1.5 contract.
+"""opal-look: thin REST client mirroring the v1.5 contract.
 
 Group/verb layout follows the contract's x-opal-cli metadata:
 add/remove/update/list/show plus operational verbs (view, observe,
@@ -23,10 +23,10 @@ app = typer.Typer(
     help="OPAL Look v1.5 REST CLI (thin client; no business logic).",
     epilog=(
         "Examples:\n"
-        "  opal-look-cli health show\n"
-        "  opal-look-cli --json engines list\n"
-        "  opal-look-cli --url http://host:8000 sources list\n"
-        "  opal-look-cli tree                    # print the full command tree"),
+        "  opal-look health show\n"
+        "  opal-look --json engines list\n"
+        "  opal-look --url http://host:8000 sources list\n"
+        "  opal-look tree                    # print the full command tree"),
 )
 
 _state: dict = {"url": "http://127.0.0.1:8000", "json_out": False,
@@ -124,43 +124,43 @@ def _post_action(path: str, json_data=None) -> None:
 app.add_typer(
     _crud("engines", "/api/v1/engines/", epilog=(
         "Examples:\n"
-        "  opal-look-cli engines list\n"
-        "  opal-look-cli engines show ENGINE_ID")),
+        "  opal-look engines list\n"
+        "  opal-look engines show ENGINE_ID")),
     name="engines")
 app.add_typer(
     _crud("models", "/api/v1/models/", epilog=(
         "Examples:\n"
-        "  opal-look-cli models list\n"
-        "  opal-look-cli models show synthetic-vision")),
+        "  opal-look models list\n"
+        "  opal-look models show synthetic-vision")),
     name="models")
 _pipes = _crud("pipelines", "/api/v1/pipelines/", epilog=(
     "Examples:\n"
-    "  opal-look-cli pipelines list\n"
-    "  opal-look-cli pipelines add --file pipeline.json\n"
-    "  opal-look-cli pipelines validate --file pipeline.json\n"
-    "  opal-look-cli pipelines update PIPELINE_ID --file changes.json"))
+    "  opal-look pipelines list\n"
+    "  opal-look pipelines add --file pipeline.json\n"
+    "  opal-look pipelines validate --file pipeline.json\n"
+    "  opal-look pipelines update PIPELINE_ID --file changes.json"))
 _mons = _crud("monitors", "/api/v1/monitors/", epilog=(
     "Examples:\n"
-    "  opal-look-cli monitors add --file monitor.json\n"
-    "  opal-look-cli monitors stream MONITOR_ID    # tail SSE observations"))
+    "  opal-look monitors add --file monitor.json\n"
+    "  opal-look monitors stream MONITOR_ID    # tail SSE observations"))
 app.add_typer(_pipes, name="pipelines")
 app.add_typer(_mons, name="monitors")
 app.add_typer(
     _crud("observations", "/api/v1/observations/", epilog=(
         "Examples:\n"
-        "  opal-look-cli observations list\n"
-        "  opal-look-cli observations show OBSERVATION_ID")),
+        "  opal-look observations list\n"
+        "  opal-look observations show OBSERVATION_ID")),
     name="observations")
 
 src = _crud("sources", "/api/v1/sources/", epilog=(
     "Examples:\n"
-    "  opal-look-cli sources add --file camera.json\n"
-    "  opal-look-cli sources status SOURCE_ID\n"
-    "  opal-look-cli sources probe SOURCE_ID\n"
-    "  opal-look-cli sources frame SOURCE_ID --out frame.jpg\n"
-    "  opal-look-cli sources view SOURCE_ID --out clip.mjpeg\n"
-    "  opal-look-cli sources observe SOURCE_ID     # tail SSE observations\n"
-    "  opal-look-cli sources capture SOURCE_ID --annotated"))
+    "  opal-look sources add --file camera.json\n"
+    "  opal-look sources status SOURCE_ID\n"
+    "  opal-look sources probe SOURCE_ID\n"
+    "  opal-look sources frame SOURCE_ID --out frame.jpg\n"
+    "  opal-look sources view SOURCE_ID --out clip.mjpeg\n"
+    "  opal-look sources observe SOURCE_ID     # tail SSE observations\n"
+    "  opal-look sources capture SOURCE_ID --annotated"))
 
 
 @src.command("status")
@@ -216,9 +216,9 @@ def _pipe_validate(body: str = typer.Option(None, "--body"),
 
 analyze = typer.Typer(help="analyze", epilog=(
     "Examples:\n"
-    "  opal-look-cli analyze run --body "
+    "  opal-look analyze run --body "
     "'{\"source\":{\"source_id\":\"cam\"},\"pipeline_id\":\"p1\"}'\n"
-    "  opal-look-cli analyze image photo.jpg --request '{\"task\":\"detection\"}'"))
+    "  opal-look analyze image photo.jpg --request '{\"task\":\"detection\"}'"))
 
 
 @analyze.command("run")
@@ -243,9 +243,9 @@ app.add_typer(analyze, name="analyze")
 
 jobs = _crud("jobs", "/api/v1/jobs/", epilog=(
     "Examples:\n"
-    "  opal-look-cli jobs submit --file job.json --idempotency-key run-001\n"
-    "  opal-look-cli jobs list\n"
-    "  opal-look-cli jobs cancel JOB_ID"))
+    "  opal-look jobs submit --file job.json --idempotency-key run-001\n"
+    "  opal-look jobs list\n"
+    "  opal-look jobs cancel JOB_ID"))
 
 
 @jobs.command("submit")
@@ -266,9 +266,9 @@ app.add_typer(jobs, name="jobs")
 
 med = _crud("media", "/api/v1/media/", epilog=(
     "Examples:\n"
-    "  opal-look-cli media upload frame.jpg --ttl 3600\n"
-    "  opal-look-cli media list\n"
-    "  opal-look-cli media download MEDIA_ID --out frame.jpg"))
+    "  opal-look media upload frame.jpg --ttl 3600\n"
+    "  opal-look media list\n"
+    "  opal-look media download MEDIA_ID --out frame.jpg"))
 
 
 @med.command("upload")
@@ -284,9 +284,9 @@ app.add_typer(med, name="media")
 
 rec = _crud("recordings", "/api/v1/recordings/", epilog=(
     "Examples:\n"
-    "  opal-look-cli recordings start --source SOURCE_ID --duration 30\n"
-    "  opal-look-cli recordings stop RECORDING_ID\n"
-    "  opal-look-cli recordings list"))
+    "  opal-look recordings start --source SOURCE_ID --duration 30\n"
+    "  opal-look recordings stop RECORDING_ID\n"
+    "  opal-look recordings list"))
 
 
 @rec.command("start")
@@ -311,10 +311,10 @@ app.add_typer(rec, name="recordings")
 
 settings = _crud("settings", "/api/v1/settings/", epilog=(
     "Examples:\n"
-    "  opal-look-cli settings list\n"
-    "  opal-look-cli settings show max_upload_bytes\n"
-    "  opal-look-cli settings set max_viewers 4\n"
-    "  opal-look-cli settings reset max_viewers"))
+    "  opal-look settings list\n"
+    "  opal-look settings show max_upload_bytes\n"
+    "  opal-look settings set max_viewers 4\n"
+    "  opal-look settings reset max_viewers"))
 
 
 @settings.command("set")
@@ -332,9 +332,9 @@ app.add_typer(settings, name="settings")
 
 config = typer.Typer(help="configuration", epilog=(
     "Examples:\n"
-    "  opal-look-cli configuration export\n"
-    "  opal-look-cli configuration validate --file config.json\n"
-    "  opal-look-cli configuration import --file config.json "
+    "  opal-look configuration export\n"
+    "  opal-look configuration validate --file config.json\n"
+    "  opal-look configuration import --file config.json "
     "--bindings bindings.json"))
 
 
@@ -363,9 +363,9 @@ app.add_typer(config, name="configuration")
 
 health = typer.Typer(help="health", epilog=(
     "Examples:\n"
-    "  opal-look-cli health show\n"
-    "  opal-look-cli health live\n"
-    "  opal-look-cli health ready"))
+    "  opal-look health show\n"
+    "  opal-look health live\n"
+    "  opal-look health ready"))
 health.command("show")(lambda: _emit(unwrap(_client().get("/api/v1/health/"))))
 health.command("live")(lambda: _emit(unwrap(_client().get("/api/v1/health/live"))))
 health.command("ready")(lambda: _emit(unwrap(_client().get("/api/v1/health/ready"))))
@@ -373,19 +373,19 @@ app.add_typer(health, name="health")
 
 metrics = typer.Typer(help="metrics", epilog=(
     "Examples:\n"
-    "  opal-look-cli metrics show"))
+    "  opal-look metrics show"))
 metrics.command("show")(lambda: _emit(unwrap(_client().get("/api/v1/metrics/"))))
 app.add_typer(metrics, name="metrics")
 
 events = typer.Typer(help="events", epilog=(
     "Examples:\n"
-    "  opal-look-cli events status"))
+    "  opal-look events status"))
 events.command("status")(lambda: _emit(unwrap(_client().get("/api/v1/events/status"))))
 app.add_typer(events, name="events")
 
 caps = typer.Typer(help="capabilities", epilog=(
     "Examples:\n"
-    "  opal-look-cli capabilities show"))
+    "  opal-look capabilities show"))
 caps.command("show")(lambda: _emit(unwrap(_client().get("/api/v1/capabilities/"))))
 app.add_typer(caps, name="capabilities")
 
@@ -394,11 +394,11 @@ app.add_typer(caps, name="capabilities")
 
 sessions = typer.Typer(help="sessions", epilog=(
     "Examples:\n"
-    "  opal-look-cli sessions start --body "
+    "  opal-look sessions start --body "
     "'{\"source_id\":\"cam\",\"pipeline_id\":\"p1\"}'\n"
-    "  opal-look-cli sessions list\n"
-    "  opal-look-cli sessions observations SESSION_ID\n"
-    "  opal-look-cli sessions preview SESSION_ID --out view.mjpeg"))
+    "  opal-look sessions list\n"
+    "  opal-look sessions observations SESSION_ID\n"
+    "  opal-look sessions preview SESSION_ID --out view.mjpeg"))
 
 
 @sessions.command("start")
@@ -446,9 +446,9 @@ app.add_typer(sessions, name="sessions")
 
 profiles = _crud("profiles", "/api/v1/profiles/", epilog=(
     "Examples:\n"
-    "  opal-look-cli profiles add --body '{\"name\":\"night\",\"pipeline_id\":\"p1\"}'\n"
-    "  opal-look-cli profiles activate PROFILE_ID\n"
-    "  opal-look-cli profiles list"))
+    "  opal-look profiles add --body '{\"name\":\"night\",\"pipeline_id\":\"p1\"}'\n"
+    "  opal-look profiles activate PROFILE_ID\n"
+    "  opal-look profiles list"))
 
 
 @profiles.command("activate")
@@ -462,26 +462,26 @@ app.add_typer(profiles, name="profiles")
 app.add_typer(
     _crud("rules", "/api/v1/rules/", epilog=(
         "Examples:\n"
-        "  opal-look-cli rules add --body "
+        "  opal-look rules add --body "
         "'{\"id\":\"r1\",\"name\":\"R\",\"source_id\":\"cam\",\"kind\":\"enters_zone\",\"zone_id\":\"z1\"}'\n"
-        "  opal-look-cli rules list\n"
-        "  opal-look-cli rules show r1")),
+        "  opal-look rules list\n"
+        "  opal-look rules show r1")),
     name="rules")
 
 app.add_typer(
     _crud("zones", "/api/v1/zones/", epilog=(
         "Examples:\n"
-        "  opal-look-cli zones add --body "
+        "  opal-look zones add --body "
         "'{\"id\":\"z1\",\"source_id\":\"cam\",\"name\":\"Z\",\"kind\":\"polygon\",\"points\":[{\"x\":0,\"y\":0},{\"x\":1,\"y\":0},{\"x\":1,\"y\":1}]}'\n"
-        "  opal-look-cli zones list\n"
-        "  opal-look-cli zones show z1")),
+        "  opal-look zones list\n"
+        "  opal-look zones show z1")),
     name="zones")
 
 captures = typer.Typer(help="captures", epilog=(
     "Examples:\n"
-    "  opal-look-cli captures list\n"
-    "  opal-look-cli captures show CAPTURE_ID\n"
-    "  opal-look-cli captures download CAPTURE_ID --out cap.jpg"))
+    "  opal-look captures list\n"
+    "  opal-look captures show CAPTURE_ID\n"
+    "  opal-look captures download CAPTURE_ID --out cap.jpg"))
 
 
 @captures.command("list")
@@ -514,9 +514,9 @@ app.add_typer(captures, name="captures")
 
 artifacts = typer.Typer(help="artifacts", epilog=(
     "Examples:\n"
-    "  opal-look-cli artifacts list\n"
-    "  opal-look-cli artifacts show ARTIFACT_ID\n"
-    "  opal-look-cli artifacts download ARTIFACT_ID --out video.mjpeg"))
+    "  opal-look artifacts list\n"
+    "  opal-look artifacts show ARTIFACT_ID\n"
+    "  opal-look artifacts download ARTIFACT_ID --out video.mjpeg"))
 
 
 @artifacts.command("list")
@@ -552,14 +552,14 @@ app.add_typer(artifacts, name="artifacts")
 
 @app.command("info", epilog=(
     "Examples:\n"
-    "  opal-look-cli info"))
+    "  opal-look info"))
 def _info():
     _emit(unwrap(_client().get("/")))
 
 
 @app.command("tree", epilog=(
     "Examples:\n"
-    "  opal-look-cli tree"))
+    "  opal-look tree"))
 def _tree():
     """Print the full CLI command tree (options in [])."""
     import click

@@ -71,13 +71,13 @@ The repository declares two console commands:
 | Command | Purpose |
 | --- | --- |
 | `opal-look` | Run the FastAPI service |
-| `opal-look-cli` | Call its REST API using Typer |
+| `opal-look` | Call its REST API using Typer |
 
-**Source-checkout note:** The current `pyproject.toml` explicitly packages `src/opal_look` but not the sibling `src/opal_look_cli` directory. If `opal-look-cli` fails with `ModuleNotFoundError: opal_look_cli`, expose the source tree while working from the checkout:
+**Source-checkout note:** The current `pyproject.toml` explicitly packages `src/opal_look` but not the sibling `src/opal_look_cli` directory. If `opal-look` fails with `ModuleNotFoundError: opal_look_cli`, expose the source tree while working from the checkout:
 
 ~~~bash
 export PYTHONPATH="$PWD/src:$PYTHONPATH"
-opal-look-cli --help
+opal-look --help
 
 # Alternative that doesn't depend on the installed script:
 python -m opal_look_cli.cli --help
@@ -102,11 +102,11 @@ Open terminal two in the repository directory, activate the virtual environment,
 source .venv/bin/activate
 export PYTHONPATH="$PWD/src:$PYTHONPATH"
 
-opal-look-cli info
-opal-look-cli health
-opal-look-cli engines list
-opal-look-cli models list
-opal-look-cli settings show
+opal-look info
+opal-look health
+opal-look engines list
+opal-look models list
+opal-look settings show
 ~~~
 
 Default locations:
@@ -117,13 +117,13 @@ The included **synthetic** engine/model is useful for exploring the API and test
 First, upload a local JPEG or PNG:
 
 ```bash
-opal-look-cli media upload ./example.jpg
+opal-look media upload ./example.jpg
 ```
 
 Copy the `media_id` from the response, then run an analysis against it (replace `YOUR_MEDIA_ID`):
 
 ```bash
-opal-look-cli analyze run --body '{"media_id":"YOUR_MEDIA_ID","model_id":"synthetic-vision","task":"detection"}'
+opal-look analyze run --body '{"media_id":"YOUR_MEDIA_ID","model_id":"synthetic-vision","task":"detection"}'
 ```
 
 Alternatively, explore uploads, analysis, and results using the [web app](http://127.0.0.1:8000/app/).
@@ -133,16 +133,16 @@ Alternatively, explore uploads, analysis, and results using the [web app](http:/
 RTSP sources decode through PyAV (bundled FFmpeg — no system install needed). Register a camera, validate connectivity, then open a live analysis session:
 
 ```bash
-opal-look-cli sources add --body '{"source_id":"driveway","name":"Driveway","type":"rtsp","locator":"rtsp://192.168.1.50:554/stream1"}'
-opal-look-cli sources validate driveway
-opal-look-cli sessions add --body '{"source_id":"driveway","model_id":"synthetic-vision","task":"detection"}'
+opal-look sources add --body '{"source_id":"driveway","name":"Driveway","type":"rtsp","locator":"rtsp://192.168.1.50:554/stream1"}'
+opal-look sources validate driveway
+opal-look sessions add --body '{"source_id":"driveway","model_id":"synthetic-vision","task":"detection"}'
 ```
 
 For authenticated cameras, provision credentials out of band before starting the service — never in the locator:
 
 ```bash
 export OPAL_LOOK_CRED_DRIVEWAY=camera-user:camera-pass
-opal-look-cli sources update driveway --body '{"credential_ref":"driveway"}'
+opal-look sources update driveway --body '{"credential_ref":"driveway"}'
 ```
 
 Live sessions honor `settings.max_fps` analysis pacing and the `reconnect` policy (exponential backoff; exhaustion fails the session). MJPEG preview and SSE result events work the same as for media sessions.
@@ -182,10 +182,10 @@ The core design is **API-first**: the server owns behavior, persistence, and val
 OPAL_LOOK_PORT=8002 opal-look
 
 # CLI terminal:
-opal-look-cli --url http://127.0.0.1:8002 health
+opal-look --url http://127.0.0.1:8002 health
 ~~~
 
-The remainder of this guide assumes the service is on the default port 8000. If you chose 8002, add `--url http://127.0.0.1:8002` immediately after `opal-look-cli` (or use a shell alias).
+The remainder of this guide assumes the service is on the default port 8000. If you chose 8002, add `--url http://127.0.0.1:8002` immediately after `opal-look` (or use a shell alias).
 
 ### 3. Analyze your first image—without a camera or a model download
 
@@ -193,31 +193,31 @@ There's already a PNG in the repository: **`opal-look.png`**, the artwork at the
 
 ~~~bash
 # Step 1: upload the graphic.
-opal-look-cli media upload ./opal-look.png
+opal-look media upload ./opal-look.png
 
 # The response contains a media_id, like "media-...".
 # Step 2: inspect the seeded test model.
-opal-look-cli models show synthetic-vision
-opal-look-cli models validate synthetic-vision
+opal-look models show synthetic-vision
+opal-look models validate synthetic-vision
 
 # Step 3: substitute your actual media_id below.
-opal-look-cli analyze run --body '{
+opal-look analyze run --body '{
   "input": {"kind": "media", "media_id": "YOUR_MEDIA_ID"},
   "model_id": "synthetic-vision",
   "task": "detection"
 }'
 
 # Step 4: examine the result history.
-opal-look-cli results list
+opal-look results list
 ~~~
 
 The generated `result_id` lets you inspect the analysis and capture a snapshot:
 
 ~~~bash
-opal-look-cli results show YOUR_RESULT_ID
+opal-look results show YOUR_RESULT_ID
 
 # Run promptly: snapshots need the exact frame still in the short-lived frame cache.
-opal-look-cli results snapshot YOUR_RESULT_ID --annotated --out annotated.jpg
+opal-look results snapshot YOUR_RESULT_ID --annotated --out annotated.jpg
 ~~~
 
 **The labels and boxes are synthetic test output, not real recognition of the poster.** That makes this a useful first test of API routing, storage, filters, result schemas, and snapshot rendering without requiring a GPU or a camera.
@@ -232,10 +232,10 @@ The suite exercises the implemented REST resources, CLI, persistence, analysis, 
 
 ## Complete Typer command tree
 
-This tree follows [`src/opal_look_cli/cli.py`](src/opal_look_cli/cli.py). The actual command is **`opal-look-cli`** (not yet `opal look`). Global flags belong **before** the command/group.
+This tree follows [`src/opal_look_cli/cli.py`](src/opal_look_cli/cli.py). The actual commands are **`opal-look`** and **`opal look`** (identical). Global flags belong **before** the command/group.
 
 ~~~text
-opal-look-cli
+opal-look
 │  --url URL                                   default http://127.0.0.1:8000
 │  --json                                      JSON output
 │
@@ -334,17 +334,17 @@ opal-look-cli
 **`*` Generated CLI commands without a matching server operation:** The current reusable Typer collection builder creates `add`/`remove`/`validate` for every collection. The REST API intentionally does **not** implement all of them. For example, engines cannot be added or removed through REST; results and snapshots are created by analysis and capture, not by generic `add`. Those marked commands are in the CLI tree but **should not be used**. Use the supported workflows below.
 
 ~~~bash
-opal-look-cli --help
-opal-look-cli models --help
-opal-look-cli analyze run --help
-opal-look-cli sessions add --help
-opal-look-cli results snapshot --help
+opal-look --help
+opal-look models --help
+opal-look analyze run --help
+opal-look sessions add --help
+opal-look results snapshot --help
 
 # Target another Look service:
-opal-look-cli --url http://127.0.0.1:8002 models list
+opal-look --url http://127.0.0.1:8002 models list
 
 # Output JSON for scripting:
-opal-look-cli --json models list
+opal-look --json models list
 ~~~
 
 **CLI convention:** Configuration catalog verbs are `list`, `show`, `add`, `update`, and `remove`. Operational verbs include `validate`, `activate`, `upload`, `download`, `run`, `snapshot`, and `stop`. The CLI sends REST requests; it does not run inference or access the database directly.
@@ -381,22 +381,22 @@ First install [`jq`](https://jqlang.github.io/jq/) if you want the shell to extr
 
 ~~~bash
 # Upload the repo artwork and capture the server-generated ID.
-MEDIA_ID=$(opal-look-cli --json media upload ./opal-look.png | jq -r .media_id)
+MEDIA_ID=$(opal-look --json media upload ./opal-look.png | jq -r .media_id)
 echo "Uploaded: $MEDIA_ID"
 
 # Run a synthetic detection analysis; capture the result.
 RESULT_ID=$(
-  opal-look-cli --json analyze run --body \
+  opal-look --json analyze run --body \
     "{\"input\":{\"kind\":\"media\",\"media_id\":\"$MEDIA_ID\"},\"model_id\":\"synthetic-vision\",\"task\":\"detection\"}" \
   | jq -r .result_id
 )
 echo "Result: $RESULT_ID"
 
 # Read it back from persistence.
-opal-look-cli results show "$RESULT_ID"
+opal-look results show "$RESULT_ID"
 
 # Export an annotated JPEG while the exact frame remains cached.
-opal-look-cli results snapshot "$RESULT_ID" \
+opal-look results snapshot "$RESULT_ID" \
   --annotated --out ./first-result.jpg
 ~~~
 
@@ -418,7 +418,7 @@ A real vision backend may eventually support only some tasks. The synthetic adap
 # Reuse MEDIA_ID from the previous example.
 for TASK in detection classification segmentation pose ocr; do
   echo "=== $TASK ==="
-  opal-look-cli analyze run --body \
+  opal-look analyze run --body \
     "{\"input\":{\"kind\":\"media\",\"media_id\":\"$MEDIA_ID\"},\"model_id\":\"synthetic-vision\",\"task\":\"$TASK\"}"
 done
 ~~~
@@ -436,7 +436,7 @@ The **current synthetic outputs are generated test data**. They prove that the p
 Want to exercise semantic segmentation specifically?
 
 ~~~bash
-opal-look-cli analyze run --body \
+opal-look analyze run --body \
   "{\"input\":{\"kind\":\"media\",\"media_id\":\"$MEDIA_ID\"},\"model_id\":\"synthetic-vision\",\"task\":\"segmentation\",\"settings\":{\"segmentation_kind\":\"semantic\"}}"
 ~~~
 
@@ -445,7 +445,7 @@ opal-look-cli analyze run --body \
 A model might detect several object classes, but your workflow may only care about people in a defined region. Filters are **portable settings**, applied after the inference adapter returns its raw predictions.
 
 ~~~bash
-opal-look-cli analyze run --body \
+opal-look analyze run --body \
   "{\"input\":{\"kind\":\"media\",\"media_id\":\"$MEDIA_ID\"},\"model_id\":\"synthetic-vision\",\"task\":\"detection\",\"settings\":{\"confidence\":0.7,\"class_labels\":[\"person\"]}}"
 ~~~
 
@@ -476,7 +476,7 @@ cat > filtered-analysis.json <<'JSON'
 JSON
 
 # Replace the placeholder in that file with an actual uploaded media_id.
-opal-look-cli analyze run --file filtered-analysis.json
+opal-look analyze run --file filtered-analysis.json
 ~~~
 
 Coordinates range from **0 to 1** across the image. A detection passes the polygon test when the **center of its bounding box** lies inside the region. This is a useful way to prototype a driveway-only or doorway-only rule without tying the rest of the system to a particular model.
@@ -488,7 +488,7 @@ Coordinates range from **0 to 1** across the image. A detection passes the polyg
 Profiles stop you from repeating the same model, task, and filtering settings in every call.
 
 ~~~bash
-opal-look-cli profiles add --body '{
+opal-look profiles add --body '{
   "name": "Front door prototype",
   "model_id": "synthetic-vision",
   "task": "detection",
@@ -498,18 +498,18 @@ opal-look-cli profiles add --body '{
   }
 }'
 
-opal-look-cli profiles list
+opal-look profiles list
 
 # Use the numeric profile_id returned above:
-opal-look-cli profiles show YOUR_PROFILE_ID
-opal-look-cli profiles validate YOUR_PROFILE_ID
-opal-look-cli profiles activate YOUR_PROFILE_ID
+opal-look profiles show YOUR_PROFILE_ID
+opal-look profiles validate YOUR_PROFILE_ID
+opal-look profiles activate YOUR_PROFILE_ID
 ~~~
 
 Once a profile is active, a one-frame request can omit `model_id` and `task`:
 
 ~~~bash
-opal-look-cli analyze run --body \
+opal-look analyze run --body \
   "{\"input\":{\"kind\":\"media\",\"media_id\":\"$MEDIA_ID\"}}"
 ~~~
 
@@ -518,7 +518,7 @@ The service resolves the active profile, or you can specify `"profile_id": 1` in
 You can edit a profile with a partial patch:
 
 ~~~bash
-opal-look-cli profiles update YOUR_PROFILE_ID \
+opal-look profiles update YOUR_PROFILE_ID \
   --body '{"settings":{"confidence":0.8,"class_labels":["person"]}}'
 ~~~
 
@@ -530,15 +530,15 @@ A `media` source is a named way to reference an uploaded image. Unlike a live ca
 
 ~~~bash
 # Create a named source for the already-uploaded image.
-opal-look-cli sources add --body \
+opal-look sources add --body \
   "{\"source_id\":\"demo-poster\",\"name\":\"README poster\",\"type\":\"media\",\"locator\":\"$MEDIA_ID\"}"
 
-opal-look-cli sources list
-opal-look-cli sources show demo-poster
-opal-look-cli sources validate demo-poster
+opal-look sources list
+opal-look sources show demo-poster
+opal-look sources validate demo-poster
 
 # Analyze by source rather than by media ID.
-opal-look-cli analyze run --body '{
+opal-look analyze run --body '{
   "input": {"kind": "source", "source_id": "demo-poster"},
   "model_id": "synthetic-vision",
   "task": "classification"
@@ -550,9 +550,9 @@ The source points to a **media record**, not a copied image. If that media expir
 To save a fresh copy of the original locally:
 
 ~~~bash
-opal-look-cli media download "$MEDIA_ID" --out restored-poster.png
-opal-look-cli media show "$MEDIA_ID"
-opal-look-cli media list
+opal-look media download "$MEDIA_ID" --out restored-poster.png
+opal-look media show "$MEDIA_ID"
+opal-look media list
 ~~~
 
 ### Use case 6: Create a managed analysis session
@@ -562,7 +562,7 @@ A one-shot analysis returns immediately when inference completes. A **session** 
 A media-backed session processes its image and normally completes quickly:
 
 ~~~bash
-opal-look-cli sessions add --body '{
+opal-look sessions add --body '{
   "source_id": "demo-poster",
   "model_id": "synthetic-vision",
   "task": "detection",
@@ -570,12 +570,12 @@ opal-look-cli sessions add --body '{
 }'
 
 # Copy the returned session_id:
-opal-look-cli sessions show YOUR_SESSION_ID
-opal-look-cli sessions latest YOUR_SESSION_ID
-opal-look-cli sessions list --state completed
+opal-look sessions show YOUR_SESSION_ID
+opal-look sessions latest YOUR_SESSION_ID
+opal-look sessions list --state completed
 
 # Inspect the results, including those from the session.
-opal-look-cli results list
+opal-look results list
 ~~~
 
 Sessions start with HTTP **202 Accepted**, transition through the worker, and normally end as `completed` for one uploaded image. If `sessions latest` initially says the result is unavailable, poll `sessions show` until the session has produced a frame.
@@ -583,7 +583,7 @@ Sessions start with HTTP **202 Accepted**, transition through the worker, and no
 Use `--idempotency-key` if your client could retry the same start request:
 
 ~~~bash
-opal-look-cli sessions add \
+opal-look sessions add \
   --idempotency-key demo-poster-once \
   --body '{"source_id":"demo-poster","model_id":"synthetic-vision","task":"detection"}'
 ~~~
@@ -593,10 +593,10 @@ Reusing the same key **with the same body** can return the original session; reu
 The CLI also exposes:
 
 ~~~bash
-opal-look-cli sessions events YOUR_SESSION_ID
-opal-look-cli sessions stream YOUR_SESSION_ID
-opal-look-cli sessions stop YOUR_SESSION_ID
-opal-look-cli sessions remove YOUR_SESSION_ID
+opal-look sessions events YOUR_SESSION_ID
+opal-look sessions stream YOUR_SESSION_ID
+opal-look sessions stop YOUR_SESSION_ID
+opal-look sessions remove YOUR_SESSION_ID
 ~~~
 
 A session must be terminal before it can be removed. The current CLI uses buffered HTTP reads for `events` and `stream`, so do not depend on those commands for interactive long-running SSE monitoring. For real-time consumption in a future live-source adapter, use an SSE-capable HTTP client against the server endpoints.
@@ -607,16 +607,16 @@ After an analysis, the server keeps the **exact analyzed frame in a short-lived 
 
 ~~~bash
 # Immediate one-off JPEG, written to the local file:
-opal-look-cli results snapshot YOUR_RESULT_ID \
+opal-look results snapshot YOUR_RESULT_ID \
   --annotated --out ./annotated.jpg
 
 # Create a separately retained snapshot resource instead:
-opal-look-cli results snapshot YOUR_RESULT_ID \
+opal-look results snapshot YOUR_RESULT_ID \
   --annotated --retain
 
 # Inspect the retained resource by snapshot_id from the response:
-opal-look-cli snapshots list
-opal-look-cli snapshots show YOUR_SNAPSHOT_ID
+opal-look snapshots list
+opal-look snapshots show YOUR_SNAPSHOT_ID
 ~~~
 
 For a retained snapshot, use REST to download the JPEG:
@@ -634,9 +634,9 @@ curl -fS \
 The API lets you register a camera or network source. It validates the locator and supported options. That is useful configuration work **even before** the capture adapter exists.
 
 ~~~bash
-opal-look-cli devices cameras
+opal-look devices cameras
 
-opal-look-cli sources add --body '{
+opal-look sources add --body '{
   "source_id": "front-door",
   "name": "Front door RTSP",
   "type": "rtsp",
@@ -644,8 +644,8 @@ opal-look-cli sources add --body '{
   "source_options": {"transport": "tcp"}
 }'
 
-opal-look-cli sources show front-door
-opal-look-cli sources validate front-door
+opal-look sources show front-door
+opal-look sources validate front-door
 ~~~
 
 The `192.0.2.10` address is a documentation-only example; replace it with your camera's host and RTSP path. **Do not put usernames and passwords in the locator URL**—the validator rejects inline credentials. There is a separate `credential_ref` field in the contract for credentials provisioned elsewhere.
@@ -659,18 +659,18 @@ Once actual live capture exists, session preview is designed around `GET /api/v1
 You can register models that reference installed engine adapters. Here's an intentionally **synthetic** model for deterministic regression experiments:
 
 ~~~bash
-opal-look-cli models add --body '{
+opal-look models add --body '{
   "model_id": "synthetic-workshop",
   "name": "Workshop test model",
   "engine_id": "synthetic",
   "resource": {"ref": "builtin"}
 }'
 
-opal-look-cli models show synthetic-workshop
-opal-look-cli models validate synthetic-workshop
+opal-look models show synthetic-workshop
+opal-look models validate synthetic-workshop
 
 # Deterministic output, useful for testing client code:
-opal-look-cli analyze run --body \
+opal-look analyze run --body \
   "{\"input\":{\"kind\":\"media\",\"media_id\":\"$MEDIA_ID\"},\"model_id\":\"synthetic-workshop\",\"task\":\"detection\",\"settings\":{\"engine_options\":{\"seed\":42}}}"
 ~~~
 
@@ -681,11 +681,11 @@ Third-party trained adapters can be registered through the Python `opal_look.eng
 ### Use case 10: Search and inspect results later
 
 ~~~bash
-opal-look-cli results list
-opal-look-cli results show YOUR_RESULT_ID
-opal-look-cli media list
-opal-look-cli snapshots list
-opal-look-cli sessions list
+opal-look results list
+opal-look results show YOUR_RESULT_ID
+opal-look media list
+opal-look snapshots list
+opal-look sessions list
 ~~~
 
 The REST result list supports richer filters than the current Typer wrapper exposes. For example:
@@ -708,7 +708,7 @@ Results, media, sessions, and snapshots use **opaque cursor pagination**. If a r
 Stored results can be deleted:
 
 ~~~bash
-opal-look-cli results remove YOUR_RESULT_ID
+opal-look results remove YOUR_RESULT_ID
 ~~~
 
 Storage retention is intentional: media (default 24 hours), results (168 hours), and retained snapshots (168 hours) are not a permanent evidence vault. Make long-term retention a separate, explicitly managed system.
@@ -716,25 +716,25 @@ Storage retention is intentional: media (default 24 hours), results (168 hours),
 ### Use case 11: Change one setting without hand-editing the server
 
 ~~~bash
-opal-look-cli settings show
-opal-look-cli settings show max_upload_bytes
-opal-look-cli settings show frame_cache_seconds
+opal-look settings show
+opal-look settings show max_upload_bytes
+opal-look settings show frame_cache_seconds
 
 # Give clients more time to request exact-frame snapshots.
-opal-look-cli settings set frame_cache_seconds 120
+opal-look settings set frame_cache_seconds 120
 
 # Allow at most two admitted nonterminal sessions at once.
-opal-look-cli settings set max_concurrent_sessions 2
+opal-look settings set max_concurrent_sessions 2
 
 # Return to the schema default for a single overridden setting.
-opal-look-cli settings unset frame_cache_seconds
+opal-look settings unset frame_cache_seconds
 ~~~
 
 The value argument is parsed as **JSON**:
 
 ~~~bash
-opal-look-cli settings set max_preview_fps 3.0
-opal-look-cli settings set events_enabled false
+opal-look settings set max_preview_fps 3.0
+opal-look settings set events_enabled false
 ~~~
 
 Configuration mutations use **`If-Match` / revision checks** so a concurrent change can be rejected instead of silently overwritten. The CLI fetches revision headers for its supported mutation commands.
@@ -757,36 +757,36 @@ A selection of important settings:
 
 ~~~bash
 # Check current logical configuration.
-opal-look-cli backup validate
+opal-look backup validate
 
 # Export as JSON into a local file:
-opal-look-cli backup export > look-config.json
+opal-look backup export > look-config.json
 
 # Validate that export without changing the service:
-opal-look-cli backup validate --file look-config.json
+opal-look backup validate --file look-config.json
 
 # Make a server-managed JSON backup.
-opal-look-cli backup create
-opal-look-cli backup list
+opal-look backup create
+opal-look backup list
 ~~~
 
 Download the actual filename shown by `backup list`:
 
 ~~~bash
-opal-look-cli backup download YOUR_BACKUP_FILENAME --out ./look-backup.json
+opal-look backup download YOUR_BACKUP_FILENAME --out ./look-backup.json
 ~~~
 
 To re-import a full configuration export:
 
 ~~~bash
 # WARNING: imports replace configuration; don't execute until ready.
-opal-look-cli backup import --file look-config.json
+opal-look backup import --file look-config.json
 ~~~
 
 Or restore a managed backup already on the server:
 
 ~~~bash
-opal-look-cli backup restore YOUR_BACKUP_FILENAME
+opal-look backup restore YOUR_BACKUP_FILENAME
 ~~~
 
 These are **logical configuration backups** (engine/model/source/profile/settings metadata), not an archive of all uploaded images, generated JPEGs, and other stored media. An import/restore is a configuration mutation, so check it first and keep your own copy.
@@ -828,7 +828,7 @@ The point is to **build the interface now, prove the workflow with synthetic dat
 ## How the pieces fit together
 
 ~~~text
-     opal-look-cli (Typer)           Browser console (/app/)
+     opal-look (Typer)           Browser console (/app/)
                │                             │
                └───────────┬─────────────────┘
                            ▼
@@ -887,7 +887,7 @@ The full intended contract is [`opal_look_v1.4.0.yaml`](opal_look_v1.4.0.yaml). 
 
 | What happened? | What to check |
 | --- | --- |
-| `opal-look-cli` cannot import its module | Add the checkout's `src/` to `PYTHONPATH` (see Installation) |
+| `opal-look` cannot import its module | Add the checkout's `src/` to `PYTHONPATH` (see Installation) |
 | Connection refused | Start `opal-look`; confirm port 8000 (or your overridden port) |
 | OPAL Listen also uses port 8000 | Run Look on 8002, use CLI `--url` |
 | `/docs` returns 404 | Generated docs are disabled; use the checked-in OpenAPI file |

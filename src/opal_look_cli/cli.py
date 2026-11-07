@@ -595,7 +595,7 @@ def _tree():
             typer.echo(f"{prefix}{branch}{name}{_usage_params(sub)}")
             _walk(sub, prefix + ("    " if last else "|   "))
 
-    typer.echo("opal-look-cli")
+    typer.echo("opal look")
     _walk(root, "")
 
 

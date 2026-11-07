@@ -12,7 +12,7 @@ stays as historical reference — do not edit either contract file.
 
 - Setup: `python -m venv .venv && .venv/Scripts/pip install -e .[dev]`
 - Test: `.venv/Scripts/pytest`
-- Run: `.venv/Scripts/opal-look` or `uvicorn opal_look.app:create_app --factory`
+- Run: `.venv/Scripts/opal serve` or `.venv/Scripts/python -m opal_look` or `uvicorn opal_look.app:create_app --factory`
 - Contract audit: `.venv/Scripts/python -m opal_look.contract_audit`
   (`--strict` = Step-28 pass/fail gate, `--json` = machine-readable)
 - Data dir: `OPAL_LOOK_DATA_DIR` (default `./data`)
@@ -94,7 +94,7 @@ stays as historical reference — do not edit either contract file.
 | SSE events stream (result+end events, heartbeat), MJPEG preview | verified |
 | backup (export/import/validate + managed create/list/download/restore/delete) | verified |
 | event bus (pyzmq PUSH two-frame, allowlist+rate+drop counters) | verified |
-| CLI (opal-look-cli, all verbs, REST-only) | verified |
+| CLI (opal look / opal-look, all verbs, REST-only) | verified |
 | SPA (/app/ static client, all sections) | verified |
 
 | idempotency (durable keys, fingerprint replay, 409s) | verified |

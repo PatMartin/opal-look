@@ -32,27 +32,22 @@ TERMINAL = ("stopped", "completed", "failed")
 
 
 def session_read(row) -> dict[str, Any]:
+    """Contract Session shape (upstream v1.5)."""
+    error = json.loads(row["error"]) if row["error"] else None
+    cols = row.keys()
     return {
-        "session_id": row["session_id"],
-        "source_id": row["source_id"],
-        "profile_id": row["profile_id"],
-        "model_id": row["model_id"],
-        "engine_id": row["engine_id"],
-        "task": row["task"],
-        "settings": json.loads(row["settings"]),
-        "reconnect": json.loads(row["reconnect"]) if row["reconnect"] else None,
-        "store_results": bool(row["store_results"]),
+        "id": row["session_id"],
         "state": row["state"],
+        "source_id": row["source_id"],
+        "pipeline_id": row["pipeline_id"] if "pipeline_id" in cols else None,
         "created_at": row["created_at"],
         "started_at": row["started_at"],
-        "finished_at": row["finished_at"],
-        "start_position_ms": row["start_position_ms"],
-        "end_position_ms": row["end_position_ms"],
-        "frames_analyzed": row["frames_analyzed"],
-        "frames_dropped": row["frames_dropped"],
-        "tracking_epoch": row["tracking_epoch"],
-        "last_result_id": row["last_result_id"],
-        "error": json.loads(row["error"]) if row["error"] else None,
+        "ended_at": row["finished_at"],
+        "processed_frames": row["frames_analyzed"],
+        "dropped_frames": row["frames_dropped"],
+        "last_observation_at": (
+            row["last_observation_at"] if "last_observation_at" in cols else None),
+        "failure": error,
     }
 
 
@@ -94,6 +89,133 @@ def _fail(store, session_id: str, code: str, message: str) -> None:
         "state": "failed", "finished_at": now_iso(),
         "error": {"code": code, "message": message},
     })
+
+
+async def _pipeline_worker(app, store, session_id: str, pipeline_row,
+                           source_row, options: dict, retention: dict) -> None:
+    """Upstream session worker: run the pipeline over the source's frames.
+
+    Emits observations (persisted when retention.persist_results), SSE events
+    and MJPEG preview frames through the session runtime. State machine:
+    starting -> running -> stopping/stopped|completed|failed.
+    """
+    from .pipeline_exec import run_pipeline
+
+    runtime = app.state.session_runtimes.ensure(session_id)
+    store.sessions.update(session_id, {"state": "running",
+                                       "started_at": now_iso()})
+    _state_event(app, store, runtime, session_id, "running")
+    live = source_row["type"] in LIVE_TYPES
+    target_fps = (options.get("target_fps") or 5) if live else 0
+    max_frames = options.get("max_frames")
+    frame_index = 0
+    dropped_total = 0
+    last_analysis = 0.0
+    policy = _reconnect_policy(store, session_id) if live else None
+    attempts = 0
+    persist = bool(retention.get("persist_results"))
+    ttl = retention.get("ttl_seconds")
+    try:
+        while True:
+            try:
+                gen = _frames(store, source_row)
+                try:
+                    async for produced in gen:
+                        if runtime.stop_requested:
+                            store.sessions.update(
+                                session_id, {"state": "stopped",
+                                             "finished_at": now_iso()})
+                            return
+                        if max_frames is not None and frame_index >= max_frames:
+                            store.sessions.update(
+                                session_id, {"state": "completed",
+                                             "finished_at": now_iso()})
+                            return
+                        if target_fps:
+                            wait = (1.0 / target_fps) - (
+                                time.monotonic() - last_analysis)
+                            if wait > 0:
+                                await asyncio.sleep(wait)
+                        frame = produced.image
+                        dropped_total += produced.dropped
+                        last_analysis = time.monotonic()
+                        result = await asyncio.to_thread(
+                            run_pipeline, store, pipeline_row, frame,
+                            source_id=source_row["source_id"], media_id=None,
+                            frame_index=frame_index,
+                            transaction_id=session_id, request_id=session_id)
+                        attempts = 0
+                        frame_index += 1
+                        now = now_iso()
+                        obs_list = result.get("observations") or []
+                        for obs in obs_list:
+                            obs["session_id"] = session_id
+                        runtime.latest_result = result
+                        buf = io.BytesIO()
+                        (result.get("presentation", {}).get("image")
+                         or frame).convert("RGB").save(buf, format="JPEG")
+                        runtime.preview_frames.append(buf.getvalue())
+                        del runtime.preview_frames[:-8]
+                        for obs in obs_list:
+                            runtime.events.append(
+                                (frame_index, "observation", obs))
+                        runtime.updated.set()
+                        runtime.updated = asyncio.Event()
+                        expires = None
+                        if persist:
+                            if ttl:
+                                expires = iso(utcnow() + timedelta(seconds=ttl))
+                            else:
+                                expires = iso(utcnow() + timedelta(
+                                    hours=effective_settings(
+                                        store).result_retention_hours))
+                            with store.write_txn():
+                                for obs in obs_list:
+                                    store.observations.insert(obs, expires)
+                        store.sessions.update(session_id, {
+                            "frames_analyzed": frame_index,
+                            "frames_dropped": dropped_total,
+                            "last_observation_at": now,
+                        })
+                        try:
+                            from .events import publish_event
+                            for obs in obs_list:
+                                publish_event(app, store, "opal.look.observation",
+                                              session_id, obs)
+                        except Exception:
+                            pass
+                finally:
+                    await gen.aclose()
+                store.sessions.update(session_id, {
+                    "state": "completed", "finished_at": now_iso()})
+                return
+            except CredentialUnavailable:
+                raise
+            except (StreamError, StreamEnded, CaptureError) as exc:
+                if (policy is None or not policy.get("enabled", True)
+                        or attempts >= policy["max_attempts"]):
+                    _fail(store, session_id, "source_disconnected",
+                          str(exc) or type(exc).__name__)
+                    return
+                attempts += 1
+                delay_ms = min(
+                    policy["initial_delay_ms"] * (2 ** (attempts - 1)),
+                    policy["max_delay_ms"])
+                await asyncio.sleep(delay_ms / 1000)
+    except asyncio.CancelledError:
+        store.sessions.update(session_id, {"state": "stopped",
+                                           "finished_at": now_iso()})
+        raise
+    except Exception as exc:  # noqa: BLE001
+        _fail(store, session_id, "session_failed",
+              str(exc) or type(exc).__name__)
+    finally:
+        row = store.sessions.get(session_id)
+        if row is not None and row["state"] in TERMINAL:
+            _state_event(app, store, runtime, session_id, row["state"])
+            runtime.events.append(
+                (frame_index + 10_000, "end", {"state": row["state"]}))
+            runtime.updated.set()
 
 
 async def _worker(app, store, session_id: str, sel, source_row, store_results: bool) -> None:

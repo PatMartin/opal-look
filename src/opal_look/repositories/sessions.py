@@ -37,8 +37,9 @@ class SqliteSessionRepository:
             "INSERT INTO sessions (session_id, source_id, profile_id, model_id, engine_id, "
             "task, settings, reconnect, store_results, state, created_at, started_at, "
             "finished_at, start_position_ms, end_position_ms, frames_analyzed, "
-            "frames_dropped, tracking_epoch, last_result_id, error) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 0, 0, NULL, NULL)",
+            "frames_dropped, tracking_epoch, last_result_id, error, "
+            "pipeline_id, options, retention) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 0, 0, NULL, NULL, ?, ?, ?)",
             (
                 fields["session_id"], fields["source_id"], fields.get("profile_id"),
                 fields["model_id"], fields["engine_id"], fields["task"],
@@ -47,6 +48,8 @@ class SqliteSessionRepository:
                 int(fields["store_results"]), fields["state"], fields["created_at"],
                 fields.get("started_at"), fields.get("finished_at"),
                 fields.get("start_position_ms"), fields.get("end_position_ms"),
+                fields.get("pipeline_id"), fields.get("options"),
+                fields.get("retention"),
             ),
         )
 

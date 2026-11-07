@@ -367,6 +367,17 @@ class Store:
         self._conn.execute("UPDATE sources SET type = 'http_mjpeg' WHERE type = 'http'")
         self._conn.execute("UPDATE sources SET type = 'usb' WHERE type = 'camera'")
         self._conn.execute("UPDATE sources SET type = 'file' WHERE type = 'image'")
+        scols2 = {r["name"] for r in self._conn.execute(
+            "PRAGMA table_info(sessions)")}
+        for col in ("pipeline_id TEXT", "options TEXT", "retention TEXT",
+                    "last_observation_at TEXT"):
+            if col.split()[0] not in scols2:
+                self._conn.execute(f"ALTER TABLE sessions ADD COLUMN {col}")
+        obcols = {r["name"] for r in self._conn.execute(
+            "PRAGMA table_info(observations)")}
+        if "session_id" not in obcols:
+            self._conn.execute(
+                "ALTER TABLE observations ADD COLUMN session_id TEXT")
         self._migrate_embedded_zones()
         self._migrate_profiles_to_pipelines()
         for row in self._conn.execute(

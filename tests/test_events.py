@@ -56,10 +56,15 @@ def test_session_events_state_stream(client):
     client.post("/api/v1/sources/",
                 json={"id": "ms", "name": "M", "kind": "media",
                       "locator": mid}, headers={"If-Match": "*"})
+    client.post("/api/v1/pipelines/", json={
+        "id": "p", "name": "P", "stages": [
+            {"id": "s1", "kind": "inference",
+             "model_id": "synthetic-vision", "task": "detection"}]},
+        headers={"If-Match": "*"})
     sid = client.post("/api/v1/sessions/",
-                      json={"source_id": "ms", "stages": [{"id": "s1", "kind": "inference", "model_id": "synthetic-vision", "task": "detection"}]}).json()["session_id"]
+                      json={"source_id": "ms", "pipeline_id": "p"}).json()["id"]
     time.sleep(0.3)
-    resp = client.get(f"/api/v1/sessions/{sid}/events")
+    resp = client.get(f"/api/v1/sessions/{sid}/stream")
     assert resp.status_code == 200
     assert "text/event-stream" in resp.headers["content-type"]
     assert "event: state" in resp.text

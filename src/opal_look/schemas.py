@@ -231,25 +231,21 @@ class ReconnectPolicy(BaseModel):
 
 
 class SessionCreate(BaseModel):
+    """Upstream SessionCreate: source + optional pipeline/profile selection."""
     model_config = ConfigDict(strict=True, extra="forbid")
 
-    profile_id: int | None = Field(default=None, ge=1)
-    model_id: str | None = Field(default=None, pattern=IDENTIFIER_PATTERN)
-    task: Task | None = Field(default=None)
-    settings: AnalysisSettings | None = Field(default=None)
     source_id: str = Field(pattern=IDENTIFIER_PATTERN)
-    store_results: bool = Field(default=True)
-    start_position_ms: int = Field(default=0, ge=0)
-    end_position_ms: int | None = Field(default=None, ge=0)
-    reconnect: ReconnectPolicy | None = Field(default=None)
+    pipeline_id: str | None = Field(default=None, pattern=IDENTIFIER_PATTERN)
+    profile_id: int | None = Field(default=None, ge=1)
+    options: InferenceOptions | None = Field(default=None)
+    retention: RetentionOptions | None = Field(default=None)
+    auto_start: bool = Field(default=True)
 
     @model_validator(mode="after")
     def _check(self) -> "SessionCreate":
-        for name in ("profile_id", "model_id", "task", "settings", "end_position_ms", "reconnect"):
+        for name in ("pipeline_id", "profile_id", "options", "retention"):
             if name in self.model_fields_set and getattr(self, name) is None:
                 raise ValueError(f"explicit null is not allowed for {name}")
-        if self.end_position_ms is not None and self.end_position_ms <= self.start_position_ms:
-            raise ValueError("end_position_ms must exceed start_position_ms")
         return self
 
 
@@ -259,6 +255,7 @@ class RetentionOptions(BaseModel):
     model_config = ConfigDict(strict=True, extra="forbid")
 
     persist_observations: bool = Field(default=False)
+    persist_results: bool = Field(default=False)
     save_raw_frames: bool = Field(default=False)
     save_annotated_frames: bool = Field(default=False)
     ttl_seconds: int | None = Field(default=None, ge=0)

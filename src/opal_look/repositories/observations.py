@@ -23,11 +23,13 @@ class SqliteObservationRepository:
                          if it.get("label")})
         self._conn.execute(
             "INSERT INTO observations (observation_id, created_at, observed_at, "
-            "source_id, media_id, monitor_id, job_id, pipeline_id, stage_id, task, "
-            "labels, expires_at, body) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            "source_id, media_id, monitor_id, job_id, session_id, pipeline_id, "
+            "stage_id, task, labels, expires_at, body) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (obs["id"], obs["created_at"], obs["observed_at"],
              obs.get("source_id"), obs.get("media_id"), obs.get("monitor_id"),
-             obs.get("job_id"), obs["pipeline_id"], obs.get("stage_id"),
+             obs.get("job_id"), obs.get("session_id"), obs["pipeline_id"],
+             obs.get("stage_id"),
              obs["task"], json.dumps(labels), expires_at, json.dumps(obs)),
         )
 
@@ -49,6 +51,9 @@ class SqliteObservationRepository:
         if filters.get("job_id") is not None:
             query += " AND job_id = ?"
             params.append(filters["job_id"])
+        if filters.get("session_id") is not None:
+            query += " AND session_id = ?"
+            params.append(filters["session_id"])
         if filters.get("task") is not None:
             query += " AND task = ?"
             params.append(filters["task"])

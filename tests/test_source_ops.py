@@ -41,11 +41,12 @@ def test_status_disconnected_by_default(client, fake_rtsp):
 def test_status_reflects_active_session(client, fake_rtsp):
     fake_rtsp.frames_per_open = [None]
     client.post("/api/v1/sources/", json=RTSP, headers={"If-Match": "*"})
+    _mk_pipeline(client)
     sid = client.post(
         "/api/v1/sessions/",
-        json={"source_id": "cam", "stages": [{"id": "s1", "kind": "inference", "model_id": "synthetic-vision", "task": "detection"}]},
+        json={"source_id": "cam", "pipeline_id": "p"},
         headers={"If-Match": "*"},
-    ).json()["session_id"]
+    ).json()["id"]
     body = client.get("/api/v1/sources/cam/status").json()
     assert body["connected"] is True
     client.post(f"/api/v1/sessions/{sid}/stop")

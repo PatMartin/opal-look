@@ -1,35 +1,85 @@
-"""Analysis session endpoints: admission, list, get, delete, stop, latest."""
+"""Session endpoints (upstream): start/list/show/stop/observations/stream/preview."""
 
 from __future__ import annotations
 
 import asyncio
+import json
 import secrets
 
-from fastapi import APIRouter, Query, Request
-from fastapi.responses import JSONResponse
+from fastapi import APIRouter, Request
+from fastapi.responses import JSONResponse, StreamingResponse
 
-from ..analysis import resolve_selection
 from ..dependencies import StoreDep
 from ..errors import ApiError
 from ..idempotency import request_idempotency_key
-from ..pagination import decode_cursor, encode_cursor, filter_key
 from ..schemas import SessionCreate
-from ..sessions import TERMINAL, _worker, session_read
+from ..sessions import _pipeline_worker, session_read
 from ..settings import effective_settings
-from ..sources import LIVE_TYPES, probe as probe_source
+from ..sources import LIVE_TYPES, probe
+from ..store import Store
 from ..timeutil import now_iso
 
 router = APIRouter()
 
+_TERMINAL = ("stopped", "completed", "failed")
 
-@router.post("/api/v1/sessions/", status_code=202)
+
+def _session_or_404(store: Store, session_id: str):
+    row = store.sessions.get(session_id)
+    if row is None:
+        raise ApiError(404, f"Unknown session: {session_id!r}")
+    return row
+
+
+def _resolve_pipeline(store: Store, body: SessionCreate) -> tuple:
+    """Return (pipeline_row, profile_row|None). Explicit pipeline wins; then
+    the profile's pipeline_id; then the default_pipeline_id setting."""
+    profile = None
+    pipeline_id = body.pipeline_id
+    if body.profile_id is not None:
+        profile = store.profiles.get(body.profile_id)
+        if profile is None:
+            raise ApiError(404, f"Unknown profile: {body.profile_id}")
+        if pipeline_id is None:
+            import json as _json
+            pipeline_id = _json.loads(profile["data"] or "{}").get("pipeline_id")
+    if pipeline_id is None:
+        pipeline_id = effective_settings(store).default_pipeline_id
+    if pipeline_id is None:
+        raise ApiError(422, "No pipeline_id supplied and no default configured.")
+    pipeline = store.pipelines.get(pipeline_id)
+    if pipeline is None:
+        raise ApiError(404, f"Unknown pipeline: {pipeline_id!r}")
+    return pipeline, profile
+
+
+def _merged_options(body: SessionCreate, profile) -> dict:
+    import json as _json
+    merged: dict = {}
+    if profile is not None:
+        merged.update(_json.loads(profile["data"] or "{}").get("inference") or {})
+    if body.options is not None:
+        merged.update(body.options.model_dump(exclude_unset=True))
+    return merged
+
+
+def _merged_retention(body: SessionCreate, profile) -> dict:
+    import json as _json
+    merged: dict = {}
+    if profile is not None:
+        merged.update(_json.loads(profile["data"] or "{}").get("retention") or {})
+    if body.retention is not None:
+        merged.update(body.retention.model_dump(exclude_unset=True))
+    return merged
+
+
+@router.post("/api/v1/sessions/", status_code=201)
 async def post_api_v1_sessions(request: Request, store: StoreDep, body: SessionCreate):
     idem = request_idempotency_key(request)
     if idem is not None:
         import hashlib
-        import json as _json
         fingerprint = hashlib.sha256(
-            _json.dumps(body.model_dump(mode="json"), sort_keys=True).encode()
+            json.dumps(body.model_dump(mode="json"), sort_keys=True).encode()
         ).hexdigest()
         prior = store.sessions.get_idempotency(idem, now_iso())
         if prior is not None:
@@ -38,235 +88,152 @@ async def post_api_v1_sessions(request: Request, store: StoreDep, body: SessionC
                                code="idempotency_conflict")
             prior_session = store.sessions.get(prior["session_id"])
             if prior_session is None:
-                raise ApiError(409, "The session created by this Idempotency-Key was deleted.",
-                               code="idempotency_conflict")
+                raise ApiError(409, "The session created by this Idempotency-Key "
+                                    "was deleted.", code="idempotency_conflict")
             return JSONResponse(
-                session_read(prior_session), status_code=202,
+                session_read(prior_session), status_code=201,
                 headers={"Location": f"/api/v1/sessions/{prior['session_id']}"})
 
     source = store.sources.get(body.source_id)
     if source is None:
         raise ApiError(404, f"Unknown source: {body.source_id!r}")
-    if body.reconnect is not None and source["type"] not in LIVE_TYPES:
-        raise ApiError(422, "reconnect policy applies only to live sources.")
-    if source["type"] in LIVE_TYPES and (body.start_position_ms or body.end_position_ms is not None):
-        raise ApiError(422, "Position controls apply only to finite media sources.")
-    probed = probe_source(store, source)
+    probed = probe(store, source)
     if not source["enabled"] or not probed["available"]:
         raise ApiError(503, f"Source {body.source_id!r} is unavailable.")
-
-    sel = resolve_selection(store, body)
+    pipeline, profile = _resolve_pipeline(store, body)
+    options = _merged_options(body, profile)
+    retention = _merged_retention(body, profile)
 
     settings = effective_settings(store)
     if store.sessions.count_nonterminal() >= settings.max_concurrent_sessions:
-        raise ApiError(429, "Session admission capacity exhausted.", code="capacity_exceeded")
+        raise ApiError(429, "Session admission capacity exhausted.",
+                       code="capacity_exceeded")
 
     session_id = f"session-{secrets.token_hex(8)}"
     with store.write_txn():
         store.sessions.insert({
             "session_id": session_id, "source_id": body.source_id,
-            "profile_id": sel.profile_id, "model_id": sel.model_id,
-            "engine_id": sel.engine_id, "task": sel.task,
-            "settings": sel.settings,
-            "reconnect": body.reconnect.model_dump() if body.reconnect else None,
-            "store_results": body.store_results, "state": "starting",
+            "profile_id": body.profile_id, "model_id": "", "engine_id": "",
+            "task": "", "settings": json.dumps(options),
+            "reconnect": None,
+            "store_results": 1 if retention.get("persist_results")
+                             or retention.get("persist_observations") else 0,
+            "state": "starting" if body.auto_start else "queued",
             "created_at": now_iso(),
-            "start_position_ms": body.start_position_ms or None,
-            "end_position_ms": body.end_position_ms,
+            "pipeline_id": pipeline["pipeline_id"],
+            "options": json.dumps(options),
+            "retention": json.dumps(retention),
         })
         if idem is not None:
             store.sessions.put_idempotency(idem, fingerprint, session_id)
-    handle = asyncio.create_task(
-        _worker(request.app, store, session_id, sel, source, body.store_results))
-    request.app.state.session_runtimes.ensure(session_id).task_handle = handle
+    if body.auto_start:
+        handle = asyncio.create_task(
+            _pipeline_worker(request.app, store, session_id, pipeline,
+                             source, options, retention))
+        request.app.state.session_runtimes.ensure(session_id).task_handle = handle
     return JSONResponse(
         session_read(store.sessions.get(session_id)),
-        status_code=202,
+        status_code=201,
         headers={"Location": f"/api/v1/sessions/{session_id}"},
     )
 
 
 @router.get("/api/v1/sessions/")
-def get_api_v1_sessions(
-    request: Request,
-    store: StoreDep,
-    source_id: str | None = Query(default=None),
-    state: str | None = Query(default=None),
-    limit: int = Query(default=100, ge=1, le=500),
-    cursor: str | None = Query(default=None, min_length=1),
-) -> dict:
-    if state is not None and state not in (
-        "starting", "running", "stopping", "reconnecting", "stopped", "completed", "failed"
-    ):
-        raise ApiError(422, f"Invalid state filter: {state!r}")
-    filters = {"source_id": source_id, "state": state}
-    fkey = filter_key({k: v for k, v in filters.items() if v is not None})
-    after, _, _ = decode_cursor(cursor, fkey)
-    rows = store.sessions.page(
-        now_iso(), effective_settings(store).result_retention_hours, filters, after, limit)
-    items = rows[:limit]
-    has_more = len(rows) > limit
-    next_cursor = (
-        encode_cursor(fkey, [items[-1]["created_at"], items[-1]["session_id"]])
-        if has_more else None
-    )
-    return {"items": [session_read(r) for r in items], "next_cursor": next_cursor,
-            "has_more": has_more}
-
-
-def _session_or_404(store, session_id: str):
-    row = store.sessions.get(session_id)
-    if row is None:
-        raise ApiError(404, f"Unknown session: {session_id!r}")
-    return row
+def get_api_v1_sessions(request: Request, store: StoreDep) -> JSONResponse:
+    rows = store.sessions.page(now_iso(),
+                               effective_settings(store).result_retention_hours,
+                               {}, None, 1000)
+    return JSONResponse([session_read(r) for r in rows],
+                        headers={"ETag": store.config_revision()})
 
 
 @router.get("/api/v1/sessions/{session_id}")
-def get_api_v1_sessions_session_id(request: Request, store: StoreDep, session_id: str) -> dict:
-    return session_read(_session_or_404(store, session_id))
-
-
-@router.delete("/api/v1/sessions/{session_id}", status_code=204)
-def delete_api_v1_sessions_session_id(request: Request, store: StoreDep, session_id: str) -> None:
-    row = _session_or_404(store, session_id)
-    if row["state"] not in TERMINAL:
-        raise ApiError(409, "Session must be terminal before deletion.")
-    with store.write_txn():
-        store.sessions.delete(session_id)
+def get_api_v1_sessions_session_id(store: StoreDep, session_id: str) -> JSONResponse:
+    return JSONResponse(session_read(_session_or_404(store, session_id)),
+                        headers={"ETag": store.config_revision()})
 
 
 @router.post("/api/v1/sessions/{session_id}/stop")
-def post_api_v1_sessions_session_id_stop(request: Request, store: StoreDep, session_id: str) -> dict:
-    row = _session_or_404(store, session_id)
-    if row["state"] not in TERMINAL:
-        runtime = request.app.state.session_runtimes.get(session_id)
-        if runtime:
-            runtime.stop_requested = True
-            if runtime.task_handle:
-                runtime.task_handle.cancel()
-        with store.write_txn():
-            store.sessions.update(session_id, {"state": "stopping"})
-        row = store.sessions.get(session_id)
-    return session_read(row)
-
-
-@router.get("/api/v1/sessions/{session_id}/results/latest")
-def get_api_v1_sessions_session_id_results_latest(
+def post_api_v1_sessions_session_id_stop(
     request: Request, store: StoreDep, session_id: str
-) -> dict:
+) -> JSONResponse:
     row = _session_or_404(store, session_id)
-    runtime = request.app.state.session_runtimes.get(session_id)
-    if runtime and runtime.latest_result:
-        return runtime.latest_result
-    stored = store.results.latest_for_session(session_id)
-    if stored is not None:
-        from ..results import result_read
-        return result_read(stored)
-    raise ApiError(409, "No result is available yet.", code="result_unavailable")
+    if row["state"] in _TERMINAL:
+        raise ApiError(409, f"Session {session_id!r} is already {row['state']}.",
+                       code="invalid_state")
+    runtime = request.app.state.session_runtimes.ensure(session_id)
+    if row["state"] == "queued":
+        # never started: terminalize directly
+        store.sessions.update(session_id, {"state": "stopped",
+                                           "finished_at": now_iso()})
+    else:
+        store.sessions.update(session_id, {"state": "stopping"})
+        runtime.stop_requested = True
+        runtime.updated.set()
+    return JSONResponse(session_read(store.sessions.get(session_id)),
+                        headers={"ETag": store.config_revision()})
 
 
-@router.get("/api/v1/sessions/{session_id}/events")
-async def get_api_v1_sessions_session_id_events(
+@router.get("/api/v1/sessions/{session_id}/observations/")
+def get_api_v1_sessions_observations(
+    store: StoreDep, session_id: str, limit: int = 100
+) -> JSONResponse:
+    _session_or_404(store, session_id)
+    rows = store.observations.page(now_iso(), {"session_id": session_id},
+                                   None, min(limit, 500))
+    return JSONResponse([json.loads(r["body"]) for r in rows],
+                        headers={"ETag": store.config_revision()})
+
+
+@router.get("/api/v1/sessions/{session_id}/stream")
+async def get_api_v1_sessions_session_id_stream(
     request: Request, store: StoreDep, session_id: str
-):
-    row = _session_or_404(store, session_id)
-    runtime = request.app.state.session_runtimes.get(session_id)
+) -> StreamingResponse:
+    _session_or_404(store, session_id)
+    runtime = request.app.state.session_runtimes.ensure(session_id)
 
-    async def stream():
-        import json as _json
-
-        yield f"event: state\ndata: {{\"state\": \"{row['state']}\"}}\n\n"
-        sent = len(runtime.events) if runtime else 0
-        while row["state"] not in TERMINAL:
-            events = runtime.events if runtime else []
-            for eid, kind, payload in events[sent:]:
-                sent += 1
-                yield f"id: {eid}\nevent: {kind}\ndata: {_json.dumps(payload)}\n\n"
-                if kind == "end":
-                    return
-            if runtime is None:
-                return
-            try:
-                await asyncio.wait_for(runtime.updated.wait(), timeout=15.0)
-            except asyncio.TimeoutError:
-                yield ": heartbeat\n\n"
-        # Terminal: drain remaining events.
-        if runtime:
-            for eid, kind, payload in runtime.events[sent:]:
-                yield f"id: {eid}\nevent: {kind}\ndata: {_json.dumps(payload)}\n\n"
-
-    from fastapi.responses import StreamingResponse
-    return StreamingResponse(stream(), media_type="text/event-stream")
-
-
-@router.get("/api/v1/sessions/{session_id}/results/events")
-async def get_api_v1_sessions_session_id_results_events(
-    request: Request, store: StoreDep, session_id: str
-):
-    row = _session_or_404(store, session_id)
-    runtime = request.app.state.session_runtimes.get(session_id)
-    last_event_id = request.headers.get("last-event-id")
-    start_after = None
-    if last_event_id is not None:
-        try:
-            start_after = int(last_event_id)
-        except ValueError:
-            raise ApiError(422, "Invalid Last-Event-ID.")
-
-    async def stream():
-        import json as _json
-
+    async def events():
         sent = 0
+        yield ": heartbeat\n\n"
         while True:
-            events = runtime.events if runtime else []
-            pending = [e for e in events if start_after is None or e[0] > start_after]
-            for eid, kind, payload in pending[sent:]:
-                sent += 1
-                yield f"id: {eid}\nevent: {kind}\ndata: {_json.dumps(payload)}\n\n"
-                if kind == "end":
-                    return
-            if row["state"] in TERMINAL and (not runtime or not any(
-                    e[1] == "end" for e in events)):
-                # Terminal with no runtime events: emit end immediately.
-                yield "event: end\ndata: {\"state\": \"%s\"}\n\n" % row["state"]
-                return
-            if runtime is None:
+            evts = runtime.events[sent:]
+            for eid, kind, payload in evts:
+                yield (f"id: {eid}\nevent: {kind}\n"
+                       f"data: {json.dumps(payload)}\n\n")
+            sent = len(runtime.events)
+            row = store.sessions.get(session_id)
+            if row is not None and row["state"] in _TERMINAL and sent >= len(runtime.events):
                 return
             try:
-                await asyncio.wait_for(runtime.updated.wait(), timeout=15.0)
+                await asyncio.wait_for(runtime.updated.wait(), timeout=15)
             except asyncio.TimeoutError:
                 yield ": heartbeat\n\n"
 
-    from fastapi.responses import StreamingResponse
-    return StreamingResponse(stream(), media_type="text/event-stream")
+    return StreamingResponse(events(), media_type="text/event-stream")
 
 
 @router.get("/api/v1/sessions/{session_id}/preview")
 async def get_api_v1_sessions_session_id_preview(
     request: Request, store: StoreDep, session_id: str
-):
-    row = _session_or_404(store, session_id)
-    runtime = request.app.state.session_runtimes.get(session_id)
-    if (runtime is None or not runtime.preview_frames) and row["state"] in TERMINAL:
-        raise ApiError(409, "No preview frames are available.", code="frame_unavailable")
+) -> StreamingResponse:
+    _session_or_404(store, session_id)
+    runtime = request.app.state.session_runtimes.ensure(session_id)
 
-    async def stream():
+    async def frames():
         sent = 0
         while True:
-            frames = runtime.preview_frames if runtime else []
-            while sent < len(frames):
-                yield (
-                    b"--frame\r\nContent-Type: image/jpeg\r\n\r\n"
-                    + frames[sent] + b"\r\n"
-                )
-                sent += 1
-            if row["state"] in TERMINAL or runtime is None:
+            for jpeg in runtime.preview_frames[sent:]:
+                yield (b"--frame\r\nContent-Type: image/jpeg\r\n\r\n"
+                       + jpeg + b"\r\n")
+            sent = len(runtime.preview_frames)
+            row = store.sessions.get(session_id)
+            if row is not None and row["state"] in _TERMINAL \
+                    and sent >= len(runtime.preview_frames):
                 return
             try:
-                await asyncio.wait_for(runtime.updated.wait(), timeout=15.0)
+                await asyncio.wait_for(runtime.updated.wait(), timeout=15)
             except asyncio.TimeoutError:
                 continue
 
-    from fastapi.responses import StreamingResponse
     return StreamingResponse(
-        stream(), media_type="multipart/x-mixed-replace; boundary=frame")
+        frames(), media_type="multipart/x-mixed-replace; boundary=frame")

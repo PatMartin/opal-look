@@ -63,11 +63,11 @@ def test_catalog_honest_support_flags(client):
 
 def test_engine_schema_exact(client):
     eng = client.get("/api/v1/engines/synthetic").json()
-    assert set(eng) <= {
-        "id", "name", "version", "enabled", "state", "tasks",
-        "device_types", "options_schema",
-    }
-    assert eng["state"] in ("ready", "unavailable", "disabled")
+    # Kernel OpalEngine: required fields present; additionalProperties allowed.
+    assert {"engine_id", "name", "enabled", "available", "state", "tasks",
+            "device_types", "options_schema", "options", "metadata",
+            "version", "description"} <= set(eng)
+    assert eng["state"] in ("ready", "unavailable", "disabled", "error")
 
 
 def test_model_schema_exact(client):

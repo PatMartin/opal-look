@@ -39,7 +39,8 @@ profiles, settings, configuration, health) arrive via kernel `pathItems`.
 
 | Step | Commit | Covered /90 | Notes |
 |---|---|---|---|
-| U01 pin+audit retarget | (this commit) | 58 | openapi/ committed, audit resolves external $refs, draft dup deleted |
+| U01 pin+audit retarget | b128a48 | 58 | openapi/ committed, audit resolves external $refs, draft dup deleted |
+| U02 engines+health kernel | 0ca7a31 | 58 | OpalEngine/OpalHealthReport/OpalHealthProbe shapes; CONTRACT_VERSION 1.5.0; dead engine-validate handler removed; stale-test floor 43→39 |
 
 ---
 

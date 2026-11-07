@@ -60,6 +60,8 @@ def create_app(
         redoc_url=None,
         lifespan=lifespan,
     )
+    import time as _time
+    app.state.started_monotonic = _time.monotonic()
     app.state.store = store if store is not None else Store(Path(data_dir) if data_dir else default_data_dir())
     # Event transport is provisioned out of band; absence blocks events_enabled=true.
     app.state.event_transport = os.environ.get("OPAL_LOOK_EVENT_TRANSPORT") or None

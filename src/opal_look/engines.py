@@ -401,7 +401,7 @@ def model_runtime(store: Store, row: sqlite3.Row) -> dict[str, Any]:
 
 
 def engine_read(store: Store, row: sqlite3.Row) -> dict[str, Any]:
-    """Contract Engine resource (v1.5 shape)."""
+    """Kernel OpalEngine resource shape."""
     adapter = ENGINE_REGISTRY.get(row["engine_id"])
     config = json.loads(row["config"])
     enabled = bool(row["enabled"])
@@ -409,12 +409,16 @@ def engine_read(store: Store, row: sqlite3.Row) -> dict[str, Any]:
     capabilities = adapter.capabilities()
     metadata = adapter.metadata()
     return {
-        "id": row["engine_id"],
+        "engine_id": row["engine_id"],
         "name": row["name"],
-        "version": str(metadata.get("version", "0.0.0")),
+        "description": metadata.get("description"),
         "enabled": enabled,
+        "available": available,
+        "options": config,
+        "metadata": metadata,
+        "version": str(metadata.get("version", "0.0.0")),
         "state": "disabled" if not enabled else ("ready" if available else "unavailable"),
-        "tasks": list(capabilities.get("tasks", [])),
+        "tasks": [{"task": t} for t in capabilities.get("tasks", [])],
         "device_types": list(capabilities.get("device_types", [])),
         "options_schema": adapter.options_schema(),
     }

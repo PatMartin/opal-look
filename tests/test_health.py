@@ -5,7 +5,7 @@ def test_service_info(client):
     assert body["name"] == "opal-look-svc"
     assert body["version"]
     assert body["api_version"] == "v1"
-    assert body["contract_version"] == "1.4.0"
+    assert body["contract_version"] == "1.5.0"
 
 
 def test_liveness_alias(client):
@@ -42,19 +42,27 @@ def test_suite_health_shape(client):
     resp = client.get("/api/v1/health/")
     assert resp.status_code == 200
     body = resp.json()
-    for field in ("status", "ready", "engines", "active_sessions", "details",
-                  "media_capabilities", "event_publication"):
+    for field in ("status", "ready", "version", "engines", "details",
+                  "components", "checks", "metrics", "uptime_seconds",
+                  "checked_at", "broker_running", "database_ready",
+                  "pending_restart_fields", "models_available", "event",
+                  "active_tasks"):
         assert field in body
     assert body["ready"] is True
+    assert body["database_ready"] is True
+    assert body["uptime_seconds"] >= 0
+    assert body["broker_running"] is False
+    assert body["event"] == "not_configured"
+    assert body["active_profile_id"] is None
     engine_ids = [e["engine_id"] for e in body["engines"]]
     assert "synthetic" in engine_ids
-    assert body["active_sessions"] == 0
-    caps = body["media_capabilities"]
+    assert body["models_available"] >= 1
+    caps = body["details"]["media_capabilities"]
     assert "image/jpeg" in caps["image_content_types"]
     assert "image/png" in caps["image_content_types"]
     assert caps["max_upload_bytes"] >= 1
     assert caps["max_image_pixels"] >= 1
-    pub = body["event_publication"]
+    pub = body["details"]["event_publication"]
     assert pub["enabled"] is False
     assert pub["status"] == "disabled"
 

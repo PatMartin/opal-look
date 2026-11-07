@@ -1,4 +1,4 @@
-"""Engine endpoints: discovery, read, update, validate."""
+"""Engine endpoints: list, show, patch (kernel OpalEngine shape)."""
 
 from __future__ import annotations
 
@@ -69,21 +69,3 @@ def patch_api_v1_engines_engine_id(
         revision = store.bump_revision()
     row = store.engines.get(engine_id)
     return JSONResponse(engine_read(store, row), headers={"ETag": revision})
-
-
-def post_api_v1_engines_engine_id_validate(request: Request, store: StoreDep, engine_id: str) -> dict:
-    _get_engine_or_404(store, engine_id)
-    adapter = ENGINE_REGISTRY.get(engine_id)
-    read = engine_runtime(store, store.engines.get(engine_id))
-
-    errors = adapter.validate_config(read["config"])
-    if not read["enabled"]:
-        errors.append("engine is disabled")
-    if not read["available"]:
-        errors.append(f"engine unavailable: {read['message'] or 'probe failed'}")
-    return {
-        "valid": not errors,
-        "errors": errors,
-        "warnings": [],
-        "details": {"engine_id": engine_id, "adapter": adapter.metadata()},
-    }

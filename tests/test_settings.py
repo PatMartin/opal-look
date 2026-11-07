@@ -160,7 +160,12 @@ def test_patch_duplicate_topics_rejected(client):
 def test_get_single_setting(client):
     resp = client.get("/api/v1/settings/max_concurrent_sessions")
     assert resp.status_code == 200
-    assert resp.json() == {"key": "max_concurrent_sessions", "value": 4}
+    body = resp.json()
+    assert body["key"] == "max_concurrent_sessions"
+    assert body["value"] == 4
+    assert body["is_default"] is True
+    assert body["default"] == 4
+    assert body["pending_restart"] is False
     assert resp.headers["etag"].startswith('"')
 
 
@@ -177,7 +182,11 @@ def test_put_single_setting(client):
         headers={"If-Match": "*"},
     )
     assert resp.status_code == 200
-    assert resp.json() == {"key": "media_retention_hours", "value": 48}
+    body = resp.json()
+    assert body["key"] == "media_retention_hours"
+    assert body["value"] == 48
+    assert body["is_default"] is False
+    assert body["updated_at"]
     assert resp.headers["etag"].startswith('"')
     assert client.get("/api/v1/settings/").json()["media_retention_hours"] == 48
 

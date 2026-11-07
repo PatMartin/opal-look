@@ -20,55 +20,22 @@ from .sources import redact_locator
 from .timeutil import now_iso
 
 _REDACTED_SENTINEL = "redacted_locator"
-
-# v1.5 Settings field -> internal ServiceSettings key (None = skip)
-_SETTINGS_MAP = {
-    "default_pipeline_id": "default_pipeline_id",
-    "events_enabled": "events_enabled",
-    "events_allowlist": "event_topics_allowlist",
-    "events_queue_capacity": "event_queue_capacity",
-    "max_viewers": "max_viewers",
-    "max_monitors": "max_monitors",
-    "max_jobs": "max_jobs",
-    "max_uploaded_bytes": "max_upload_bytes",
-    "max_source_fps": "max_preview_fps",
-    "default_observations_persist": "default_persist_observations",
-    "remote_inference_allowed": "remote_inference_allowed",
-}
-# seconds <-> hours conversions
-_SECONDS_SETTINGS = {
-    "max_observation_retention_seconds": "result_retention_hours",
-    "max_media_retention_seconds": "media_retention_hours",
-}
-_FRAME_SETTINGS = {
-    "max_frame_cache": "frame_cache_seconds",
-    "stream_replay_capacity": "sse_replay_seconds",
-}
-
-
-def _settings_export(store) -> dict[str, Any]:
-    es = effective_settings(store)
-    out: dict[str, Any] = {}
-    for v15, internal in _SETTINGS_MAP.items():
-        out[v15] = getattr(es, internal, None)
-    for v15, internal in _SECONDS_SETTINGS.items():
-        out[v15] = int(getattr(es, internal, 0) * 3600)
-    for v15, internal in _FRAME_SETTINGS.items():
-        out[v15] = int(getattr(es, internal, 0) or 1)
-    return {k: v for k, v in out.items() if v is not None}
+_EXPORT_FORMAT_VERSION = "1.0.0"
 
 
 def _settings_apply(store, data: dict[str, Any]) -> None:
-    """Replace the settings overrides with the imported typed values."""
-    for v15, internal in _SETTINGS_MAP.items():
-        if v15 in data:
-            store.settings.set(internal, data[v15])
-    for v15, internal in _SECONDS_SETTINGS.items():
-        if v15 in data:
-            store.settings.set(internal, (data[v15] or 0) / 3600.0)
-    for v15, internal in _FRAME_SETTINGS.items():
-        if v15 in data:
-            store.settings.set(internal, int(data[v15]))
+    """Replace settings overrides with imported values — validated before any
+    write so a bad bundle can never poison effective_settings (strict model:
+    floats for int keys, unknown keys and nulls are all rejected)."""
+    from .settings import ServiceSettingsPatch
+
+    try:
+        validated = ServiceSettingsPatch.model_validate(data or {})
+    except Exception as exc:
+        raise ApiError(422, "Invalid settings section in configuration bundle.",
+                       details={"error": str(exc)})
+    for key, value in validated.model_dump(exclude_unset=True).items():
+        store.settings.set(key, value)
 
 
 def build_export(store) -> dict[str, Any]:
@@ -116,13 +83,22 @@ def build_export(store) -> dict[str, Any]:
         })
     engines = []
     for row in store.engines.list():
-        engines.append({"id": row["engine_id"], "enabled": bool(row["enabled"])})
+        engines.append({
+            "engine_id": row["engine_id"], "name": row["name"],
+            "enabled": bool(row["enabled"]),
+            "options": json.loads(row["config"] or "{}"),
+        })
     return {
-        "settings": _settings_export(store),
+        "format_version": _EXPORT_FORMAT_VERSION,
+        "exported_at": now_iso(),
+        "settings": effective_settings(store).model_dump(mode="json"),
         "engines": engines,
+        "profiles": [],
         "models": models,
         "sources": sources,
         "pipelines": pipelines,
+        "zones": [],
+        "rules": [],
         "monitors": monitors,
     }
 
@@ -147,6 +123,13 @@ def validate_configuration(store, config: dict[str, Any],
         for s in config.get("sources", []) if s.get("id")}
 
     settings = config.get("settings") or {}
+    if settings:
+        from .settings import ServiceSettingsPatch
+        try:
+            ServiceSettingsPatch.model_validate(settings)
+        except Exception as exc:
+            issues.append(_issue("settings",
+                                 f"invalid settings values: {exc}"))
     dp = settings.get("default_pipeline_id")
     if dp and dp not in pipeline_ids:
         issues.append(_issue("settings.default_pipeline_id",
@@ -248,9 +231,12 @@ def apply_import(store, request, config: dict[str, Any],
         store.models.delete(row["model_id"])
 
     for e in config.get("engines", []):
-        if store.engines.get(e["id"]) is not None:
-            store.engines.update(e["id"], {
-                "enabled": 1 if e.get("enabled", True) else 0})
+        eid = e.get("engine_id") or e.get("id")
+        if eid and store.engines.get(eid) is not None:
+            fields = {"enabled": 1 if e.get("enabled", True) else 0}
+            if e.get("options") is not None:
+                fields["config"] = e["options"]
+            store.engines.update(eid, fields)
     for m in config.get("models", []):
         store.models.insert(
             m["id"], m.get("name", m["id"]), m["engine_id"],

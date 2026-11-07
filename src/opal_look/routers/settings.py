@@ -13,6 +13,7 @@ from ..errors import ApiError
 from ..precondition import check_if_match
 from ..settings import (
     SETTINGS_KEYS,
+    ServiceSettings,
     ServiceSettingsPatch,
     SingleSettingPut,
     effective_settings,
@@ -46,6 +47,22 @@ def _reject_nulls(values: dict) -> None:
         raise ApiError(422, "Null setting values are not allowed.")
 
 
+def _setting_read(store, key: str) -> dict:
+    """Kernel SettingRead: key/value plus lifecycle metadata."""
+    effective = effective_settings(store).model_dump(mode="json")
+    override = store.settings.entry(key) if hasattr(store.settings, "entry") else None
+    body = {
+        "key": key,
+        "value": effective[key],
+        "default": ServiceSettings.model_fields[key].default,
+        "is_default": override is None,
+        "pending_restart": False,
+    }
+    if override and override.get("updated_at"):
+        body["updated_at"] = override["updated_at"]
+    return body
+
+
 @router.get("/api/v1/settings/")
 def get_api_v1_settings(request: Request, store: StoreDep) -> JSONResponse:
     body = effective_settings(store).model_dump(mode="json")
@@ -75,8 +92,8 @@ def patch_api_v1_settings(
 def get_look_setting(request: Request, store: StoreDep, key: str) -> JSONResponse:
     _check_key_path(key)
     _known_key(key)
-    value = effective_settings(store).model_dump(mode="json")[key]
-    return JSONResponse({"key": key, "value": value}, headers={"ETag": store.config_revision()})
+    return JSONResponse(_setting_read(store, key),
+                        headers={"ETag": store.config_revision()})
 
 
 @router.put("/api/v1/settings/{key}")
@@ -97,8 +114,7 @@ def put_look_setting(
         check_if_match(request, store)
         store.settings.set(key, value)
         revision = store.bump_revision()
-    effective = effective_settings(store).model_dump(mode="json")
-    return JSONResponse({"key": key, "value": effective[key]}, headers={"ETag": revision})
+    return JSONResponse(_setting_read(store, key), headers={"ETag": revision})
 
 
 @router.delete("/api/v1/settings/{key}", status_code=204)

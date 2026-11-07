@@ -323,6 +323,11 @@ class Store:
                 self._conn.execute(f"ALTER TABLE models ADD COLUMN {col} {ddl}")
         self._conn.execute("UPDATE models SET created_at = ? WHERE created_at = ''",
                            (now_iso(),))
+        ocols = {r["name"] for r in self._conn.execute(
+            "PRAGMA table_info(setting_overrides)")}
+        if "updated_at" not in ocols:
+            self._conn.execute(
+                "ALTER TABLE setting_overrides ADD COLUMN updated_at TEXT")
         scols = {r["name"] for r in self._conn.execute("PRAGMA table_info(sources)")}
         if "zones" not in scols:
             self._conn.execute("ALTER TABLE sources ADD COLUMN zones TEXT NOT NULL DEFAULT '[]'")

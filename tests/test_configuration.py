@@ -23,8 +23,10 @@ def test_export_redacts_and_excludes_runtime(client):
     resp = client.get("/api/v1/configuration/export")
     assert resp.status_code == 200
     cfg = resp.json()
-    assert set(cfg) >= {"settings", "engines", "models", "sources",
-                        "pipelines", "monitors"}
+    assert set(cfg) >= {"format_version", "exported_at", "settings",
+                        "engines", "models", "sources", "pipelines",
+                        "zones", "rules", "profiles", "monitors"}
+    assert cfg["format_version"] == "1.0.0"
     src = next(s for s in cfg["sources"] if s["id"] == "cam")
     assert src["redacted_locator"]
     # full locator URI is never exported (scheme+host may remain redacted)
@@ -65,12 +67,16 @@ def test_import_replace_atomic(client):
     cfg = client.get("/api/v1/configuration/export").json()
     # rebind the exported source via source_bindings (locator was redacted)
     cfg["monitors"] = []  # drop monitor to keep it simple
-    resp = client.post("/api/v1/configuration/import", json={
-        "configuration": cfg, "mode": "replace",
-        "source_bindings": {"cam": {"locator": "rtsp://new:554/b"}}},
-        headers={"If-Match": "*"})
+    cfg["source_bindings"] = {"cam": {"locator": "rtsp://new:554/b"}}
+    resp = client.post("/api/v1/configuration/import", json=cfg,
+                       headers={"If-Match": "*"})
     assert resp.status_code == 200
-    assert resp.json()["valid"] is True
+    body = resp.json()
+    assert body["success"] is True
+    assert body["status"] == "imported"
+    assert body["validation"]["valid"] is True
+    assert body["counts"]["sources"] >= 1
+    assert body["revision"]
     # source came back with the rebound locator (verified indirectly via a
     # second export — locator stays redacted, but the source exists)
     src = next(s for s in client.get(
@@ -134,3 +140,25 @@ def test_settings_default_pipeline_exported(client):
                json={"value": "p"}, headers={"If-Match": "*"})
     cfg = client.get("/api/v1/configuration/export").json()
     assert cfg["settings"].get("default_pipeline_id") == "p"
+
+
+def test_import_rejects_untyped_settings_no_poison(client):
+    """A settings section that fails ServiceSettings validation must be
+    rejected — never stored as an override that would make
+    effective_settings() unvalidatable (the float-hours poisoning bug)."""
+    cfg = client.get("/api/v1/configuration/export").json()
+    cfg["settings"]["result_retention_hours"] = 168.5
+    resp = client.post("/api/v1/configuration/import", json=cfg,
+                       headers={"If-Match": "*"})
+    assert resp.status_code == 422
+    # service stays healthy: every settings read still works
+    assert client.get("/api/v1/settings/").status_code == 200
+    assert client.get("/api/v1/settings/result_retention_hours").json()["value"] == 168
+
+
+def test_import_roundtrip_preserves_settings(client):
+    cfg = client.get("/api/v1/configuration/export").json()
+    resp = client.post("/api/v1/configuration/import", json=cfg,
+                       headers={"If-Match": "*"})
+    assert resp.status_code == 200
+    assert client.get("/api/v1/settings/").json()["result_retention_hours"] == 168

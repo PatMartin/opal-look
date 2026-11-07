@@ -337,6 +337,9 @@ class Store:
         if "zones" not in scols:
             self._conn.execute("ALTER TABLE sources ADD COLUMN zones TEXT NOT NULL DEFAULT '[]'")
         self._conn.execute("UPDATE sources SET type = 'file' WHERE type = 'host_video'")
+        self._conn.execute("UPDATE sources SET type = 'http_mjpeg' WHERE type = 'http'")
+        self._conn.execute("UPDATE sources SET type = 'usb' WHERE type = 'camera'")
+        self._conn.execute("UPDATE sources SET type = 'file' WHERE type = 'image'")
         self._migrate_profiles_to_pipelines()
         for row in self._conn.execute(
             "SELECT model_id, resource FROM models WHERE resource_ref IS NULL"

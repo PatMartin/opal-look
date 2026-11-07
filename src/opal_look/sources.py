@@ -18,7 +18,7 @@ from urllib.parse import urlsplit
 from .refs import media_exists
 from .store import Store
 
-LIVE_TYPES = {"camera", "rtsp", "http"}
+LIVE_TYPES = {"usb", "rtsp", "http_mjpeg", "adapter"}
 FINITE_TYPES = {"file", "media", "image"}
 
 # Adapter-known source_options keys per type; unknown keys are rejected.
@@ -153,23 +153,34 @@ def redact_locator(kind: str, locator: str) -> str:
     return "…"
 
 
+_LIVE_KINDS = frozenset({"rtsp", "http_mjpeg", "usb", "adapter"})
+
+
+def _source_capabilities(kind: str) -> list[str]:
+    """Contract Source.capabilities: honest per-kind operation tags."""
+    if kind in _LIVE_KINDS:
+        return ["probe", "status", "frame", "stream", "capture", "recording"]
+    return ["frame", "capture"]
+
+
 def source_read(store: Store, row: sqlite3.Row) -> dict[str, Any]:
-    """Contract Source resource (v1.5 shape); locator is redacted."""
+    """Contract Source resource (upstream v1.5 shape); locator redacted."""
     probed = probe(store, row)
     enabled = bool(row["enabled"])
+    kind = row["type"]
     return {
         "id": row["source_id"],
-        "kind": row["type"],
+        "kind": kind,
         "name": row["name"],
         "enabled": enabled,
         "state": (
             "disabled" if not enabled
             else "ready" if probed["available"]
-            else "unavailable"
+            else "disconnected"
         ),
-        "redacted_locator": redact_locator(row["type"], row["locator"]),
+        "redacted_locator": redact_locator(kind, row["locator"]),
         "last_frame_at": None,
-        "zones": json.loads(row["zones"]),
+        "capabilities": _source_capabilities(kind),
     }
 
 

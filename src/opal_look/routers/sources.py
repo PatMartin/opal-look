@@ -73,7 +73,6 @@ def post_api_v1_sources(request: Request, store: StoreDep, source: SourceCreate)
             "source_id": source.id, "name": source.name, "type": source.kind,
             "locator": source.locator, "credential_ref": source.secret_ref,
             "enabled": source.enabled, "source_options": source.options,
-            "zones": [z.model_dump() for z in source.zones],
         })
         revision = store.bump_revision()
     row = store.sources.get(source.id)
@@ -112,10 +111,9 @@ def patch_api_v1_sources_source_id(
     fields = {}
     for api, col in (("name", "name"), ("locator", "locator"),
                      ("secret_ref", "credential_ref"), ("enabled", "enabled"),
-                     ("options", "source_options"), ("zones", "zones")):
+                     ("options", "source_options")):
         if api in supplied:
             fields[col] = supplied[api]  # model_dump already yields plain dicts
-    # zones replaces the whole collection atomically inside the txn.
     with store.write_txn():
         check_if_match(request, store)
         if fields:
@@ -230,7 +228,7 @@ def post_api_v1_sources_source_id_probe(request: Request, store: StoreDep, sourc
         reachable = os.path.isfile(locator)
         if reachable:
             warnings.append("no video decoder installed")
-    elif kind == "image":
+    elif kind == "file":
         if not os.path.isfile(locator):
             details = {"message": "host path not found"}
         else:
@@ -242,9 +240,9 @@ def post_api_v1_sources_source_id_probe(request: Request, store: StoreDep, sourc
                 reachable = True
             except Exception:
                 details = {"message": "image file is not readable"}
-    elif kind == "camera":
+    elif kind == "usb":
         warnings.append("no camera capture adapter installed")
-    elif kind == "http":
+    elif kind == "http_mjpeg":
         warnings.append("http sources are not probed")
     else:
         warnings.append(f"unknown source kind {kind!r}")
@@ -296,7 +294,7 @@ def get_api_v1_sources_source_id_frame(request: Request, store: StoreDep, source
         media_row = store.media.get(locator)
         image = Image.open(media_row["path"])
         return Response(_jpeg_bytes(image), media_type="image/jpeg")
-    if kind == "image":
+    if kind == "file":
         if not os.path.isfile(locator):
             raise ApiError(503, "Host path not found.")
         try:
@@ -307,7 +305,7 @@ def get_api_v1_sources_source_id_frame(request: Request, store: StoreDep, source
         return Response(_jpeg_bytes(image), media_type="image/jpeg")
     if kind == "file":
         raise ApiError(503, "No video decoder installed for file sources.")
-    if kind == "camera":
+    if kind == "usb":
         raise ApiError(503, "No camera capture adapter installed.")
     raise ApiError(503, f"No frame capture path for source kind {kind!r}.")
 
@@ -388,7 +386,7 @@ async def get_api_v1_sources_source_id_stream(
             raise ApiError(422, "annotations require a pipeline_id.")
         if classes is not None or min_confidence is not None                 or presentation_filter is not None:
             raise ApiError(422, "presentation controls require a pipeline_id.")
-    if kind not in ("rtsp", "http", "camera"):
+    if kind not in ("rtsp", "http_mjpeg", "usb", "adapter"):
         raise ApiError(422, f"Source kind {kind!r} is not a live stream.")
     if not row["enabled"]:
         raise ApiError(503, "Source is disabled.")
@@ -538,7 +536,7 @@ async def get_api_v1_sources_source_id_observations_stream(
                                 f"{rt['engine_id']!r} is not installed.")
 
     kind = row["type"]
-    if kind not in ("rtsp", "http", "camera"):
+    if kind not in ("rtsp", "http_mjpeg", "usb", "adapter"):
         raise ApiError(422, f"Source kind {kind!r} is not a live stream.")
     if not row["enabled"]:
         raise ApiError(503, "Source is disabled.")
@@ -648,7 +646,7 @@ def post_api_v1_sources_source_id_capture(
     app_settings = effective_settings(store)
 
     # exact frame: freshly grabbed/decoded -- never a substituted cache frame
-    if kind in ("rtsp", "http", "camera"):
+    if kind in ("rtsp", "http_mjpeg", "usb", "adapter"):
         probed = probe(store, row)
         if not probed["available"]:
             raise ApiError(503, f"Source {source_id!r} is unavailable.")

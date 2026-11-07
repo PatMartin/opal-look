@@ -46,7 +46,6 @@ def build_export(store) -> dict[str, Any]:
             "id": row["source_id"], "kind": row["type"], "name": row["name"],
             "enabled": bool(row["enabled"]),
             "redacted_locator": redact_locator(row["type"], row["locator"]),
-            "zones": json.loads(row["zones"] or "[]"),
             "options": json.loads(row["source_options"] or "{}"),
         })
     models = []

@@ -167,7 +167,7 @@ def test_frame_image_kind(client, tmp_path):
     path = tmp_path / "still.png"
     Image.new("RGB", (8, 8), (200, 10, 10)).save(path, format="PNG")
     client.post("/api/v1/sources/", json={
-        "id": "img", "name": "I", "kind": "image", "locator": str(path)},
+        "id": "img", "name": "I", "kind": "file", "locator": str(path)},
         headers={"If-Match": "*"})
     resp = client.get("/api/v1/sources/img/frame")
     assert resp.status_code == 200
@@ -242,7 +242,7 @@ def test_stream_unknown_404(client):
 
 def test_stream_finite_kind_422(client):
     client.post("/api/v1/sources/", json={
-        "id": "img", "name": "I", "kind": "image", "locator": "/x.png"},
+        "id": "img", "name": "I", "kind": "file", "locator": "/x.png"},
         headers={"If-Match": "*"})
     assert client.get("/api/v1/sources/img/stream").status_code == 422
 
@@ -448,7 +448,7 @@ def test_observe_unknown_pipeline_404(client, fake_rtsp):
 
 def test_observe_finite_kind_422(client):
     client.post("/api/v1/sources/", json={
-        "id": "img", "name": "I", "kind": "image", "locator": "/x.png"},
+        "id": "img", "name": "I", "kind": "file", "locator": "/x.png"},
         headers={"If-Match": "*"})
     _mk_pipe(client)
     assert client.get("/api/v1/sources/img/observations/stream",

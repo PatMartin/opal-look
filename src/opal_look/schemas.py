@@ -53,7 +53,7 @@ class ModelPatch(BaseModel):
 
 # -- sources ----------------------------------------------------------------
 
-SourceType = Literal["rtsp", "http", "camera", "file", "media", "image"]
+SourceType = Literal["usb", "rtsp", "http_mjpeg", "file", "media", "adapter"]
 
 
 class SourceZone(BaseModel):
@@ -93,19 +93,17 @@ class SourceCreate(BaseModel):
     locator: str = Field(min_length=1)
     secret_ref: str | None = Field(default=None)
     options: dict[str, Any] = Field(default_factory=dict)
-    zones: list[SourceZone] = Field(default_factory=list)
     enabled: bool = Field(default=True)
 
     @model_validator(mode="after")
     def _check(self) -> "SourceCreate":
-        _unique_zone_ids(self.zones)
         if self.secret_ref is not None and not self.secret_ref.strip():
             raise ValueError("secret_ref must be non-empty when provided")
         return self
 
 
 class SourcePatch(BaseModel):
-    """v1.5 SourcePatch: zones replaces the complete collection atomically."""
+    """Upstream SourcePatch: zones are a standalone resource now."""
     model_config = ConfigDict(strict=True, extra="forbid")
 
     name: str | None = Field(default=None, min_length=1)
@@ -113,11 +111,9 @@ class SourcePatch(BaseModel):
     secret_ref: str | None = Field(default=None)
     enabled: bool | None = Field(default=None)
     options: dict[str, Any] | None = Field(default=None)
-    zones: list[SourceZone] | None = Field(default=None)
 
     @model_validator(mode="after")
     def _check(self) -> "SourcePatch":
-        _unique_zone_ids(self.zones)
         if "secret_ref" in self.model_fields_set and self.secret_ref is not None \
                 and not self.secret_ref.strip():
             raise ValueError("secret_ref must be non-empty when provided")

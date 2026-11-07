@@ -148,27 +148,3 @@ def test_delete_unknown_model_404(client):
     resp = client.delete("/api/v1/models/nope", headers={"If-Match": "*"})
     assert resp.status_code == 404
 
-
-def test_model_validate_ok(client):
-    resp = client.post("/api/v1/models/synthetic-vision/validate")
-    assert resp.status_code == 200
-    body = resp.json()
-    assert body["valid"] is True
-    assert body["details"]["engine_id"] == "synthetic"
-
-
-def test_model_validate_unavailable_valid_false(client):
-    client.patch(
-        "/api/v1/engines/synthetic",
-        json={"enabled": False},
-        headers={"If-Match": "*"},
-    )
-    resp = client.post("/api/v1/models/synthetic-vision/validate")
-    assert resp.status_code == 200
-    body = resp.json()
-    assert body["valid"] is False
-    assert body["errors"]
-
-
-def test_model_validate_unknown_404(client):
-    assert client.post("/api/v1/models/nope/validate").status_code == 404

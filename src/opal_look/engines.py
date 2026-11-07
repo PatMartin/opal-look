@@ -442,7 +442,7 @@ def model_read(store: Store, row: sqlite3.Row) -> dict[str, Any]:
         "display_name": row["name"],
         "tasks": declared,
         "state": (
-            "disabled" if not enabled
+            "registered" if not enabled
             else "unavailable" if not engine_available
             else "ready"
         ),

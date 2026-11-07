@@ -157,22 +157,3 @@ def delete_api_v1_models_model_id(
         store.models.delete(model_id)
         response.headers["ETag"] = store.bump_revision()
 
-
-def post_api_v1_models_model_id_validate(request: Request, store: StoreDep, model_id: str) -> dict:
-    row = _get_model_or_404(store, model_id)
-    read = model_runtime(store, row)
-    adapter = ENGINE_REGISTRY.get(read["engine_id"])
-
-    errors, warnings = adapter.validate_model(read["resource"])
-    if store.engines.get(read["engine_id"]) is None:
-        errors.append(f"engine {read['engine_id']!r} is not installed")
-    elif not read["enabled"]:
-        errors.append("model is disabled")
-    elif not read["available"]:
-        errors.append("model is not currently available")
-    return {
-        "valid": not errors,
-        "errors": errors,
-        "warnings": warnings,
-        "details": {"engine_id": read["engine_id"], "tasks": read["tasks"]},
-    }

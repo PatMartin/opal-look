@@ -27,21 +27,33 @@ def get_api_v1_metrics(request: Request, store: StoreDep) -> dict:
     viewers_active = sum(getattr(request.app.state, "viewer_counts", {}).values())
     obs_total = store.observations.count() if hasattr(
         store.observations, "count") else 0
+    # upstream Metrics: flat counters/gauges
+    processed = dropped = reconnects = 0
+    try:
+        for r in store._conn.execute(
+                "SELECT frames_analyzed, frames_dropped, tracking_epoch "
+                "FROM sessions"):
+            processed += r["frames_analyzed"]
+            dropped += r["frames_dropped"]
+            reconnects += r["tracking_epoch"]
+    except Exception:
+        pass
+    active_streams = monitors_running + sessions_active
     return {
-        "counters": {
-            "events_published": stats.get("published", 0),
-            "events_dropped": stats.get("dropped", 0),
-            "events_rate_limited": stats.get("rate_limited", 0),
-            "observations_persisted": obs_total,
-        },
-        "gauges": {
-            "sessions_active": sessions_active,
-            "monitors_running": monitors_running,
-            "jobs_nonterminal": jobs_nonterminal,
-            "recordings_active": recordings_active,
-            "viewers_active": viewers_active,
-            "event_queue_depth": stats.get("queue_depth", 0),
-        },
+        "captured_frames": processed + dropped,
+        "processed_frames": processed,
+        "dropped_frames": dropped,
+        "observations_total": obs_total,
+        "event_publish_drops": int(stats.get("dropped", 0)
+                                   + stats.get("rate_limited", 0)),
+        "active_sessions": sessions_active,
+        "queued_jobs": store.jobs.count_queued()
+            if hasattr(store.jobs, "count_queued") else jobs_nonterminal,
+        "mean_inference_ms": 0.0,
+        "inference_skipped_frames": 0,
+        "active_source_streams": active_streams,
+        "mean_processing_ms": 0.0,
+        "source_reconnections": reconnects,
     }
 
 

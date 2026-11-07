@@ -78,8 +78,8 @@ def build_export(store) -> dict[str, Any]:
             "restart_policy": row["restart_policy"],
             "options": json.loads(row["options"] or "null"),
             "retention": json.loads(row["retention"] or "null"),
-            "conditions": json.loads(row["conditions"] or "[]"),
-            "publish_events": bool(row["publish_events"]),
+            "profile_id": (row["profile_id"] if "profile_id" in row.keys()
+                           else None),
         })
     engines = []
     for row in store.engines.list():
@@ -203,12 +203,11 @@ def validate_configuration(store, config: dict[str, Any],
         if mon.get("pipeline_id") not in pipeline_ids:
             issues.append(_issue(f"monitors[{i}].pipeline_id",
                                  f"pipeline {mon.get('pipeline_id')!r} not in configuration"))
-        for j, c in enumerate(mon.get("conditions", []) or []):
-            zid = c.get("zone_id")
-            if zid and zid not in zone_ids:
-                issues.append(_issue(
-                    f"monitors[{i}].conditions[{j}].zone_id",
-                    f"zone {zid!r} not in configuration"))
+        pid = mon.get("profile_id")
+        if pid is not None and store.profiles.get(pid) is None \
+                and not any(p.get("id") == pid for p in config.get("profiles", [])):
+            issues.append(_issue(f"monitors[{i}].profile_id",
+                                 f"profile {pid!r} not in configuration"))
     return issues
 
 
@@ -334,8 +333,8 @@ def apply_import(store, request, config: dict[str, Any],
             "restart_policy": mon.get("restart_policy", "on_failure"),
             "options": json.dumps(mon.get("options")),
             "retention": json.dumps(mon.get("retention")),
-            "conditions": json.dumps(mon.get("conditions") or []),
-            "publish_events": 1 if mon.get("publish_events") else 0,
+            "conditions": "[]",
+            "publish_events": 0,
             "created_at": now_iso(),
         })
     if "settings" in config:

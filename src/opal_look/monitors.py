@@ -42,15 +42,13 @@ def monitor_read(store, row: sqlite3.Row, runtime=None) -> dict[str, Any]:
         "name": row["name"],
         "source_id": row["source_id"],
         "pipeline_id": row["pipeline_id"],
+        "profile_id": (str(row["profile_id"]) if "profile_id" in row.keys()
+                       and row["profile_id"] is not None else None),
         "enabled": enabled,
         "restart_policy": row["restart_policy"],
         "options": json.loads(row["options"] or "null"),
-        "retention": json.loads(row["retention"] or "null"),
-        "conditions": json.loads(row["conditions"] or "[]"),
-        "publish_events": bool(row["publish_events"]),
         "state": state,
-        "created_at": row["created_at"],
-        "last_observation_at": row["last_observation_at"],
+        "current_session_id": None,
         "last_failure": json.loads(row["last_failure"]) if row["last_failure"] else None,
     }
 

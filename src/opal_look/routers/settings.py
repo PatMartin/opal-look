@@ -51,10 +51,12 @@ def _setting_read(store, key: str) -> dict:
     """Kernel SettingRead: key/value plus lifecycle metadata."""
     effective = effective_settings(store).model_dump(mode="json")
     override = store.settings.entry(key) if hasattr(store.settings, "entry") else None
+    from pydantic_core import PydanticUndefined
+    default = ServiceSettings.model_fields[key].default
     body = {
         "key": key,
         "value": effective[key],
-        "default": ServiceSettings.model_fields[key].default,
+        "default": None if default is PydanticUndefined else default,
         "is_default": override is None,
         "pending_restart": False,
     }

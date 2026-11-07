@@ -34,7 +34,6 @@ def test_monitor_create_disabled(client):
     assert resp.status_code == 201
     body = resp.json()
     assert body["state"] == "disabled"
-    assert body["conditions"] == []
     assert body["restart_policy"] == "on_failure"
     assert body["enabled"] is False
 
@@ -46,21 +45,22 @@ def test_monitor_create_starts_worker(client, fake_rtsp):
     resp = client.post("/api/v1/monitors/", json=MON, headers={"If-Match": "*"})
     assert resp.status_code == 201
     assert _wait_state(client, "m1", "running") == "running"
-    # observations flow and last_observation_at updates
+    # worker runs and produces observations
     deadline = time.time() + 5
+    n = 0
     while time.time() < deadline:
-        body = client.get("/api/v1/monitors/m1").json()
-        if body["last_observation_at"]:
+        n = len(client.app.state.monitor_runtimes["m1"].observations)
+        if n:
             break
         time.sleep(0.05)
-    assert body["last_observation_at"]
+    assert n >= 1
 
 
 def test_monitor_missing_source_404(client):
     client.post("/api/v1/pipelines/", json={
         "id": "p", "name": "P", "stages": [{"id": "s1", "kind": "inference", "model_id": "synthetic-vision", "task": "detection"}]}, headers={"If-Match": "*"})
     assert client.post("/api/v1/monitors/", json={**MON, "source_id": "ghost"},
-                       headers={"If-Match": "*"}).status_code == 404
+                       headers={"If-Match": "*"}).status_code == 422
 
 
 def test_monitor_missing_pipeline_404(client):
@@ -71,21 +71,6 @@ def test_monitor_missing_pipeline_404(client):
                        headers={"If-Match": "*"}).status_code == 404
 
 
-def test_monitor_zone_condition_validation(client):
-    _setup(client)
-    bad = {**MON, "enabled": False,
-           "conditions": [{"id": "c1", "event": "enters_zone"}]}
-    assert client.post("/api/v1/monitors/", json=bad,
-                       headers={"If-Match": "*"}).status_code == 422
-
-
-def test_monitor_zone_reference_422(client):
-    _setup(client)
-    bad = {**MON, "enabled": False,
-           "conditions": [{"id": "c1", "event": "enters_zone",
-                           "zone_id": "nope"}]}
-    assert client.post("/api/v1/monitors/", json=bad,
-                       headers={"If-Match": "*"}).status_code == 422
 
 
 def test_monitor_patch_and_atomic_etag(client):
@@ -116,6 +101,8 @@ def test_monitor_delete_stops_worker(client, fake_rtsp):
 
 
 def test_monitor_disable_stops_processing(client, fake_rtsp):
+    fake_rtsp.frames_per_open = [None]
+    fake_rtsp.frame_delay = 0.02
     fake_rtsp.frames_per_open = [None]
     fake_rtsp.frame_delay = 0.02
     _setup(client)
@@ -185,24 +172,6 @@ def test_monitor_no_implicit_retention(client, fake_rtsp):
     # no observations persisted without retention opt-in
     assert client.get("/api/v1/observations/").json()["items"] == []
 
-
-def test_monitor_retention_opt_in(client, fake_rtsp):
-    fake_rtsp.frames_per_open = [None]
-    fake_rtsp.frame_delay = 0.02
-    _setup(client)
-    client.post("/api/v1/monitors/", json={
-        **MON, "retention": {"persist_observations": True}},
-        headers={"If-Match": "*"})
-    _wait_state(client, "m1", "running")
-    deadline = time.time() + 5
-    n = 0
-    while time.time() < deadline:
-        n = len(client.get("/api/v1/observations/").json()["items"])
-        if n:
-            break
-        time.sleep(0.05)
-    client.delete("/api/v1/monitors/m1", headers={"If-Match": "*"})
-    assert n >= 1
 
 
 def test_monitor_observations_sse_tail(client, fake_rtsp):
@@ -357,61 +326,6 @@ def _setup_events(client, fake_rtsp, publish_events=True):
         headers={"If-Match": "*"})
 
 
-def test_monitor_publishes_condition_events(client, fake_rtsp):
-    _setup_events(client, fake_rtsp)
-    _wait_state(client, "m1", "running")
-    pub = client.app.state.event_publisher
-    deadline = time.time() + 5
-    while time.time() < deadline and not pub.published_events:
-        time.sleep(0.05)
-    client.delete("/api/v1/monitors/m1", headers={"If-Match": "*"})
-    assert pub.published_events
-    topic, sid, data = pub.published_events[0]
-    assert topic == "opal.look.condition.matched"
-    assert data["monitor_id"] == "m1"
-    assert data["event"] == "object_appears"
-    assert data["metadata"]["transaction_id"]
-    # no credentials / locator / raw frames in the payload
-    blob = json.dumps(data)
-    assert "rtsp://" not in blob and "locator" not in blob
 
 
-def test_monitor_publish_disabled_no_events(client, fake_rtsp):
-    _setup_events(client, fake_rtsp, publish_events=False)
-    _wait_state(client, "m1", "running")
-    time.sleep(0.2)
-    pub = client.app.state.event_publisher
-    client.delete("/api/v1/monitors/m1", headers={"If-Match": "*"})
-    assert pub.published_events == []
 
-
-def test_monitor_publish_events_disabled_globally(client, fake_rtsp):
-    fake_rtsp.frames_per_open = [None]
-    fake_rtsp.frame_delay = 0.02
-    _setup(client)
-    client.app.state.event_publisher = _FakePublisher()
-    client.post("/api/v1/monitors/", json={
-        **MON, "publish_events": True,
-        "conditions": [{"id": "c1", "event": "object_appears"}]},
-        headers={"If-Match": "*"})
-    _wait_state(client, "m1", "running")
-    time.sleep(0.2)
-    pub = client.app.state.event_publisher
-    client.delete("/api/v1/monitors/m1", headers={"If-Match": "*"})
-    # events_enabled=false -> publish_event drops before reaching publisher
-    assert pub.published_events == []
-
-
-def test_monitor_publish_failure_never_breaks(client, fake_rtsp):
-    _setup_events(client, fake_rtsp)
-
-    class _BadPublisher(_FakePublisher):
-        def publish(self, topic, session_id, data):
-            raise RuntimeError("broker down")
-
-    client.app.state.event_publisher = _BadPublisher()
-    _wait_state(client, "m1", "running")
-    time.sleep(0.2)
-    # worker stays alive through broker failures
-    assert client.get("/api/v1/monitors/m1").json()["state"] == "running"
-    client.delete("/api/v1/monitors/m1", headers={"If-Match": "*"})

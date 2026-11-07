@@ -443,47 +443,30 @@ class MonitorCondition(BaseModel):
 
 
 class MonitorCreate(BaseModel):
+    """Upstream MonitorCreate: pipeline via pipeline_id or profile_id."""
     model_config = ConfigDict(strict=True, extra="forbid")
 
     id: str = Field(pattern=IDENTIFIER_PATTERN)
     name: str = Field(min_length=1, max_length=200)
     source_id: str = Field(pattern=IDENTIFIER_PATTERN)
-    pipeline_id: str = Field(pattern=IDENTIFIER_PATTERN)
+    pipeline_id: str | None = Field(default=None, pattern=IDENTIFIER_PATTERN)
+    profile_id: int | None = Field(default=None, ge=1)
     enabled: bool = Field(default=True)
     restart_policy: Literal["on_failure", "always", "never"] = "on_failure"
     options: InferenceOptions | None = Field(default=None)
-    retention: RetentionOptions | None = Field(default=None)
-    conditions: list[MonitorCondition] = Field(default_factory=list)
-    publish_events: bool = Field(default=False)
-
-    @model_validator(mode="after")
-    def _zone_conditions_have_zone(self) -> "MonitorCreate":
-        for c in self.conditions:
-            if c.event in ("enters_zone", "exits_zone", "line_crosses")                     and not c.zone_id:
-                raise ValueError(f"condition {c.id!r}: zone_id is required")
-        return self
 
 
 class MonitorPatch(BaseModel):
+    """Upstream MonitorPatch: name/source/pipeline/profile/enabled/policy/options."""
     model_config = ConfigDict(strict=True, extra="forbid")
 
     name: str | None = Field(default=None, min_length=1, max_length=200)
     source_id: str | None = Field(default=None, pattern=IDENTIFIER_PATTERN)
     pipeline_id: str | None = Field(default=None, pattern=IDENTIFIER_PATTERN)
+    profile_id: int | None = Field(default=None, ge=1)
     enabled: bool | None = Field(default=None)
     restart_policy: Literal["on_failure", "always", "never"] | None = None
     options: InferenceOptions | None = Field(default=None)
-    retention: RetentionOptions | None = Field(default=None)
-    conditions: list[MonitorCondition] | None = Field(default=None)
-    publish_events: bool | None = Field(default=None)
-
-    @model_validator(mode="after")
-    def _zone_conditions_have_zone(self) -> "MonitorPatch":
-        if self.conditions is not None:
-            for c in self.conditions:
-                if c.event in ("enters_zone", "exits_zone", "line_crosses")                         and not c.zone_id:
-                    raise ValueError(f"condition {c.id!r}: zone_id is required")
-        return self
 
 
 # -- jobs (v1.5) ---------------------------------------------------------------

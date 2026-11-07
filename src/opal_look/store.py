@@ -385,6 +385,11 @@ class Store:
         if "artifact_id" not in rcols:
             self._conn.execute(
                 "ALTER TABLE recordings ADD COLUMN artifact_id TEXT")
+        mcols = {r["name"] for r in self._conn.execute(
+            "PRAGMA table_info(monitors)")}
+        if "profile_id" not in mcols:
+            self._conn.execute(
+                "ALTER TABLE monitors ADD COLUMN profile_id INTEGER")
         scols2 = {r["name"] for r in self._conn.execute(
             "PRAGMA table_info(sessions)")}
         for col in ("pipeline_id TEXT", "options TEXT", "retention TEXT",

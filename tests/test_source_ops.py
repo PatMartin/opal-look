@@ -43,8 +43,7 @@ def test_status_reflects_active_session(client, fake_rtsp):
     client.post("/api/v1/sources/", json=RTSP, headers={"If-Match": "*"})
     sid = client.post(
         "/api/v1/sessions/",
-        json={"source_id": "cam", "model_id": "synthetic-vision",
-              "task": "detection"},
+        json={"source_id": "cam", "stages": [{"id": "s1", "kind": "inference", "model_id": "synthetic-vision", "task": "detection"}]},
         headers={"If-Match": "*"},
     ).json()["session_id"]
     body = client.get("/api/v1/sources/cam/status").json()
@@ -285,8 +284,7 @@ def test_stream_releases_viewer_on_disconnect(client, fake_rtsp):
 # -- pipeline-scoped MJPEG view (step 14) ---------------------------------------
 
 def _mk_pipeline(client, pid="p", **over):
-    body = {"id": pid, "name": "P", "model_id": "synthetic-vision",
-            "task": "detection", **over}
+    body = {"id": pid, "name": "P", "stages": [{"id": "s1", "kind": "inference", "model_id": "synthetic-vision", "task": "detection"}], **over}
     client.post("/api/v1/pipelines/", json=body, headers={"If-Match": "*"})
 
 
@@ -393,8 +391,7 @@ def test_stream_no_implicit_retention(client, fake_rtsp):
 
 def _mk_pipe(client, pid="p"):
     client.post("/api/v1/pipelines/", json={
-        "id": pid, "name": "P", "model_id": "synthetic-vision",
-        "task": "detection"}, headers={"If-Match": "*"})
+        "id": pid, "name": "P", "stages": [{"id": "s1", "kind": "inference", "model_id": "synthetic-vision", "task": "detection"}]}, headers={"If-Match": "*"})
 
 
 def test_observe_sse_observation_events(client, fake_rtsp):

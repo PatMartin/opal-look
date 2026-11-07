@@ -22,8 +22,7 @@ def media_id(client):
 def _analyze(client, media_id, **overrides):
     body = {
         "input": {"kind": "media", "media_id": media_id},
-        "model_id": "synthetic-vision",
-        "task": "detection",
+        "stages": [{"id": "s1", "kind": "inference", "model_id": "synthetic-vision", "task": "detection"}],
     }
     body.update(overrides)
     return client.post("/api/v1/analyze", json=body)
@@ -96,7 +95,7 @@ def test_analyze_store_result_false(client, media_id):
 def test_analyze_via_profile(client, media_id):
     prof = client.post(
         "/api/v1/profiles/",
-        json={"name": "p", "model_id": "synthetic-vision", "task": "ocr"},
+        json={"name": "p", "stages": [{"id": "s1", "kind": "inference", "model_id": "synthetic-vision", "task": "ocr"}]},
         headers={"If-Match": "*"},
     ).json()
     resp = client.post(
@@ -131,8 +130,7 @@ def test_analyze_unknown_media_404(client):
         "/api/v1/analyze",
         json={
             "input": {"kind": "media", "media_id": "ghost"},
-            "model_id": "synthetic-vision",
-            "task": "detection",
+            "stages": [{"id": "s1", "kind": "inference", "model_id": "synthetic-vision", "task": "detection"}],
         },
     )
     assert resp.status_code == 404
@@ -197,8 +195,7 @@ def test_analyze_unknown_source_404(client):
         "/api/v1/analyze",
         json={
             "input": {"kind": "source", "source_id": "ghost"},
-            "model_id": "synthetic-vision",
-            "task": "detection",
+            "stages": [{"id": "s1", "kind": "inference", "model_id": "synthetic-vision", "task": "detection"}],
         },
     )
     assert resp.status_code == 404
@@ -214,8 +211,7 @@ def test_analyze_media_backed_source(client, media_id):
         "/api/v1/analyze",
         json={
             "input": {"kind": "source", "source_id": "ms"},
-            "model_id": "synthetic-vision",
-            "task": "detection",
+            "stages": [{"id": "s1", "kind": "inference", "model_id": "synthetic-vision", "task": "detection"}],
         },
     )
     assert resp.status_code == 200
@@ -233,8 +229,7 @@ def test_analyze_position_ms_on_media_image_422(client, media_id):
         "/api/v1/analyze",
         json={
             "input": {"kind": "source", "source_id": "ms", "position_ms": 5},
-            "model_id": "synthetic-vision",
-            "task": "detection",
+            "stages": [{"id": "s1", "kind": "inference", "model_id": "synthetic-vision", "task": "detection"}],
         },
     )
     assert resp.status_code == 422
@@ -254,8 +249,7 @@ def test_analyze_unavailable_source_503(client):
         "/api/v1/analyze",
         json={
             "input": {"kind": "source", "source_id": "cam"},
-            "model_id": "synthetic-vision",
-            "task": "detection",
+            "stages": [{"id": "s1", "kind": "inference", "model_id": "synthetic-vision", "task": "detection"}],
         },
     )
     assert resp.status_code == 503
@@ -281,8 +275,7 @@ def _rtsp_source(client, source_id="cam"):
 def _analyze_source(client, source_id="cam", **overrides):
     body = {
         "input": {"kind": "source", "source_id": source_id},
-        "model_id": "synthetic-vision",
-        "task": "detection",
+        "stages": [{"id": "s1", "kind": "inference", "model_id": "synthetic-vision", "task": "detection"}],
     }
     body.update(overrides)
     return client.post("/api/v1/analyze", json=body)

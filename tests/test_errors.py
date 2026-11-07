@@ -61,7 +61,7 @@ def test_retryable_flag_on_transient_errors(client):
         headers={"If-Match": "*"},
     )
     resp = client.post("/api/v1/sessions/", json={
-        "source_id": "vid", "model_id": "synthetic-vision", "task": "detection",
+        "source_id": "vid", "stages": [{"id": "s1", "kind": "inference", "model_id": "synthetic-vision", "task": "detection"}],
     })
     assert resp.status_code == 503
     assert resp.json()["error"]["retryable"] is True

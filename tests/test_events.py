@@ -57,8 +57,7 @@ def test_session_events_state_stream(client):
                 json={"id": "ms", "name": "M", "kind": "media",
                       "locator": mid}, headers={"If-Match": "*"})
     sid = client.post("/api/v1/sessions/",
-                      json={"source_id": "ms", "model_id": "synthetic-vision",
-                            "task": "detection"}).json()["session_id"]
+                      json={"source_id": "ms", "stages": [{"id": "s1", "kind": "inference", "model_id": "synthetic-vision", "task": "detection"}]}).json()["session_id"]
     time.sleep(0.3)
     resp = client.get(f"/api/v1/sessions/{sid}/events")
     assert resp.status_code == 200

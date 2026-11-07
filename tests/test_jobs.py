@@ -26,8 +26,7 @@ def _jpeg():
 
 def _setup(client):
     client.post("/api/v1/pipelines/", json={
-        "id": "p", "name": "P", "model_id": "synthetic-vision",
-        "task": "detection"}, headers={"If-Match": "*"})
+        "id": "p", "name": "P", "stages": [{"id": "s1", "kind": "inference", "model_id": "synthetic-vision", "task": "detection"}]}, headers={"If-Match": "*"})
 
 
 def _wait_state(client, jid, terminal=("completed", "failed", "cancelled"),
@@ -202,8 +201,7 @@ def test_job_interrupted_on_restart(tmp_path):
     c = TestClient(create_app(data_dir=str(tmp_path)))
     # seed a running job row directly
     c.post("/api/v1/pipelines/", json={
-        "id": "p", "name": "P", "model_id": "synthetic-vision",
-        "task": "detection"}, headers={"If-Match": "*"})
+        "id": "p", "name": "P", "stages": [{"id": "s1", "kind": "inference", "model_id": "synthetic-vision", "task": "detection"}]}, headers={"If-Match": "*"})
     store = c.app.state.store
     store.jobs.insert({
         "job_id": "job-x", "kind": "video_analysis", "payload_json": "{}",

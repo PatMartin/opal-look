@@ -107,8 +107,7 @@ def test_internal_session_ids_never_leak_into_x_opal_header(client):
     )
     resp = client.post(
         "/api/v1/sessions/",
-        json={"source_id": "ms", "model_id": "synthetic-vision",
-              "task": "detection"},
+        json={"source_id": "ms", "stages": [{"id": "s1", "kind": "inference", "model_id": "synthetic-vision", "task": "detection"}]},
         headers={"X-Opal-Session-Id": "caller-logical-ctx"},
     )
     assert resp.status_code == 202

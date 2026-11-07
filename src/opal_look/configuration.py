@@ -60,13 +60,14 @@ def build_export(store) -> dict[str, Any]:
         })
     pipelines = []
     for row in store.pipelines.list():
+        stages = json.loads(row["stages"] or "[]")
+        if not stages and row["model_id"] is not None:
+            stages = [{"id": "inference", "kind": "inference",
+                       "model_id": row["model_id"], "task": row["task"]}]
         pipelines.append({
             "id": row["pipeline_id"], "name": row["name"],
             "description": row["description"],
-            "model_id": row["model_id"], "task": row["task"],
-            "stages": json.loads(row["stages"] or "[]"),
-            "options": json.loads(row["options"] or "{}"),
-            "retention": json.loads(row["retention"] or "{}"),
+            "stages": stages,
         })
     monitors = []
     for row in store.monitors.list():

@@ -39,8 +39,7 @@ def test_stage_order_and_trace(client, tmp_path):
         "id": "p", "name": "P",
         "stages": [
             {"id": "g", "kind": "filter", "portable": {"filter": {"type": "grayscale"}}},
-            {"id": "i", "kind": "inference", "model_id": "synthetic-vision",
-             "task": "detection", "inputs": ["g"]},
+            {"id": "i", "kind": "inference", "model_id": "synthetic-vision", "task": "detection", "inputs": ["g"]},
         ]}, headers={"If-Match": "*"})
     store = client.app.state.store
     out = run_pipeline(store, _row(store, "p"), _img(),
@@ -53,8 +52,7 @@ def test_stage_order_and_trace(client, tmp_path):
 def test_inference_without_inputs_uses_base_frame(client):
     client.post("/api/v1/pipelines/", json={
         "id": "p", "name": "P", "stages": [
-            {"id": "i", "kind": "inference", "model_id": "synthetic-vision",
-             "task": "detection"}]},
+            {"id": "i", "kind": "inference", "model_id": "synthetic-vision", "task": "detection"}]},
         headers={"If-Match": "*"})
     store = client.app.state.store
     out = run_pipeline(store, _row(store, "p"), _img(),
@@ -78,8 +76,7 @@ def test_motion_unknown_on_isolated_still(client):
     client.post("/api/v1/pipelines/", json={
         "id": "p", "name": "P", "stages": [
             {"id": "m", "kind": "filter", "portable": {"filter": {"type": "motion"}}},
-            {"id": "i", "kind": "inference", "model_id": "synthetic-vision",
-             "task": "detection", "inputs": ["m"],
+            {"id": "i", "kind": "inference", "model_id": "synthetic-vision", "task": "detection", "inputs": ["m"],
              "portable": {"gate": {"motion_stage_id": "m", "on_unknown": "skip"}}}]},
         headers={"If-Match": "*"})
     store = client.app.state.store
@@ -95,8 +92,7 @@ def test_motion_gated_skip_then_periodic_sample(client):
         "id": "p", "name": "P", "stages": [
             {"id": "m", "kind": "filter", "portable": {"filter": {"type": "motion",
                                                                  "parameters": {"warmup_frames": 1}}}},
-            {"id": "i", "kind": "inference", "model_id": "synthetic-vision",
-             "task": "detection", "inputs": ["m"],
+            {"id": "i", "kind": "inference", "model_id": "synthetic-vision", "task": "detection", "inputs": ["m"],
              "portable": {"gate": {"motion_stage_id": "m", "sample_every_n_frames": 2}}}]},
         headers={"If-Match": "*"})
     store = client.app.state.store
@@ -122,8 +118,7 @@ def test_motion_moving_runs_inference(client):
         "id": "p", "name": "P", "stages": [
             {"id": "m", "kind": "filter", "portable": {"filter": {"type": "motion",
                                                                  "parameters": {"warmup_frames": 1}}}},
-            {"id": "i", "kind": "inference", "model_id": "synthetic-vision",
-             "task": "detection", "inputs": ["m"],
+            {"id": "i", "kind": "inference", "model_id": "synthetic-vision", "task": "detection", "inputs": ["m"],
              "portable": {"gate": {"motion_stage_id": "m"}}}]},
         headers={"If-Match": "*"})
     store = client.app.state.store
@@ -142,8 +137,7 @@ def test_motion_moving_runs_inference(client):
 def test_tracker_attaches_track_ids(client):
     client.post("/api/v1/pipelines/", json={
         "id": "p", "name": "P", "stages": [
-            {"id": "i", "kind": "inference", "model_id": "synthetic-vision",
-             "task": "detection"},
+            {"id": "i", "kind": "inference", "model_id": "synthetic-vision", "task": "detection"},
             {"id": "t", "kind": "tracker", "inputs": ["i"]}]},
         headers={"If-Match": "*"})
     store = client.app.state.store
@@ -158,8 +152,7 @@ def test_presentation_stage_isolated_from_inference(client):
         "id": "p", "name": "P", "stages": [
             {"id": "ann", "kind": "annotate", "phase": "presentation",
              "portable": {"annotation": {}}},
-            {"id": "i", "kind": "inference", "model_id": "synthetic-vision",
-             "task": "detection"}]},
+            {"id": "i", "kind": "inference", "model_id": "synthetic-vision", "task": "detection"}]},
         headers={"If-Match": "*"})
     store = client.app.state.store
     out = run_pipeline(store, _row(store, "p"), _img(),
@@ -173,8 +166,7 @@ def test_disabled_stage_skipped_in_trace_order(client):
         "id": "p", "name": "P", "stages": [
             {"id": "g", "kind": "filter", "enabled": False,
              "portable": {"filter": {"type": "grayscale"}}},
-            {"id": "i", "kind": "inference", "model_id": "synthetic-vision",
-             "task": "detection"}]},
+            {"id": "i", "kind": "inference", "model_id": "synthetic-vision", "task": "detection"}]},
         headers={"If-Match": "*"})
     store = client.app.state.store
     out = run_pipeline(store, _row(store, "p"), _img(),
@@ -186,8 +178,7 @@ def test_disabled_stage_skipped_in_trace_order(client):
 def test_engine_unavailable_503(client):
     client.post("/api/v1/pipelines/", json={
         "id": "p", "name": "P", "stages": [
-            {"id": "i", "kind": "inference", "model_id": "synthetic-vision",
-             "task": "detection"}]},
+            {"id": "i", "kind": "inference", "model_id": "synthetic-vision", "task": "detection"}]},
         headers={"If-Match": "*"})
     client.patch("/api/v1/engines/synthetic", json={"enabled": False},
                  headers={"If-Match": "*"})
@@ -203,8 +194,7 @@ def test_executor_via_http_pipeline_id(client):
     mid = _media_id(client)
     client.post("/api/v1/pipelines/", json={
         "id": "p", "name": "P", "stages": [
-            {"id": "i", "kind": "inference", "model_id": "synthetic-vision",
-             "task": "detection"}]},
+            {"id": "i", "kind": "inference", "model_id": "synthetic-vision", "task": "detection"}]},
         headers={"If-Match": "*"})
     resp = client.post("/api/v1/analyze/", json={
         "pipeline_id": "p", "source": {"media_id": mid}})
@@ -225,7 +215,7 @@ def test_pipeline_id_unknown_404(client):
 def test_simple_pipeline_via_pipeline_id(client):
     mid = _media_id(client)
     client.post("/api/v1/pipelines/", json={
-        "id": "p", "name": "P", "model_id": "synthetic-vision", "task": "ocr"},
+        "id": "p", "name": "P", "stages": [{"id": "s1", "kind": "inference", "model_id": "synthetic-vision", "task": "ocr"}]},
         headers={"If-Match": "*"})
     resp = client.post("/api/v1/analyze/", json={
         "pipeline_id": "p", "source": {"media_id": mid}})
@@ -238,8 +228,7 @@ def test_motion_state_bounded(client):
     client.post("/api/v1/pipelines/", json={
         "id": "p", "name": "P", "stages": [
             {"id": "m", "kind": "filter", "portable": {"filter": {"type": "motion"}}},
-            {"id": "i", "kind": "inference", "model_id": "synthetic-vision",
-             "task": "detection", "inputs": ["m"],
+            {"id": "i", "kind": "inference", "model_id": "synthetic-vision", "task": "detection", "inputs": ["m"],
              "portable": {"gate": {"motion_stage_id": "m"}}}]},
         headers={"If-Match": "*"})
     store = client.app.state.store

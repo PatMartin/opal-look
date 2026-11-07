@@ -12,32 +12,27 @@ from ..engines import ENGINE_REGISTRY, model_runtime
 from ..errors import ApiError
 from ..precondition import check_if_match, require_if_match
 from ..schemas import PipelineCreate, PipelinePatch, reject_null_fields
-from ..settings import effective_settings
 from ..store import Store
 
 router = APIRouter()
 
 
 def pipeline_read(row) -> dict:
+    """Contract Pipeline: {id, name, description?, stages, created_at}.
+    Legacy simple-mode rows (model_id+task columns, empty stages) emit a
+    synthesized single inference stage so the API shape stays canonical."""
+    stages = json.loads(row["stages"])
+    if not stages and row["model_id"] is not None:
+        stages = [{"id": "inference", "kind": "inference",
+                   "model_id": row["model_id"], "task": row["task"]}]
     body = {
         "id": row["pipeline_id"],
         "name": row["name"],
-        "revision": str(row["revision"]),
+        "stages": stages,
         "created_at": row["created_at"],
     }
     if row["description"] is not None:
         body["description"] = row["description"]
-    if row["model_id"] is not None:
-        body["model_id"] = row["model_id"]
-        body["task"] = row["task"]
-    else:
-        body["stages"] = json.loads(row["stages"])
-    options = json.loads(row["options"])
-    if options:
-        body["options"] = options
-    retention = json.loads(row["retention"])
-    if retention:
-        body["retention"] = retention
     return body
 
 
@@ -50,40 +45,6 @@ def _get_or_404(store: Store, pipeline_id: str):
 
 def _issue(path: str, code: str, message: str) -> dict:
     return {"path": path, "code": code, "message": message, "severity": "error"}
-
-
-def _validate_simple(store: Store, model_id: str, task: str, options) -> list[dict]:
-    """Return ValidationIssue dicts (404/422 raised by callers)."""
-    issues: list[dict] = []
-    row = store.models.get(model_id)
-    if row is None:
-        issues.append(_issue("model_id", "unknown_model",
-                             f"model {model_id!r} is not registered"))
-        return issues
-    runtime = model_runtime(store, row)
-    if not runtime["enabled"] or not runtime["available"]:
-        issues.append(_issue("model_id", "model_unavailable",
-                             f"model {model_id!r} is not currently available"))
-    if task not in runtime["tasks"]:
-        issues.append(_issue("task", "unsupported_task",
-                             f"task {task!r} is not supported by model {model_id!r}"))
-    if options and options.engine_options:
-        adapter = ENGINE_REGISTRY.get(runtime["engine_id"])
-        if adapter is not None:
-            issues += [_issue("options.engine_options", "invalid_engine_option", e)
-                       for e in adapter.validate_engine_options(options.engine_options)]
-    return issues
-
-
-def _check_retention(store: Store, retention) -> list[dict]:
-    issues: list[dict] = []
-    if retention and retention.ttl_seconds is not None:
-        cap = effective_settings(store).result_retention_hours * 3600
-        if retention.ttl_seconds > cap:
-            issues.append(_issue(
-                "retention.ttl_seconds", "retention_exceeds_cap",
-                f"retention ttl_seconds {retention.ttl_seconds} exceeds cap {cap}"))
-    return issues
 
 
 def _issues_422(issues: list[str]) -> None:
@@ -102,23 +63,16 @@ def post_api_v1_pipelines(request: Request, store: StoreDep, pipe: PipelineCreat
     if store.pipelines.get(pipe.id) is not None:
         raise ApiError(409, f"Pipeline {pipe.id!r} already exists.")
     require_if_match(request)
-    if pipe.model_id is not None:
-        if store.models.get(pipe.model_id) is None:
-            raise ApiError(404, f"Unknown model: {pipe.model_id!r}")
-        _issues_422(_validate_simple(store, pipe.model_id, pipe.task, pipe.options))
-    else:
-        _issues_422(_check_stages(store, pipe.stages))
-    _issues_422(_check_retention(store, pipe.retention))
+    _issues_422(_check_stages(store, pipe.stages))
 
     with store.write_txn():
         check_if_match(request, store)
         store.pipelines.insert({
             "pipeline_id": pipe.id, "name": pipe.name,
             "description": pipe.description,
-            "model_id": pipe.model_id, "task": pipe.task,
-            "stages": [st.model_dump(exclude_none=True) for st in pipe.stages or []],
-            "options": pipe.options.model_dump(exclude_none=True) if pipe.options else {},
-            "retention": pipe.retention.model_dump(exclude_none=True) if pipe.retention else {},
+            "model_id": None, "task": None,
+            "stages": [st.model_dump(exclude_none=True) for st in pipe.stages],
+            "options": {}, "retention": {},
         })
         revision = store.bump_revision()
     return JSONResponse(
@@ -145,46 +99,21 @@ def patch_api_v1_pipelines_pipeline_id(
     request: Request, store: StoreDep, pipeline_id: str, patch: PipelinePatch
 ) -> JSONResponse:
     supplied = patch.model_dump(exclude_unset=True)
-    # Explicit null is meaningful here (clears a field / mode switch), so no
-    # reject_null_fields on nullable keys.
     require_if_match(request)
-    row = _get_or_404(store, pipeline_id)
+    _get_or_404(store, pipeline_id)
 
-    # Resolve the post-patch definition, then require a valid oneOf mode.
-    merged = {
-        "model_id": supplied["model_id"] if "model_id" in supplied else row["model_id"],
-        "task": supplied["task"] if "task" in supplied else row["task"],
-        "stages": supplied["stages"] if "stages" in supplied else json.loads(row["stages"]) or None,
-    }
-    simple = merged["model_id"] is not None and merged["task"] is not None
-    has_stages = bool(merged["stages"])
-    if (merged["model_id"] is None) != (merged["task"] is None) or simple == has_stages:
-        raise ApiError(422, "Resolved pipeline must be simple (model_id+task) "
-                            "or advanced (stages), exactly one mode.")
-    if simple:
-        if store.models.get(merged["model_id"]) is None:
-            raise ApiError(404, f"Unknown model: {merged['model_id']!r}")
-        _issues_422(_validate_simple(store, merged["model_id"], merged["task"],
-                                     patch.options))
-    elif has_stages:
-        from ..schemas import PipelineStage
-        _issues_422(_check_stages(store, [PipelineStage(**s) if isinstance(s, dict) else s
-                                          for s in merged["stages"]]))
-    _issues_422(_check_retention(store, patch.retention))
+    if "stages" in supplied:
+        _issues_422(_check_stages(store, patch.stages))
 
     fields = {}
-    for k in ("name", "description", "model_id", "task"):
+    for k in ("name", "description"):
         if k in supplied:
             fields[k] = supplied[k]
     if "stages" in supplied:
         fields["stages"] = (
             [{k: v for k, v in st.items() if v is not None} for st in supplied["stages"]]
-            if supplied["stages"] is not None else None
+            if supplied["stages"] is not None else []
         )
-    if "options" in supplied:
-        fields["options"] = patch.options.model_dump(exclude_none=True)
-    if "retention" in supplied:
-        fields["retention"] = patch.retention.model_dump(exclude_none=True)
     with store.write_txn():
         check_if_match(request, store)
         if fields:
@@ -224,10 +153,5 @@ def _pipeline_refs(store: Store, pipeline_id: str) -> int:
 
 @router.post("/api/v1/pipelines/validate")
 def post_api_v1_pipelines_validate(request: Request, store: StoreDep, pipe: PipelineCreate) -> dict:
-    issues: list[dict] = []
-    if pipe.model_id is not None:
-        issues += _validate_simple(store, pipe.model_id, pipe.task, pipe.options)
-    else:
-        issues += _check_stages(store, pipe.stages)
-    issues += _check_retention(store, pipe.retention)
+    issues = _check_stages(store, pipe.stages)
     return {"valid": not issues, "issues": issues}

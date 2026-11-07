@@ -340,46 +340,23 @@ class PipelineStage(BaseModel):
     phase: Literal["inference_input", "presentation"] | None = Field(default=None)
 
 
-def _pipeline_mode_error() -> ValueError:
-    return ValueError(
-        "exactly one mode required: simple (model_id + task, no stages) "
-        "or advanced (stages, no model_id/task)"
-    )
-
-
 class PipelineCreate(BaseModel):
+    """Upstream PipelineCreate: canonical stages-only form."""
     model_config = ConfigDict(strict=True, extra="forbid")
 
     id: str = Field(pattern=IDENTIFIER_PATTERN)
     name: str = Field(min_length=1)
     description: str | None = Field(default=None)
-    model_id: str | None = Field(default=None, pattern=IDENTIFIER_PATTERN)
-    task: str | None = Field(default=None)
-    stages: list[PipelineStage] | None = Field(default=None, min_length=1)
-    options: InferenceOptions | None = Field(default=None)
-    retention: RetentionOptions | None = Field(default=None)
-
-    @model_validator(mode="after")
-    def _one_mode(self) -> "PipelineCreate":
-        simple = self.model_id is not None and self.task is not None
-        if (self.model_id is None) != (self.task is None):
-            raise _pipeline_mode_error()
-        if simple == (self.stages is not None):
-            raise _pipeline_mode_error()
-        return self
+    stages: list[PipelineStage] = Field(min_length=1)
 
 
 class PipelinePatch(BaseModel):
-    """Merge-patch; explicit null clears model_id/task/stages for mode switch."""
+    """Upstream PipelinePatch: name/description/stages only."""
     model_config = ConfigDict(strict=True, extra="forbid")
 
     name: str | None = Field(default=None, min_length=1)
     description: str | None = Field(default=None)
-    model_id: str | None = Field(default=None, pattern=IDENTIFIER_PATTERN)
-    task: str | None = Field(default=None)
     stages: list[PipelineStage] | None = Field(default=None, min_length=1)
-    options: InferenceOptions | None = Field(default=None)
-    retention: RetentionOptions | None = Field(default=None)
 
 
 # -- v1.5 analyze submission ---------------------------------------------------

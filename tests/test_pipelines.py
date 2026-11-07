@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-SIMPLE = {"id": "p1", "name": "Det", "model_id": "synthetic-vision", "task": "detection"}
+SIMPLE = {"id": "p1", "name": "Det", "stages": [{"id": "s1", "kind": "inference", "model_id": "synthetic-vision", "task": "detection"}]}
 
 
 def test_create_simple_201(client):
@@ -12,9 +12,8 @@ def test_create_simple_201(client):
     assert resp.headers["etag"].startswith('"')
     body = resp.json()
     assert body["id"] == "p1"
-    assert body["model_id"] == "synthetic-vision"
-    assert body["task"] == "detection"
-    assert body["revision"] == "1"
+    assert body["stages"][0]["model_id"] == "synthetic-vision"
+    assert body["stages"][0]["task"] == "detection"
     assert body["created_at"]
 
 
@@ -29,8 +28,7 @@ def test_list_and_show(client):
     assert client.get("/api/v1/pipelines/").headers["etag"].startswith('"')
     shown = client.get("/api/v1/pipelines/p1").json()
     assert shown["name"] == "Det"
-    assert set(shown) <= {"id", "name", "description", "model_id", "task",
-                         "stages", "options", "retention", "revision", "created_at"}
+    assert set(shown) <= {"id", "name", "description", "stages", "created_at"}
 
 
 def test_show_unknown_404(client):
@@ -43,16 +41,20 @@ def test_create_duplicate_409(client):
                        headers={"If-Match": "*"}).status_code == 409
 
 
-def test_create_missing_model_404(client):
+def test_create_missing_model_422(client):
     resp = client.post("/api/v1/pipelines/",
-                       json={**SIMPLE, "id": "p2", "model_id": "ghost"},
+                       json={"id": "p2", "name": "G", "stages": [
+                           {"id": "s1", "kind": "inference",
+                            "model_id": "ghost", "task": "detection"}]},
                        headers={"If-Match": "*"})
-    assert resp.status_code == 404
+    assert resp.status_code == 422
 
 
 def test_create_unsupported_task_422(client):
     resp = client.post("/api/v1/pipelines/",
-                       json={**SIMPLE, "id": "p2", "task": "teleport"},
+                       json={"id": "p2", "name": "T", "stages": [
+                           {"id": "s1", "kind": "inference",
+                            "model_id": "synthetic-vision", "task": "teleport"}]},
                        headers={"If-Match": "*"})
     assert resp.status_code == 422
     assert "issues" in resp.json()["error"]["details"]
@@ -96,8 +98,7 @@ def test_create_advanced_stages_stored(client):
     pipe = {"id": "adv", "name": "A",
             "stages": [{"id": "s1", "kind": "filter",
                         "portable": {"filter": {"type": "grayscale"}}},
-                       {"id": "s2", "kind": "inference",
-                        "model_id": "synthetic-vision", "task": "detection",
+                       {"id": "s2", "kind": "inference", "model_id": "synthetic-vision", "task": "detection",
                         "inputs": ["s1"]}]}
     resp = client.post("/api/v1/pipelines/", json=pipe, headers={"If-Match": "*"})
     assert resp.status_code == 201
@@ -120,8 +121,7 @@ def test_create_advanced_stages_stored(client):
 
 def test_create_advanced_unknown_model_422(client):
     pipe = {"id": "adv", "name": "A",
-            "stages": [{"id": "s1", "kind": "inference",
-                        "model_id": "ghost", "task": "detection"}]}
+            "stages": [{"id": "s1", "kind": "inference", "model_id": "ghost", "task": "detection"}]}
     assert client.post("/api/v1/pipelines/", json=pipe,
                        headers={"If-Match": "*"}).status_code == 422
 
@@ -132,20 +132,21 @@ def test_patch_bumps_revision_and_fields(client):
                         headers={"If-Match": "*"})
     assert resp.status_code == 200
     assert resp.json()["name"] == "New"
-    assert resp.json()["revision"] == "2"
+    assert resp.headers["etag"].startswith('"')
 
 
-def test_patch_mode_switch(client):
+def test_patch_stages_replaced(client):
     client.post("/api/v1/pipelines/", json=SIMPLE, headers={"If-Match": "*"})
-    # null model_id + null task + stages -> advanced
     resp = client.patch("/api/v1/pipelines/p1",
-                        json={"model_id": None, "task": None,
-                              "stages": [{"id": "s1", "kind": "filter",
-                                          "portable": {"filter": {"type": "grayscale"}}}]},
+                        json={"stages": [{"id": "s1", "kind": "filter",
+                                          "portable": {"filter": {"type": "grayscale"}}},
+                                         {"id": "s2", "kind": "inference",
+                                          "model_id": "synthetic-vision",
+                                          "task": "detection",
+                                          "inputs": ["s1"]}]},
                         headers={"If-Match": "*"})
     assert resp.status_code == 200
-    assert "stages" in resp.json()
-    assert "model_id" not in resp.json()
+    assert [s["kind"] for s in resp.json()["stages"]] == ["filter", "inference"]
 
 
 def test_patch_resolved_invalid_422(client):
@@ -172,7 +173,9 @@ def test_delete_204_and_unknown(client):
 
 def test_validate_endpoint(client):
     body = client.post("/api/v1/pipelines/validate",
-                       json={**SIMPLE, "task": "nope"}).json()
+                       json={"id": "v", "name": "V", "stages": [
+                           {"id": "s1", "kind": "inference",
+                            "model_id": "synthetic-vision", "task": "nope"}]}).json()
     assert body["valid"] is False
     assert body["issues"][0]["severity"] == "error"
     body = client.post("/api/v1/pipelines/validate", json=SIMPLE).json()
@@ -196,4 +199,4 @@ def test_persistence_across_restart(tmp_path):
     c1.post("/api/v1/pipelines/", json=SIMPLE, headers={"If-Match": "*"})
     c2 = TestClient(create_app(data_dir=str(tmp_path)))
     body = c2.get("/api/v1/pipelines/p1").json()
-    assert body["id"] == "p1" and body["model_id"] == "synthetic-vision"
+    assert body["id"] == "p1" and body["stages"][0]["model_id"] == "synthetic-vision"

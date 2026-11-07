@@ -6,7 +6,7 @@ import io
 
 from PIL import Image
 
-SIMPLE = {"id": "p", "name": "P", "model_id": "synthetic-vision", "task": "detection"}
+SIMPLE = {"id": "p", "name": "P", "stages": [{"id": "s1", "kind": "inference", "model_id": "synthetic-vision", "task": "detection"}]}
 
 
 def _media(client, color=(10, 20, 30)):

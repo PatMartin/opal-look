@@ -7,10 +7,9 @@ import json
 
 from PIL import Image
 
-SIMPLE = {"id": "p", "name": "P", "model_id": "synthetic-vision", "task": "detection"}
+SIMPLE = {"id": "p", "name": "P", "stages": [{"id": "s1", "kind": "inference", "model_id": "synthetic-vision", "task": "detection"}]}
 ANNOTATED = {"id": "pa", "name": "A",
-             "stages": [{"id": "i", "kind": "inference",
-                         "model_id": "synthetic-vision", "task": "detection"},
+             "stages": [{"id": "i", "kind": "inference", "model_id": "synthetic-vision", "task": "detection"},
                         {"id": "ann", "kind": "annotate",
                          "portable": {"annotation": {}}}]}
 

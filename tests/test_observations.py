@@ -6,7 +6,7 @@ import io
 
 from PIL import Image
 
-SIMPLE = {"id": "p", "name": "P", "model_id": "synthetic-vision", "task": "detection"}
+SIMPLE = {"id": "p", "name": "P", "stages": [{"id": "s1", "kind": "inference", "model_id": "synthetic-vision", "task": "detection"}]}
 
 
 def _media(client):
@@ -50,10 +50,13 @@ def test_opt_in_persists_and_reads_back(client):
     assert listed["has_more"] is False
 
 
-def test_pipeline_level_retention_default(client):
-    _pipeline(client, retention={"persist_observations": True})
+def test_analyze_request_retention_persists(client):
+    _pipeline(client)
     mid = _media(client)
-    _analyze(client, mid)  # no request retention -> still persisted
+    resp = client.post("/api/v1/analyze/", json={
+        "source": {"media_id": mid}, "pipeline_id": "p",
+        "retention": {"persist_observations": True}})
+    assert resp.status_code == 200
     assert len(client.get("/api/v1/observations/").json()["items"]) == 1
 
 

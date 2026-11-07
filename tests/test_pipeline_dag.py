@@ -4,8 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-INF = {"id": "inf", "kind": "inference",
-       "model_id": "synthetic-vision", "task": "detection"}
+INF = {"id": "inf", "kind": "inference", "model_id": "synthetic-vision", "task": "detection"}
 
 
 def _valid(stages):
@@ -102,8 +101,7 @@ def test_inference_stage_requirements(client):
     assert any(i["code"] == "unknown_model" for i in resp.json()["issues"])
     # unsupported task
     resp = client.post("/api/v1/pipelines/validate", json=_valid([
-        {"id": "i", "kind": "inference",
-         "model_id": "synthetic-vision", "task": "teleport"}]))
+        {"id": "i", "kind": "inference", "model_id": "synthetic-vision", "task": "teleport"}]))
     assert any(i["code"] == "unsupported_task" for i in resp.json()["issues"])
     # unavailable model -> error
     client.patch("/api/v1/engines/synthetic", json={"enabled": False},
@@ -188,12 +186,11 @@ def test_create_advanced_422_details(client):
 
 def test_patch_mode_switch_to_invalid_422(client):
     client.post("/api/v1/pipelines/",
-                json={"id": "p1", "name": "P", "model_id": "synthetic-vision",
-                      "task": "detection"}, headers={"If-Match": "*"})
-    # switch to advanced with invalid DAG -> 422, pipeline unchanged
+                json={"id": "p1", "name": "P", "stages": [{"id": "s1", "kind": "inference", "model_id": "synthetic-vision", "task": "detection"}]}, headers={"If-Match": "*"})
+    # patch with invalid DAG -> 422, pipeline unchanged
     resp = client.patch("/api/v1/pipelines/p1",
-                        json={"model_id": None, "task": None,
-                              "stages": [{"id": "f", "kind": "filter", "inputs": ["x"]}]},
+                        json={"stages": [{"id": "f", "kind": "filter",
+                                          "inputs": ["x"]}]},
                         headers={"If-Match": "*"})
     assert resp.status_code == 422
-    assert client.get("/api/v1/pipelines/p1").json()["model_id"] == "synthetic-vision"
+    assert client.get("/api/v1/pipelines/p1").json()["stages"][0]["model_id"] == "synthetic-vision"

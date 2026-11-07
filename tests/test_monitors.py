@@ -11,8 +11,7 @@ def _setup(client):
         "id": "cam", "name": "C", "kind": "rtsp", "locator": "rtsp://x"},
         headers={"If-Match": "*"})
     client.post("/api/v1/pipelines/", json={
-        "id": "p", "name": "P", "model_id": "synthetic-vision",
-        "task": "detection"}, headers={"If-Match": "*"})
+        "id": "p", "name": "P", "stages": [{"id": "s1", "kind": "inference", "model_id": "synthetic-vision", "task": "detection"}]}, headers={"If-Match": "*"})
 
 
 MON = {"id": "m1", "name": "M", "source_id": "cam", "pipeline_id": "p"}
@@ -59,8 +58,7 @@ def test_monitor_create_starts_worker(client, fake_rtsp):
 
 def test_monitor_missing_source_404(client):
     client.post("/api/v1/pipelines/", json={
-        "id": "p", "name": "P", "model_id": "synthetic-vision",
-        "task": "detection"}, headers={"If-Match": "*"})
+        "id": "p", "name": "P", "stages": [{"id": "s1", "kind": "inference", "model_id": "synthetic-vision", "task": "detection"}]}, headers={"If-Match": "*"})
     assert client.post("/api/v1/monitors/", json={**MON, "source_id": "ghost"},
                        headers={"If-Match": "*"}).status_code == 404
 
@@ -167,8 +165,7 @@ def test_monitor_persistence_restart(tmp_path, fake_rtsp):
         "id": "cam", "name": "C", "kind": "rtsp", "locator": "rtsp://x"},
         headers={"If-Match": "*"})
     c1.post("/api/v1/pipelines/", json={
-        "id": "p", "name": "P", "model_id": "synthetic-vision",
-        "task": "detection"}, headers={"If-Match": "*"})
+        "id": "p", "name": "P", "stages": [{"id": "s1", "kind": "inference", "model_id": "synthetic-vision", "task": "detection"}]}, headers={"If-Match": "*"})
     c1.post("/api/v1/monitors/", json=MON, headers={"If-Match": "*"})
     c1.post("/api/v1/monitors/", json={**MON, "id": "m2", "enabled": False},
             headers={"If-Match": "*"})

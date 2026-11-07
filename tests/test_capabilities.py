@@ -118,7 +118,7 @@ def test_kernel_profile_does_not_reference_model(client):
     model deletion the way the retired local profile resource did."""
     resp = client.post(
         "/api/v1/profiles/",
-        json={"name": "p", "model_id": "synthetic-vision", "task": "detection"},
+        json={"name": "p", "stages": [{"id": "s1", "kind": "inference", "model_id": "synthetic-vision", "task": "detection"}]},
         headers={"If-Match": "*"},
     )
     assert resp.status_code == 201

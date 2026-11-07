@@ -11,8 +11,7 @@ def _setup(client):
         "id": "cam", "name": "C", "kind": "rtsp", "locator": "rtsp://x:554/a"},
         headers={"If-Match": "*"})
     client.post("/api/v1/pipelines/", json={
-        "id": "p", "name": "P", "model_id": "synthetic-vision",
-        "task": "detection"}, headers={"If-Match": "*"})
+        "id": "p", "name": "P", "stages": [{"id": "s1", "kind": "inference", "model_id": "synthetic-vision", "task": "detection"}]}, headers={"If-Match": "*"})
     client.post("/api/v1/monitors/", json={
         "id": "m", "name": "M", "source_id": "cam", "pipeline_id": "p",
         "enabled": False}, headers={"If-Match": "*"})

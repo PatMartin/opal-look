@@ -152,8 +152,7 @@ def test_zone_kind_validation_on_create(client):
                    "points": [{"x": 0, "y": 0}, {"x": 1, "y": 0}, {"x": 0, "y": 1}]}]},
         headers={"If-Match": "*"})
     client.post("/api/v1/pipelines/", json={
-        "id": "p", "name": "P", "model_id": "synthetic-vision",
-        "task": "detection"}, headers={"If-Match": "*"})
+        "id": "p", "name": "P", "stages": [{"id": "s1", "kind": "inference", "model_id": "synthetic-vision", "task": "detection"}]}, headers={"If-Match": "*"})
     # duplicate condition ids -> 422
     bad = {"id": "m", "name": "M", "source_id": "cam", "pipeline_id": "p",
            "enabled": False,

@@ -111,15 +111,6 @@ def test_get_unknown_media_404(client):
     assert client.get("/api/v1/media/nope").status_code == 404
 
 
-def test_media_content_download(client):
-    data = _img()
-    mid = _upload(client, data=data).json()["id"]
-    resp = client.get(f"/api/v1/media/{mid}/content")
-    assert resp.status_code == 200
-    assert resp.headers["content-type"] == "image/jpeg"
-    assert resp.content == data
-
-
 def test_delete_media(client):
     mid = _upload(client).json()["id"]
     resp = client.delete(f"/api/v1/media/{mid}")
@@ -139,7 +130,6 @@ def test_expired_media_410(client):
         (mid,),
     )
     assert client.get(f"/api/v1/media/{mid}").status_code == 410
-    assert client.get(f"/api/v1/media/{mid}/content").status_code == 410
     # Expired rows are excluded from listings too.
     assert client.get("/api/v1/media/").json()["items"] == []
 

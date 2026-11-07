@@ -60,15 +60,11 @@ def test_audit_classifies_routes_honestly(app):
     assert len(report.covered) + len(report.missing) == report.contract.operation_count
     # The simplified-draft surface still implements the shared core.
     assert ("GET", "/api/v1/sources/") in {(op.method, op.path) for op in report.covered}
-    # Remaining upstream resource families not implemented yet.
-    missing = {(op.method, op.path) for op in report.missing}
-    for path in ("/api/v1/zones/", "/api/v1/rules/",
-                 "/api/v1/sessions/", "/api/v1/captures/", "/api/v1/artifacts/"):
-        assert ("GET", path) in missing
-    # Simplified-draft-only surface is flagged as legacy, never counted as covered.
+    # All upstream resource families are implemented.
+    assert report.missing == []
+    # Simplified-draft-only routes were removed in U16; none remain.
     legacy = set(report.legacy_only)
-    assert ("GET", "/api/v1/media/{media_id}/content") in legacy
-    assert ("POST", "/api/v1/sources/{source_id}/capture") in legacy
+    assert legacy == set()
     # Convenience endpoints outside /api/v1 are service surface, not violations.
     service = set(report.service_surface)
     assert ("GET", "/health") in service
@@ -90,11 +86,11 @@ def test_main_is_nonblocking_by_default_and_strict_on_gaps(app, capsys):
                      or report.contract.problems) else 0
     assert contract_audit.main(["--contract", str(CONTRACT)]) == 0
     rc_strict = contract_audit.main(["--contract", str(CONTRACT), "--strict"])
-    assert rc_strict == expected == 1, (
-        "strict must fail while v1.5 gaps exist; flip expectation at final gate"
+    assert rc_strict == expected == 0, (
+        "strict must pass now that v1.5 is conformant"
     )
     out = capsys.readouterr().out
-    assert "GAPS PRESENT" in out
+    assert "CONFORMANT" in out
 
 
 def test_main_json_output_is_machine_readable(capsys):
@@ -104,7 +100,7 @@ def test_main_json_output_is_machine_readable(capsys):
     assert payload["contract"]["operations"] == 90
     assert payload["contract"]["paths"] == 58
     assert payload["coverage"]["implemented"] + payload["coverage"]["missing"] == 90
-    assert payload["ok"] is False
+    assert payload["ok"] is True
 
 
 def test_main_missing_contract_returns_2(tmp_path, capsys):

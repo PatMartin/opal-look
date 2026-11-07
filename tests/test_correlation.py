@@ -79,8 +79,13 @@ def test_binary_response_carries_correlation_headers(client):
     mid = client.post(
         "/api/v1/media/", files={"file": ("x.png", buf.getvalue(), "image/png")}
     ).json()["id"]
+    client.post("/api/v1/sources/", json={
+        "id": "ms", "name": "M", "kind": "media", "locator": mid},
+        headers={"If-Match": "*"})
+    cap = client.post("/api/v1/sources/ms/captures/",
+                      json={"retain": True}, headers={"If-Match": "*"}).json()
     resp = client.get(
-        f"/api/v1/media/{mid}/content",
+        f"/api/v1/captures/{cap['id']}/content",
         headers={"X-Opal-Transaction-Id": "txn-bin"},
     )
     assert resp.status_code == 200
@@ -105,13 +110,18 @@ def test_internal_session_ids_never_leak_into_x_opal_header(client):
         json={"id": "ms", "name": "M", "kind": "media", "locator": mid},
         headers={"If-Match": "*"},
     )
+    client.post("/api/v1/pipelines/", json={
+        "id": "p", "name": "P", "stages": [
+            {"id": "s1", "kind": "inference",
+             "model_id": "synthetic-vision", "task": "detection"}]},
+        headers={"If-Match": "*"})
     resp = client.post(
         "/api/v1/sessions/",
-        json={"source_id": "ms", "stages": [{"id": "s1", "kind": "inference", "model_id": "synthetic-vision", "task": "detection"}]},
+        json={"source_id": "ms", "pipeline_id": "p"},
         headers={"X-Opal-Session-Id": "caller-logical-ctx"},
     )
-    assert resp.status_code == 202
-    internal = resp.json()["session_id"]
+    assert resp.status_code == 201
+    internal = resp.json()["id"]
     assert internal.startswith("session-")
     assert resp.headers["x-opal-session-id"] == "caller-logical-ctx"
     assert resp.headers["x-opal-session-id"] != internal

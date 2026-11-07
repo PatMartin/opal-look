@@ -36,11 +36,11 @@ def test_recording_lifecycle(client, fake_rtsp):
     done = client.get(f"/api/v1/recordings/{rid}").json()
     assert done["media_id"]
     # output is decodable MJPEG media
-    r = client.get(f"/api/v1/media/{done['media_id']}/content")
+    r = client.get(f"/api/v1/artifacts/{done['artifact_id']}/content")
     assert r.status_code == 200
     assert r.content[:2] == b"\xff\xd8"  # JPEG magic at stream head
-    mrow = client.get(f"/api/v1/media/{done['media_id']}").json()
-    assert mrow["kind"] == "recording" and mrow["origin"] == "recording"
+    arow = client.get(f"/api/v1/artifacts/{done['artifact_id']}").json()
+    assert arow["kind"] == "video" and arow["source_id"] == "cam"
 
 
 def test_recording_repeated_stop_idempotent(client, fake_rtsp):
@@ -70,8 +70,8 @@ def test_recording_disk_bound(client, fake_rtsp):
     rid = client.post("/api/v1/recordings/", json={"source_id": "cam"},
                       headers={"If-Match": "*"}).json()["id"]
     assert _wait_state(client, rid, ("completed",), timeout=8.0) == "completed"
-    mid = client.get(f"/api/v1/recordings/{rid}").json()["media_id"]
-    r = client.get(f"/api/v1/media/{mid}/content")
+    aid = client.get(f"/api/v1/recordings/{rid}").json()["artifact_id"]
+    r = client.get(f"/api/v1/artifacts/{aid}/content")
     assert len(r.content) <= 2048
 
 

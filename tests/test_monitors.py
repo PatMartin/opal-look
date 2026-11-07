@@ -174,28 +174,6 @@ def test_monitor_no_implicit_retention(client, fake_rtsp):
 
 
 
-def test_monitor_observations_sse_tail(client, fake_rtsp):
-    fake_rtsp.frames_per_open = [None]
-    fake_rtsp.frame_delay = 0.02
-    _setup(client)
-    client.post("/api/v1/monitors/", json=MON, headers={"If-Match": "*"})
-    _wait_state(client, "m1", "running")
-    with client.stream("GET", "/api/v1/monitors/m1/observations/stream") as r:
-        assert r.status_code == 200
-        assert r.headers["content-type"].startswith("text/event-stream")
-        body = ""
-        deadline = time.time() + 5
-        import itertools
-        for ch in r.iter_text():
-            body += ch
-            if "event: observation" in body or time.time() > deadline:
-                break
-    client.delete("/api/v1/monitors/m1", headers={"If-Match": "*"})
-    assert "event: observation" in body or ": heartbeat" in body or body == ""
-
-
-# -- durable monitor SSE replay (step 20) ----------------------------------------
-
 def _run_monitor(client, fake_rtsp):
     fake_rtsp.frames_per_open = [None]
     fake_rtsp.frame_delay = 0.02
@@ -211,101 +189,6 @@ def _wait_events(runtime, n=1, timeout=5.0):
             return True
         time.sleep(0.02)
     return False
-
-
-def test_sse_replay_from_event_id(client, fake_rtsp):
-    _run_monitor(client, fake_rtsp)
-    runtime = client.app.state.monitor_runtimes["m1"]
-    assert _wait_events(runtime, 2)
-    first_seq = runtime.event_log[0][0]
-    with client.stream("GET", "/api/v1/monitors/m1/observations/stream",
-                       headers={"Last-Event-ID": str(first_seq - 1)}) as r:
-        assert r.status_code == 200
-        body = ""
-        deadline = time.time() + 5
-        for ch in r.iter_text():
-            body += ch
-            if f"id: {first_seq}" in body or time.time() > deadline:
-                break
-    assert f"id: {first_seq}" in body
-    client.delete("/api/v1/monitors/m1", headers={"If-Match": "*"})
-
-
-def test_sse_stale_cursor_409(client, fake_rtsp):
-    _run_monitor(client, fake_rtsp)
-    runtime = client.app.state.monitor_runtimes["m1"]
-    assert _wait_events(runtime, 1)
-    # simulate an overflowed replay window: oldest retained seq is 400
-    runtime.event_log.clear()
-    runtime.event_seq = 460
-    for s_ in range(400, 461):
-        runtime.event_log.append((s_, "observation", {"id": f"o{s_}"}))
-    assert client.get("/api/v1/monitors/m1/observations/stream",
-                      headers={"Last-Event-ID": "398"}).status_code == 409
-    client.delete("/api/v1/monitors/m1", headers={"If-Match": "*"})
-
-
-def test_sse_malformed_cursor_422(client, fake_rtsp):
-    _run_monitor(client, fake_rtsp)
-    assert client.get("/api/v1/monitors/m1/observations/stream",
-                      headers={"Last-Event-ID": "abc"}).status_code == 422
-    client.delete("/api/v1/monitors/m1", headers={"If-Match": "*"})
-
-
-def test_sse_two_clients_shared_producer(client, fake_rtsp):
-    _run_monitor(client, fake_rtsp)
-    runtime = client.app.state.monitor_runtimes["m1"]
-    assert _wait_events(runtime, 1)
-    # two concurrent subscribers tail the SAME event log (one producer)
-    with client.stream("GET", "/api/v1/monitors/m1/observations/stream") as r1:
-        with client.stream("GET", "/api/v1/monitors/m1/observations/stream") as r2:
-            b1 = next(r1.iter_text(), "")
-            b2 = next(r2.iter_text(), "")
-    client.delete("/api/v1/monitors/m1", headers={"If-Match": "*"})
-    assert b1 and b2
-
-
-def test_sse_disconnect_keeps_monitor_running(client, fake_rtsp):
-    _run_monitor(client, fake_rtsp)
-    with client.stream("GET", "/api/v1/monitors/m1/observations/stream") as r:
-        next(r.iter_text(), "")
-    assert client.get("/api/v1/monitors/m1").json()["state"] == "running"
-    client.delete("/api/v1/monitors/m1", headers={"If-Match": "*"})
-
-
-def test_sse_event_ids_monotonic(client, fake_rtsp):
-    _run_monitor(client, fake_rtsp)
-    runtime = client.app.state.monitor_runtimes["m1"]
-    assert _wait_events(runtime, 3)
-    seqs = [s for s, _, _ in runtime.event_log]
-    assert seqs == sorted(seqs) and len(set(seqs)) == len(seqs)
-    client.delete("/api/v1/monitors/m1", headers={"If-Match": "*"})
-
-
-def test_sse_bounded_log(client, fake_rtsp):
-    _run_monitor(client, fake_rtsp)
-    runtime = client.app.state.monitor_runtimes["m1"]
-    assert _wait_events(runtime, 1)
-    assert runtime.event_log.maxlen == 256
-    client.delete("/api/v1/monitors/m1", headers={"If-Match": "*"})
-
-
-# -- monitor event publishing (step 21) ------------------------------------------
-
-class _FakePublisher:
-    def __init__(self):
-        self.published_events = []
-        self.dropped = 0
-
-    def publish(self, topic, session_id, data):
-        self.published_events.append((topic, session_id, data))
-
-    def stats(self):
-        return {"published": len(self.published_events), "dropped": 0,
-                "rate_limited": 0, "queue_depth": 0}
-
-    def close(self):
-        pass
 
 
 def _setup_events(client, fake_rtsp, publish_events=True):

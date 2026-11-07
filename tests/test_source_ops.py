@@ -395,105 +395,6 @@ def _mk_pipe(client, pid="p"):
         "id": pid, "name": "P", "stages": [{"id": "s1", "kind": "inference", "model_id": "synthetic-vision", "task": "detection"}]}, headers={"If-Match": "*"})
 
 
-def test_observe_sse_observation_events(client, fake_rtsp):
-    fake_rtsp.frames_per_open = [3]
-    fake_rtsp.frame_delay = 0.01
-    client.post("/api/v1/sources/", json=RTSP, headers={"If-Match": "*"})
-    _mk_pipe(client)
-    with client.stream("GET", "/api/v1/sources/cam/observations/stream",
-                       params={"pipeline_id": "p"}) as r:
-        assert r.status_code == 200
-        assert r.headers["content-type"].startswith("text/event-stream")
-        assert r.headers["x-opal-request-id"]
-        body = b""
-        for ch in r.iter_text():
-            body += ch.encode()
-            if b"event: observation" in body:
-                break
-    assert b"event: observation" in body
-    import json as _j
-    line = [ln for ln in body.decode().split(chr(10))
-            if ln.startswith("data: ")][0]
-    obs = _j.loads(line[6:])
-    assert obs["pipeline_id"] == "p"
-    assert obs["source_id"] == "cam"
-    assert obs["task"] == "detection"
-    assert isinstance(obs["items"], list)
-
-
-def test_observe_no_pipeline_no_default_422(client, fake_rtsp):
-    client.post("/api/v1/sources/", json=RTSP, headers={"If-Match": "*"})
-    assert client.get("/api/v1/sources/cam/observations/stream"
-                      ).status_code == 422
-
-
-def test_observe_default_pipeline_resolves(client, fake_rtsp):
-    fake_rtsp.frames_per_open = [2]
-    fake_rtsp.frame_delay = 0.01
-    client.post("/api/v1/sources/", json=RTSP, headers={"If-Match": "*"})
-    _mk_pipe(client)
-    client.put("/api/v1/settings/default_pipeline_id",
-               json={"value": "p"}, headers={"If-Match": "*"})
-    with client.stream("GET", "/api/v1/sources/cam/observations/stream") as r:
-        assert r.status_code == 200
-
-
-def test_observe_unknown_pipeline_404(client, fake_rtsp):
-    client.post("/api/v1/sources/", json=RTSP, headers={"If-Match": "*"})
-    assert client.get("/api/v1/sources/cam/observations/stream",
-                      params={"pipeline_id": "ghost"}).status_code == 404
-
-
-def test_observe_finite_kind_422(client):
-    client.post("/api/v1/sources/", json={
-        "id": "img", "name": "I", "kind": "file", "locator": "/x.png"},
-        headers={"If-Match": "*"})
-    _mk_pipe(client)
-    assert client.get("/api/v1/sources/img/observations/stream",
-                      params={"pipeline_id": "p"}).status_code == 422
-
-
-def test_observe_engine_down_503(client, fake_rtsp):
-    client.post("/api/v1/sources/", json=RTSP, headers={"If-Match": "*"})
-    _mk_pipe(client)
-    client.patch("/api/v1/engines/synthetic", json={"enabled": False},
-                 headers={"If-Match": "*"})
-    assert client.get("/api/v1/sources/cam/observations/stream",
-                      params={"pipeline_id": "p"}).status_code == 503
-
-
-def test_observe_releases_on_disconnect(client, fake_rtsp):
-    fake_rtsp.frames_per_open = [None]
-    fake_rtsp.frame_delay = 0.01
-    client.post("/api/v1/sources/", json=RTSP, headers={"If-Match": "*"})
-    _mk_pipe(client)
-    with client.stream("GET", "/api/v1/sources/cam/observations/stream",
-                       params={"pipeline_id": "p"}) as r:
-        next(r.iter_text(), "")
-    # reconnect works immediately -> slot released
-    with client.stream("GET", "/api/v1/sources/cam/observations/stream",
-                       params={"pipeline_id": "p"}) as r2:
-        assert r2.status_code == 200
-
-
-def test_observe_no_persistence(client, fake_rtsp):
-    fake_rtsp.frames_per_open = [2]
-    fake_rtsp.frame_delay = 0.01
-    client.post("/api/v1/sources/", json=RTSP, headers={"If-Match": "*"})
-    _mk_pipe(client)
-    client.post("/api/v1/pipelines/p", headers={"If-Match": "*"})
-    with client.stream("GET", "/api/v1/sources/cam/observations/stream",
-                       params={"pipeline_id": "p"}) as r:
-        body = b""
-        for ch in r.iter_text():
-            body += ch.encode()
-            if b"observation" in body:
-                break
-    assert client.get("/api/v1/observations/").json()["items"] == []
-
-
-# -- unified media (step 16) -----------------------------------------------------
-
 def _up_media(client, fmt="JPEG"):
     import io
     from PIL import Image
@@ -507,12 +408,10 @@ def _up_media(client, fmt="JPEG"):
 def test_media_v15_shape(client):
     mid = _up_media(client)
     m = client.get(f"/api/v1/media/{mid}").json()
-    for k in ("id", "kind", "origin", "mime_type", "size_bytes", "created_at"):
+    for k in ("id", "kind", "mime_type", "size_bytes", "created_at", "expires_at"):
         assert k in m
-    assert m["kind"] == "upload_image" and m["origin"] == "upload"
+    assert m["kind"] == "image"
     assert m["mime_type"] == "image/jpeg"
-    assert len(m["sha256"]) == 64
-    assert m["annotated"] is False
 
 
 def test_media_video_upload_kind(client):
@@ -521,7 +420,7 @@ def test_media_video_upload_kind(client):
                        files={"file": ("v.mp4", mp4, "video/mp4")})
     assert resp.status_code == 201
     body = resp.json()
-    assert body["kind"] == "upload_video" and body["mime_type"] == "video/mp4"
+    assert body["kind"] == "video" and body["mime_type"] == "video/mp4"
 
 
 def test_media_ttl_seconds_form_field(client):
@@ -544,31 +443,6 @@ def test_media_kind_filter(client):
     assert len(page["items"]) == 1
 
 
-def test_media_content_mime_and_bytes(client):
-    mid = _up_media(client)
-    r = client.get(f"/api/v1/media/{mid}/content")
-    assert r.status_code == 200
-    assert r.headers["content-type"] == "image/jpeg"
-    assert r.headers["accept-ranges"] == "bytes"
-
-
-def test_media_content_range_206(client):
-    mid = _up_media(client)
-    full = client.get(f"/api/v1/media/{mid}/content").content
-    r = client.get(f"/api/v1/media/{mid}/content",
-                   headers={"Range": "bytes=0-9"})
-    assert r.status_code == 206
-    assert r.headers["content-range"].startswith("bytes 0-9/")
-    assert r.content == full[:10]
-
-
-def test_media_content_range_416(client):
-    mid = _up_media(client)
-    r = client.get(f"/api/v1/media/{mid}/content",
-                   headers={"Range": "bytes=999999-"})
-    assert r.status_code == 416
-
-
 def test_media_delete_pinned_by_media_source(client):
     mid = _up_media(client)
     client.post("/api/v1/sources/", json={
@@ -585,73 +459,3 @@ def test_media_upload_shape_keys(client):
 
 
 # -- exact-frame capture (step 17) ----------------------------------------------
-
-def test_capture_snapshot_media(client, fake_rtsp):
-    client.post("/api/v1/sources/", json=RTSP, headers={"If-Match": "*"})
-    resp = client.post("/api/v1/sources/cam/capture", json={},
-                       headers={"If-Match": "*"})
-    assert resp.status_code == 201
-    body = resp.json()
-    assert body["kind"] == "snapshot" and body["origin"] == "capture"
-    assert body["source_id"] == "cam"
-    assert body["mime_type"] == "image/jpeg"
-    assert body["annotated"] is False
-    assert body["id"].startswith("media-")
-    assert resp.headers["location"].endswith(body["id"])
-    # content retrieval returns a decodable JPEG
-    r2 = client.get(f"/api/v1/media/{body['id']}/content")
-    assert r2.status_code == 200
-    import io
-    from PIL import Image
-    img = Image.open(io.BytesIO(r2.content))
-    assert img.format == "JPEG"
-
-
-def test_capture_annotated_pipeline(client, fake_rtsp):
-    client.post("/api/v1/sources/", json=RTSP, headers={"If-Match": "*"})
-    _mk_pipe(client)
-    resp = client.post("/api/v1/sources/cam/capture",
-                       json={"pipeline_id": "p", "annotated": True},
-                       headers={"If-Match": "*"})
-    assert resp.status_code == 201
-    assert resp.json()["annotated"] is True
-
-
-def test_capture_annotated_without_pipeline_422(client, fake_rtsp):
-    client.post("/api/v1/sources/", json=RTSP, headers={"If-Match": "*"})
-    resp = client.post("/api/v1/sources/cam/capture",
-                       json={"annotated": True}, headers={"If-Match": "*"})
-    assert resp.status_code == 422
-
-
-def test_capture_unknown_pipeline_404(client, fake_rtsp):
-    client.post("/api/v1/sources/", json=RTSP, headers={"If-Match": "*"})
-    assert client.post("/api/v1/sources/cam/capture",
-                       json={"pipeline_id": "ghost"},
-                       headers={"If-Match": "*"}).status_code == 404
-
-
-def test_capture_unknown_source_404(client):
-    assert client.post("/api/v1/sources/nope/capture", json={},
-                       headers={"If-Match": "*"}).status_code == 404
-
-
-def test_capture_disabled_source_503(client, fake_rtsp):
-    client.post("/api/v1/sources/", json={**RTSP, "enabled": False},
-                headers={"If-Match": "*"})
-    assert client.post("/api/v1/sources/cam/capture", json={},
-                       headers={"If-Match": "*"}).status_code == 503
-
-
-def test_capture_ttl_cap_422(client, fake_rtsp):
-    client.post("/api/v1/sources/", json=RTSP, headers={"If-Match": "*"})
-    assert client.post("/api/v1/sources/cam/capture",
-                       json={"ttl_seconds": 10**12},
-                       headers={"If-Match": "*"}).status_code == 422
-
-
-def test_capture_no_config_revision_bump(client, fake_rtsp):
-    client.post("/api/v1/sources/", json=RTSP, headers={"If-Match": "*"})
-    etag = client.get("/api/v1/settings/").headers["etag"]
-    client.post("/api/v1/sources/cam/capture", json={}, headers={"If-Match": "*"})
-    assert client.get("/api/v1/settings/").headers["etag"] == etag

@@ -122,37 +122,3 @@ def delete_api_v1_media_media_id(request: Request, store: StoreDep, media_id: st
         pass
 
 
-@router.get("/api/v1/media/{media_id}/content")
-def get_api_v1_media_media_id_content(request: Request, store: StoreDep, media_id: str):
-    row = _get_media_or_404(store, media_id)
-    range_header = request.headers.get("range")
-    path = Path(row["path"])
-    size = row["size_bytes"]
-    if range_header:
-        from ..errors import ApiError as _AE
-        import re as _re
-        m = _re.match(r"bytes=(\d+)?-(\d+)?", range_header)
-        if not m:
-            raise _AE(416, "Malformed Range header.", code="range_not_satisfiable")
-        start_s, end_s = m.group(1), m.group(2)
-        if start_s is None and end_s is None:
-            raise _AE(416, "Malformed Range header.", code="range_not_satisfiable")
-        if start_s is None:
-            length = min(int(end_s), size)
-            start = size - length
-        else:
-            start = int(start_s)
-            length = size - start if end_s is None else int(end_s) - start + 1
-        if start >= size or length <= 0:
-            raise _AE(416, "Range not satisfiable.", code="range_not_satisfiable")
-        length = min(length, size - start)
-        data = path.read_bytes()[start:start + length]
-        return Response(
-            data, status_code=206, media_type=row["content_type"],
-            headers={
-                "Content-Range": f"bytes {start}-{start + length - 1}/{size}",
-                "Accept-Ranges": "bytes",
-                "Content-Length": str(length),
-            })
-    return FileResponse(path, media_type=row["content_type"],
-                        headers={"Accept-Ranges": "bytes"})

@@ -73,8 +73,8 @@ def test_binary_endpoint_auth(authed):
         "/api/v1/media/", files={"file": ("x.png", _png_bytes(), "image/png")},
         headers=AUTH,
     ).json()["id"]
-    assert authed.get(f"/api/v1/media/{mid}/content").status_code == 401
-    ok = authed.get(f"/api/v1/media/{mid}/content", headers=AUTH)
+    assert authed.get(f"/api/v1/media/{mid}").status_code == 401
+    ok = authed.get(f"/api/v1/media/{mid}", headers=AUTH)
     assert ok.status_code == 200
     assert ok.headers["x-opal-transaction-id"]
 

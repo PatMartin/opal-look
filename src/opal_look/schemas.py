@@ -359,17 +359,21 @@ class PipelinePatch(BaseModel):
 # -- v1.5 analyze submission ---------------------------------------------------
 
 class AnalyzeSourceInput(BaseModel):
-    """v1.5 SourceInput: exactly one of source_id | media_id."""
+    """Upstream SourceInput: exactly one of source_id | media_id | capture_id."""
     model_config = ConfigDict(strict=True, extra="forbid")
 
     source_id: str | None = Field(default=None, pattern=IDENTIFIER_PATTERN)
     media_id: str | None = Field(default=None, pattern=IDENTIFIER_PATTERN)
+    capture_id: str | None = Field(default=None, pattern=IDENTIFIER_PATTERN)
     frame_at_ms: int | None = Field(default=None, ge=0)
 
     @model_validator(mode="after")
     def _one_input(self) -> "AnalyzeSourceInput":
-        if (self.source_id is None) == (self.media_id is None):
-            raise ValueError("exactly one of source_id or media_id is required")
+        given = [f for f in ("source_id", "media_id", "capture_id")
+                 if getattr(self, f) is not None]
+        if len(given) != 1:
+            raise ValueError(
+                "exactly one of source_id, media_id or capture_id is required")
         return self
 
 
@@ -379,6 +383,7 @@ class AnalyzeSubmission(BaseModel):
 
     source: AnalyzeSourceInput
     pipeline_id: str | None = Field(default=None, pattern=IDENTIFIER_PATTERN)
+    profile_id: str | None = Field(default=None, pattern=IDENTIFIER_PATTERN)
     options: InferenceOptions | None = Field(default=None)
     retention: RetentionOptions | None = Field(default=None)
 
@@ -495,10 +500,11 @@ class JobCreate(BaseModel):
     """v1.5 JobCreate: exactly one of source_id/media_id."""
     model_config = ConfigDict(strict=True, extra="forbid")
 
-    kind: Literal["video_analysis", "media_export"]
+    kind: Literal["analyze_video", "export_annotated_video", "extract_clip"]
     source_id: str | None = Field(default=None, pattern=IDENTIFIER_PATTERN)
     media_id: str | None = Field(default=None, pattern=IDENTIFIER_PATTERN)
     pipeline_id: str | None = Field(default=None, pattern=IDENTIFIER_PATTERN)
+    profile_id: str | None = Field(default=None, pattern=IDENTIFIER_PATTERN)
     range: MediaRange | None = Field(default=None)
     options: InferenceOptions | None = Field(default=None)
     retention: RetentionOptions | None = Field(default=None)

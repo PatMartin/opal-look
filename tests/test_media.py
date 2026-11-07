@@ -22,7 +22,7 @@ def test_upload_jpeg(client):
     assert resp.status_code == 201
     assert resp.headers["location"].startswith("/api/v1/media/media-")
     body = resp.json()
-    assert body["kind"] == "upload_image"
+    assert body["kind"] == "image"
     assert body["mime_type"] == "image/jpeg"
     assert body["id"].startswith("media-")
     assert body["size_bytes"] > 0
@@ -58,7 +58,7 @@ def test_upload_mp4_201_video_kind(client):
     resp = client.post("/api/v1/media/",
                        files={"file": ("v.mp4", mp4, "video/mp4")})
     assert resp.status_code == 201
-    assert resp.json()["kind"] == "upload_video"
+    assert resp.json()["kind"] == "video"
     assert resp.json()["mime_type"] == "video/mp4"
 
 

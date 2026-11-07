@@ -70,21 +70,17 @@ def media_dir(data_dir: Path) -> Path:
 
 
 def media_read(row: sqlite3.Row) -> dict[str, Any]:
-    """v1.5 Media resource."""
+    """Upstream Media resource: {id,kind(image|video),mime_type,size_bytes,
+    created_at,expires_at,duration_ms?}."""
+    mime = row["content_type"] or "application/octet-stream"
     return {
         "id": row["media_id"],
-        "kind": row["kind"],
-        "origin": row["origin"],
-        "source_id": row["source_id"],
-        "job_id": row["job_id"],
-        "monitor_id": row["monitor_id"],
-        "mime_type": row["content_type"],
+        "kind": "image" if mime.startswith("image/") else "video",
+        "mime_type": mime,
         "size_bytes": row["size_bytes"],
         "created_at": row["created_at"],
         "expires_at": row["expires_at"],
         "duration_ms": row["duration_ms"],
-        "annotated": bool(row["annotated"]),
-        "sha256": row["sha256"],
     }
 
 

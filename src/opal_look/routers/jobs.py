@@ -74,18 +74,34 @@ def post_api_v1_jobs(request: Request, store: StoreDep, body: JobCreate):
             raise ApiError(422, f"source kind {src['type']!r} is not finite")
     if body.media_id is not None and store.media.get(body.media_id) is None:
         raise ApiError(404, f"Unknown media: {body.media_id!r}")
+    # upstream kind enum -> internal worker kinds
+    kind_map = {"analyze_video": "video_analysis",
+                "export_annotated_video": "media_export",
+                "extract_clip": "media_export"}
+    if body.kind == "extract_clip":
+        raise ApiError(422, "extract_clip requires a video decoder "
+                            "(not installed)")
     payload = body.model_dump(mode="json", exclude_unset=True)
-    if body.kind == "video_analysis":
+    payload["kind"] = kind_map[body.kind]
+    if body.kind == "analyze_video":
         pipeline_id = body.pipeline_id or effective_settings(
             store).default_pipeline_id
+        if body.profile_id is not None:
+            prof = store.profiles.get(int(body.profile_id))
+            if prof is None:
+                raise ApiError(404, f"Unknown profile: {body.profile_id!r}")
+            if pipeline_id is None:
+                import json as _json
+                pipeline_id = _json.loads(
+                    prof["data"] or "{}").get("pipeline_id")
         if pipeline_id is None:
-            raise ApiError(422, "video_analysis requires pipeline_id or a "
+            raise ApiError(422, "analyze_video requires pipeline_id or a "
                                 "configured default_pipeline_id")
         if store.pipelines.get(pipeline_id) is None:
             raise ApiError(404, f"Unknown pipeline: {pipeline_id!r}")
         payload["pipeline_id"] = pipeline_id
     if (body.output and body.output.format in ("mp4", "webm")
-            and body.kind == "media_export"):
+            and body.kind == "export_annotated_video"):
         raise ApiError(422, f"export format {body.output.format!r} requires a "
                             "video encoder (not installed)")
 

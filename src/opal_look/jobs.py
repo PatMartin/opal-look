@@ -33,7 +33,9 @@ def job_read(row: sqlite3.Row) -> dict[str, Any]:
         "started_at": row["started_at"],
         "ended_at": row["ended_at"],
         "progress": row["progress"],
-        "media_ids": json.loads(row["media_ids"] or "[]"),
+        # produced media are mirrored as artifacts (art-{media_id})
+        "artifact_ids": [
+            f"art-{m}" for m in json.loads(row["media_ids"] or "[]")],
         "failure": (json.loads(row["failure"]) if row["failure"] else None),
     }
 
@@ -296,6 +298,29 @@ class JobRuntime:
 
     def _progress(self, job_id: str, progress: float,
                   media_ids: list, cancel) -> None:
+        # upstream: job outputs are artifacts; mirror each produced media
+        # row as an artifact so Job.artifact_ids resolves under /artifacts/
+        try:
+            for mid in media_ids:
+                aid = f"art-{mid}"
+                if self.store.artifacts.get(aid) is not None:
+                    continue
+                mrow = self.store.media.get(mid)
+                if mrow is None:
+                    continue
+                mime = mrow["content_type"] or "application/octet-stream"
+                self.store.artifacts.insert({
+                    "artifact_id": aid,
+                    "kind": "video" if mime.startswith("video/")
+                            else "snapshot",
+                    "mime_type": mime, "size_bytes": mrow["size_bytes"],
+                    "created_at": now_iso(),
+                    "expires_at": mrow["expires_at"],
+                    "source_id": mrow["source_id"], "job_id": job_id,
+                    "path": mrow["path"],
+                })
+        except Exception:
+            pass
         if cancel.is_set():
             _job_terminal(self.store, job_id, "cancelled")
             return

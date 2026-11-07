@@ -349,8 +349,16 @@ async def run_analysis_v15(store: Store, body, frame_cache=None) -> dict[str, An
 
     app_settings = effective_settings(store)
 
-    # --- pipeline resolution ---
+    # --- pipeline resolution: explicit -> profile -> default ---
     pipeline_id = body.pipeline_id
+    profile = None
+    if getattr(body, "profile_id", None) is not None:
+        profile = store.profiles.get(int(body.profile_id))
+        if profile is None:
+            raise ApiError(404, f"Unknown profile: {body.profile_id!r}")
+        if pipeline_id is None:
+            pipeline_id = json.loads(
+                profile["data"] or "{}").get("pipeline_id")
     if pipeline_id is None:
         pipeline_id = app_settings.default_pipeline_id
         if pipeline_id is None:
@@ -365,7 +373,17 @@ async def run_analysis_v15(store: Store, body, frame_cache=None) -> dict[str, An
     if src.frame_at_ms is not None:
         raise ApiError(422, "frame_at_ms is not supported: media are still images "
                             "and live sources carry only the current frame.")
-    if src.source_id is not None:
+    if getattr(src, "capture_id", None) is not None:
+        snap = store.snapshots.get(src.capture_id)
+        if snap is None or snap["expires_at"] <= now_iso():
+            raise ApiError(404, f"Unknown capture: {src.capture_id!r}")
+        try:
+            from PIL import Image
+            image = Image.open(snap["path"]).convert("RGB")
+        except Exception:
+            raise ApiError(503, "Capture bytes are missing from storage.")
+        source_id, media_id = snap["source_id"], None
+    elif src.source_id is not None:
         row = store.sources.get(src.source_id)
         if row is None:
             raise ApiError(404, f"Unknown source: {src.source_id!r}")
@@ -407,7 +425,8 @@ async def run_analysis_v15(store: Store, body, frame_cache=None) -> dict[str, An
     # pipeline-level retention is the default; request may tighten, not loosen
     pipe_retention = __import__("json").loads(pipeline_row["retention"] or "{}")
     persist = bool(
-        (retention and retention.persist_observations)
+        (retention and (retention.persist_observations
+                        or retention.persist_results))
         or pipe_retention.get("persist_observations"))
 
     ids = current_ids()
@@ -428,6 +447,8 @@ async def run_analysis_v15(store: Store, body, frame_cache=None) -> dict[str, An
         _persist_observations(store, observations, retention, app_settings)
     return {
         "observations": observations,
+        "image": {"width": image.width, "height": image.height,
+                  "mime_type": "image/jpeg"},
         "processing_ms": result["processing_ms"],
         "media_id": out_media_id,
     }

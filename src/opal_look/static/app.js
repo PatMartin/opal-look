@@ -117,6 +117,35 @@ const SCREENS = {
       `<button onclick="createSource()">add</button>` +
       `<div id="src-form" style="display:none"></div>`;
   },
+  async zones(el) {
+    el.innerHTML = await _list("Zones", "/api/v1/zones/") +
+      `<button onclick="createZone()">add</button>`;
+  },
+  async rules(el) {
+    el.innerHTML = await _list("Rules", "/api/v1/rules/") +
+      `<button onclick="createRule()">add</button>`;
+  },
+  async profiles(el) {
+    el.innerHTML = await _list("Profiles", "/api/v1/profiles/") +
+      `<button onclick="createProfile()">add</button>` +
+      `<button onclick="activateProfile()">activate</button>`;
+  },
+  async sessions(el) {
+    el.innerHTML = await _list("Sessions", "/api/v1/sessions/") +
+      `<button onclick="startSession()">start</button>` +
+      `<button onclick="stopSession()">stop</button>` +
+      `<button onclick="sessionObservations()">observations</button>` +
+      `<button onclick="sessionStream()">stream</button>` +
+      `<pre id="sess-out"></pre>`;
+  },
+  async captures(el) {
+    el.innerHTML = await _list("Captures", "/api/v1/captures/") +
+      `<button onclick="captureSource()">capture source</button>`;
+  },
+  async artifacts(el) {
+    el.innerHTML = await _list("Artifacts", "/api/v1/artifacts/") +
+      `<button onclick="downloadArtifact()">download</button>`;
+  },
   async pipelines(el) {
     el.innerHTML = await _list("Pipelines", "/api/v1/pipelines/") +
       `<button onclick="createPipeline()">add</button>` +
@@ -191,6 +220,51 @@ async function createMonitor() {
   const j = prompt("MonitorCreate JSON:");
   if (j) { await mutate("POST", "/api/v1/monitors/", JSON.parse(j)); render("monitors"); }
 }
+async function createZone() {
+  const j = prompt("ZoneCreate JSON:");
+  if (j) { await mutate("POST", "/api/v1/zones/", JSON.parse(j)); render("zones"); }
+}
+async function createRule() {
+  const j = prompt("RuleCreate JSON:");
+  if (j) { await mutate("POST", "/api/v1/rules/", JSON.parse(j)); render("rules"); }
+}
+async function createProfile() {
+  const j = prompt("ProfileCreate JSON:");
+  if (j) { await mutate("POST", "/api/v1/profiles/", JSON.parse(j)); render("profiles"); }
+}
+async function activateProfile() {
+  const id = prompt("Profile id to activate:");
+  if (id) { await mutate("POST", `/api/v1/profiles/${id}/activate`); render("profiles"); }
+}
+async function startSession() {
+  const j = prompt("SessionCreate JSON:", '{"source_id":"cam","pipeline_id":"p1"}');
+  if (j) { await mutate("POST", "/api/v1/sessions/", JSON.parse(j)); render("sessions"); }
+}
+async function stopSession() {
+  const id = prompt("Session id to stop:");
+  if (id) { await api("POST", `/api/v1/sessions/${id}/stop`); render("sessions"); }
+}
+async function sessionObservations() {
+  const id = prompt("Session id:");
+  if (id) $("#sess-out").textContent =
+    JSON.stringify(await api("GET", `/api/v1/sessions/${id}/observations/`), null, 2);
+}
+async function sessionStream() {
+  const id = prompt("Session id:");
+  if (!id) return;
+  $("#sess-out").textContent = "";
+  await stream(`/api/v1/sessions/${id}/stream`,
+    ev => { $("#sess-out").textContent += ev + "\n\n"; });
+}
+async function captureSource() {
+  const id = prompt("Source id:");
+  if (id) { await mutate("POST", `/api/v1/sources/${id}/captures/`,
+                          { retain: true }); render("captures"); }
+}
+async function downloadArtifact() {
+  const id = prompt("Artifact id:");
+  if (id) window.open(`/api/v1/artifacts/${id}/content`, "_blank");
+}
 
 async function runAnalyze() {
   const src = $("#an-src").value, pipe = $("#an-pipe").value;
@@ -252,9 +326,10 @@ async function showCaps() {
 async function showMetrics() {
   $("#ops-out").textContent = JSON.stringify(await api("GET", "/api/v1/metrics/"), null, 2);
 }
-const GROUPS = ["dashboard", "sources", "pipelines", "analyze", "view",
-                "monitors", "observations", "media", "jobs", "recordings",
-                "settings", "config", "ops"];
+const GROUPS = ["dashboard", "sources", "zones", "rules", "profiles",
+                "sessions", "pipelines", "analyze", "view", "monitors",
+                "observations", "media", "captures", "artifacts", "jobs",
+                "recordings", "settings", "config", "ops"];
 GROUPS.forEach(id => {
   const b = document.createElement("button");
   b.textContent = id; b.onclick = () => render(id);

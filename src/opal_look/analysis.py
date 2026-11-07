@@ -23,21 +23,11 @@ from .engines import ENGINE_REGISTRY, EngineUnavailable, model_runtime
 from .errors import ApiError
 from .media import is_expired as media_is_expired
 from .profiles import profile_errors
-from .schemas import AnalyzeRequest, MediaFrameInput, SourceFrameInput
+from .schemas import MediaFrameInput, SourceFrameInput
 from .settings import effective_settings
 from .sources import probe as probe_source
 from .store import Store
 from .timeutil import iso, now_iso, parse_iso
-
-
-@dataclass
-class Selection:
-    profile_id: int | None
-    model_id: str
-    engine_id: str
-    task: str
-    settings: dict[str, Any]
-    model_row: Any
 
 
 @dataclass
@@ -46,62 +36,6 @@ class Frame:
     source_id: str | None
     media_id: str | None
     position_ms: int | None
-
-
-def resolve_selection(store: Store, req: AnalyzeRequest) -> Selection:
-    """explicit profile -> active profile -> request overrides -> defaults."""
-    supplied = req.settings.model_dump(exclude_unset=True) if req.settings else {}
-    profile_row = None
-    if req.profile_id is not None:
-        profile_row = store.profiles.get(req.profile_id)
-        if profile_row is None:
-            raise ApiError(404, f"Unknown profile: {req.profile_id}")
-    elif req.model_id is None and req.task is None:
-        profile_row = store.profiles.get_active()
-
-    base_model = profile_row["model_id"] if profile_row else None
-    base_task = profile_row["task"] if profile_row else None
-    base_settings = json.loads(profile_row["settings"]) if profile_row else {}
-
-    model_id = req.model_id or base_model
-    task = req.task or base_task
-    if model_id is None or task is None:
-        raise ApiError(
-            422,
-            "model_id and task are required when no profile resolves the request.",
-        )
-
-    settings = dict(base_settings)
-    settings.update({k: v for k, v in supplied.items() if k != "engine_options"})
-    settings["engine_options"] = {
-        **(base_settings.get("engine_options") or {}),
-        **(supplied.get("engine_options") or {}),
-    }
-
-    model_row = store.models.get(model_id)
-    if model_row is None:
-        raise ApiError(404, f"Unknown model: {model_id!r}")
-    errors, _ = profile_errors(store, model_row, task, supplied, settings)
-    if errors:
-        raise ApiError(422, "Request is incompatible with the selected model.", details=errors)
-    if settings.get("tracking"):
-        raise ApiError(422, "Tracking is not supported for single-frame analysis.")
-
-    read = model_runtime(store, model_row)
-    if not read["enabled"]:
-        raise ApiError(422, f"Model {model_id!r} is disabled.")
-    engine_row = store.engines.get(read["engine_id"])
-    if engine_row is None or not read["available"]:
-        raise ApiError(503, f"Engine {read['engine_id']!r} is unavailable.")
-
-    return Selection(
-        profile_id=profile_row["profile_id"] if profile_row else None,
-        model_id=model_id,
-        engine_id=read["engine_id"],
-        task=task,
-        settings=settings,
-        model_row=model_row,
-    )
 
 
 def acquire_frame(store: Store, frame_input, max_pixels: int) -> Frame:
@@ -245,98 +179,6 @@ def apply_filters(payload: dict, task: str, settings: dict) -> dict:
                 "classes": [],
             }
     return payload
-
-
-async def run_analysis(store: Store, req: AnalyzeRequest, frame_cache=None) -> dict[str, Any]:
-    app_settings = effective_settings(store)
-    sel = resolve_selection(store, req)
-    frame = await asyncio.to_thread(
-        acquire_frame, store, req.input, app_settings.max_image_pixels)
-    captured_at = now_iso()
-
-    adapter = ENGINE_REGISTRY.get(sel.engine_id)
-    desc = model_runtime(store, sel.model_row)
-    options = dict(sel.settings.get("engine_options") or {})
-    if sel.task == "segmentation":
-        options["segmentation_kind"] = sel.settings.get("segmentation_kind", "instance")
-    thumb = frame.image.crop((0, 0, min(32, frame.image.width), min(32, frame.image.height)))
-    frame_key = zlib.crc32(thumb.tobytes())
-
-    started = time.monotonic()
-    try:
-        payload = await asyncio.wait_for(
-            asyncio.to_thread(
-                adapter.infer,
-                frame.image.width,
-                frame.image.height,
-                sel.task,
-                desc,
-                options,
-                frame_key,
-            ),
-            timeout=app_settings.max_analysis_timeout_seconds,
-        )
-    except asyncio.TimeoutError:
-        raise ApiError(504, "Analysis exceeded the configured timeout.", code="analysis_timeout")
-    except EngineUnavailable as exc:
-        raise ApiError(503, f"Engine {sel.engine_id!r} is unavailable: {exc}")
-
-    payload = apply_filters(payload, sel.task, sel.settings)
-    duration_ms = round((time.monotonic() - started) * 1000, 3)
-    analyzed_at = now_iso()
-
-    result_id = f"result-{secrets.token_hex(8)}"
-    stored = bool(req.store_result)
-    expires_at = (
-        iso(parse_iso(analyzed_at) + timedelta(hours=app_settings.result_retention_hours))
-        if stored
-        else None
-    )
-
-    result = {
-        "result_id": result_id,
-        "session_id": None,
-        "source_id": frame.source_id,
-        "media_id": frame.media_id,
-        "model_id": sel.model_id,
-        "engine_id": sel.engine_id,
-        "task": sel.task,
-        "frame_index": 0,
-        "tracking_epoch": 0,
-        "captured_at": captured_at,
-        "analyzed_at": analyzed_at,
-        "position_ms": frame.position_ms,
-        "width": frame.image.width,
-        "height": frame.image.height,
-        "duration_ms": duration_ms,
-        "stored": stored,
-        "expires_at": expires_at,
-        "payload": payload,
-        "engine_metadata": {"adapter": "synthetic"},
-    }
-
-    if stored:
-        with store.write_txn():
-            store.results.insert(
-                {
-                    **{k: result[k] for k in (
-                        "result_id", "session_id", "source_id", "media_id", "model_id",
-                        "engine_id", "task", "frame_index", "tracking_epoch",
-                        "captured_at", "analyzed_at", "position_ms", "width",
-                        "height", "duration_ms", "expires_at",
-                    )},
-                    "profile_id": sel.profile_id,
-                    "stored": 1,
-                    "payload": json.dumps(payload),
-                    "engine_metadata": json.dumps(result["engine_metadata"]),
-                    "settings": json.dumps(sel.settings),
-                }
-            )
-    if frame_cache is not None:
-        frame_cache.put(
-            result_id, frame.image, result, app_settings.frame_cache_seconds
-        )
-    return result
 
 
 async def run_analysis_v15(store: Store, body, frame_cache=None) -> dict[str, Any]:

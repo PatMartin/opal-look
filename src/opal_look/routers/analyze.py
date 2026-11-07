@@ -4,15 +4,12 @@ from __future__ import annotations
 
 from fastapi import APIRouter, File, Form, Request, UploadFile
 
-from ..analysis import run_analysis, run_analysis_v15, run_image_analysis
+from ..analysis import run_analysis_v15, run_image_analysis
 from ..dependencies import StoreDep
-from ..schemas import AnalyzeRequest, AnalyzeSubmission, ImageAnalyzeOptions
+from ..schemas import AnalyzeSubmission, ImageAnalyzeOptions
 
 router = APIRouter()
 
-
-async def post_api_v1_analyze(request: Request, store: StoreDep, body: AnalyzeRequest) -> dict:
-    return await run_analysis(store, body, request.app.state.frame_cache)
 
 
 @router.post("/api/v1/analyze/")

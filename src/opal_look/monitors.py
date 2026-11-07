@@ -313,37 +313,6 @@ def recover_monitors(store, runtime_registry: dict, app=None) -> list[str]:
     return started
 
 
-def validate_monitor_refs(store, source_id: str, pipeline_id: str,
-                          conditions: list | None = None) -> None:
-    """Dependency validation shared by create/patch."""
-    from .errors import ApiError
-
-    src = store.sources.get(source_id)
-    if src is None:
-        raise ApiError(404, f"Unknown source: {source_id!r}")
-    pipe = store.pipelines.get(pipeline_id)
-    if pipe is None:
-        raise ApiError(404, f"Unknown pipeline: {pipeline_id!r}")
-    for st in _stage_list(store, pipe):
-        if st.kind != "inference":
-            continue
-        mrow = store.models.get(st.model_id)
-        if mrow is None:
-            raise ApiError(422, f"Pipeline stage {st.id!r}: model "
-                                f"{st.model_id!r} is not registered.")
-        rt = model_runtime(store, mrow)
-        if st.task not in rt["tasks"]:
-            raise ApiError(422, f"Pipeline stage {st.id!r}: task "
-                                f"{st.task!r} unsupported by model.")
-        if ENGINE_REGISTRY.get(rt["engine_id"]) is None:
-            raise ApiError(503, f"Pipeline stage {st.id!r}: engine "
-                                f"{rt['engine_id']!r} is not installed.")
-    if conditions:
-        from .condition_eval import validate_conditions_for_source
-        errors = validate_conditions_for_source(store, src, conditions, pipe)
-        if errors:
-            raise ApiError(422, "; ".join(errors))
-
 
 def _rules_for_source(store, source_id: str) -> list:
     """Enabled standalone rules for a source, as MonitorCondition objects."""
@@ -369,18 +338,4 @@ def _rule_by_id(rules: list, rule_id: str):
                 MonitorCondition(id=rule_id, event="object_appears"))
 
 
-def _cond_by_id(row, cid):
-    import json as _j
-    for c in _j.loads(row["conditions"] or "[]"):
-        if c["id"] == cid:
-            return c
-    return {}
 
-
-def _to_conds(raw):
-    from .schemas import MonitorCondition
-    import json as _j
-    if isinstance(raw, str):
-        raw = _j.loads(raw or "[]")
-    return [c if isinstance(c, MonitorCondition) else MonitorCondition(**c)
-            for c in (raw or [])]

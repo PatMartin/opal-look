@@ -36,7 +36,7 @@ def test_cli_models_show(cli):
 
 
 def test_cli_health(cli):
-    r = cli.invoke(cli_app, ["health", "show"])
+    r = cli.invoke(cli_app, ["info", "health", "show"])
     assert r.exit_code == 0
 
 

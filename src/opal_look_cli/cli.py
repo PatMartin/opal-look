@@ -365,13 +365,12 @@ app.add_typer(config, name="configuration")
 
 health = typer.Typer(help="health", epilog=(
     "Examples:\n"
-    "  opal-look health show\n"
-    "  opal-look health live\n"
-    "  opal-look health ready"))
+    "  opal-look info health show\n"
+    "  opal-look info health live\n"
+    "  opal-look info health ready"))
 health.command("show")(lambda: _emit(unwrap(_client().get("/api/v1/health/"))))
 health.command("live")(lambda: _emit(unwrap(_client().get("/api/v1/health/live"))))
 health.command("ready")(lambda: _emit(unwrap(_client().get("/api/v1/health/ready"))))
-app.add_typer(health, name="health")
 
 metrics = typer.Typer(help="metrics", epilog=(
     "Examples:\n"
@@ -604,9 +603,11 @@ app.add_typer(persona, name="persona")
 info = typer.Typer(help="info", epilog=(
     "Examples:\n"
     "  opal-look info version\n"
-    "  opal-look info ping"))
+    "  opal-look info ping\n"
+    "  opal-look info health live"))
 info.command("version")(lambda: _emit(unwrap(_client().get("/api/v1/info/"))))
 info.command("ping")(lambda: _emit(unwrap(_client().get("/api/v1/info/ping"))))
+info.add_typer(health, name="health")
 app.add_typer(info, name="info")
 
 

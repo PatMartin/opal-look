@@ -85,7 +85,7 @@ def _annotation_result(store: Store, observation_id: str | None,
     return None
 
 
-@router.post("/api/v1/sources/{source_id}/captures/", status_code=201)
+@router.post("/api/v1/source/{source_id}/capture/", status_code=201)
 def post_api_v1_sources_source_id_captures(
     request: Request, store: StoreDep, source_id: str, body: CaptureCreate
 ) -> JSONResponse:
@@ -135,7 +135,7 @@ def post_api_v1_sources_source_id_captures(
                         status_code=201, headers={"ETag": revision})
 
 
-@router.get("/api/v1/captures/")
+@router.get("/api/v1/capture/")
 def get_api_v1_captures(
     store: StoreDep, source_id: str | None = None
 ) -> JSONResponse:
@@ -144,7 +144,7 @@ def get_api_v1_captures(
                         headers={"ETag": store.config_revision()})
 
 
-@router.get("/api/v1/captures/{capture_id}")
+@router.get("/api/v1/capture/{capture_id}")
 def get_api_v1_captures_capture_id(store: StoreDep, capture_id: str) -> JSONResponse:
     row = _capture_or_404(store, capture_id)
     if row["expires_at"] <= now_iso():
@@ -153,7 +153,7 @@ def get_api_v1_captures_capture_id(store: StoreDep, capture_id: str) -> JSONResp
                         headers={"ETag": store.config_revision()})
 
 
-@router.delete("/api/v1/captures/{capture_id}", status_code=204)
+@router.delete("/api/v1/capture/{capture_id}", status_code=204)
 def delete_api_v1_captures_capture_id(
     request: Request, response: Response, store: StoreDep, capture_id: str
 ) -> None:
@@ -166,7 +166,7 @@ def delete_api_v1_captures_capture_id(
     Path(row["path"]).unlink(missing_ok=True)
 
 
-@router.get("/api/v1/captures/{capture_id}/content")
+@router.get("/api/v1/capture/{capture_id}/content")
 def get_api_v1_captures_capture_id_content(store: StoreDep, capture_id: str):
     row = _capture_or_404(store, capture_id)
     if row["expires_at"] <= now_iso():

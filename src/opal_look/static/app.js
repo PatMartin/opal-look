@@ -113,25 +113,25 @@ const SCREENS = {
     } catch (e) {}
   },
   async sources(el) {
-    el.innerHTML = await _list("Sources", "/api/v1/sources/") +
+    el.innerHTML = await _list("Sources", "/api/v1/source/") +
       `<button onclick="createSource()">add</button>` +
       `<div id="src-form" style="display:none"></div>`;
   },
   async zones(el) {
-    el.innerHTML = await _list("Zones", "/api/v1/zones/") +
+    el.innerHTML = await _list("Zones", "/api/v1/zone/") +
       `<button onclick="createZone()">add</button>`;
   },
   async rules(el) {
-    el.innerHTML = await _list("Rules", "/api/v1/rules/") +
+    el.innerHTML = await _list("Rules", "/api/v1/rule/") +
       `<button onclick="createRule()">add</button>`;
   },
   async profiles(el) {
-    el.innerHTML = await _list("Profiles", "/api/v1/profiles/") +
+    el.innerHTML = await _list("Profiles", "/api/v1/profile/") +
       `<button onclick="createProfile()">add</button>` +
       `<button onclick="activateProfile()">activate</button>`;
   },
   async sessions(el) {
-    el.innerHTML = await _list("Sessions", "/api/v1/sessions/") +
+    el.innerHTML = await _list("Sessions", "/api/v1/session/") +
       `<button onclick="startSession()">start</button>` +
       `<button onclick="stopSession()">stop</button>` +
       `<button onclick="sessionObservations()">observations</button>` +
@@ -139,15 +139,15 @@ const SCREENS = {
       `<pre id="sess-out"></pre>`;
   },
   async captures(el) {
-    el.innerHTML = await _list("Captures", "/api/v1/captures/") +
+    el.innerHTML = await _list("Captures", "/api/v1/capture/") +
       `<button onclick="captureSource()">capture source</button>`;
   },
   async artifacts(el) {
-    el.innerHTML = await _list("Artifacts", "/api/v1/artifacts/") +
+    el.innerHTML = await _list("Artifacts", "/api/v1/artifact/") +
       `<button onclick="downloadArtifact()">download</button>`;
   },
   async pipelines(el) {
-    el.innerHTML = await _list("Pipelines", "/api/v1/pipelines/") +
+    el.innerHTML = await _list("Pipelines", "/api/v1/pipeline/") +
       `<button onclick="createPipeline()">add</button>` +
       `<button onclick="validatePipeline()">validate</button>`;
   },
@@ -168,24 +168,24 @@ const SCREENS = {
       <p><img id="vw-img" alt="live view"></p>`;
   },
   async monitors(el) {
-    el.innerHTML = await _list("Monitors", "/api/v1/monitors/") +
+    el.innerHTML = await _list("Monitors", "/api/v1/monitor/") +
       `<button onclick="createMonitor()">add</button>`;
   },
   async observations(el) {
-    el.innerHTML = await _list("Observations", "/api/v1/observations/");
+    el.innerHTML = await _list("Observations", "/api/v1/observation/");
   },
   async media(el) {
     el.innerHTML = await _list("Media", "/api/v1/media/") +
       `<input id="md-file" type="file"><button onclick="uploadMedia()">upload</button>`;
   },
   async jobs(el) {
-    el.innerHTML = await _list("Jobs", "/api/v1/jobs/");
+    el.innerHTML = await _list("Jobs", "/api/v1/job/");
   },
   async recordings(el) {
-    el.innerHTML = await _list("Recordings", "/api/v1/recordings/");
+    el.innerHTML = await _list("Recordings", "/api/v1/recording/");
   },
   async settings(el) {
-    el.innerHTML = await _list("Settings", "/api/v1/settings/");
+    el.innerHTML = await _list("Settings", "/api/v1/setting/");
   },
   async config(el) {
     el.innerHTML = `<h3>Configuration</h3>
@@ -205,65 +205,65 @@ const SCREENS = {
 /* Actions that map 1:1 to REST ops */
 async function createSource() {
   const j = prompt("SourceCreate JSON:");
-  if (j) { await mutate("POST", "/api/v1/sources/", JSON.parse(j)); render("sources"); }
+  if (j) { await mutate("POST", "/api/v1/source/", JSON.parse(j)); render("sources"); }
 }
 async function createPipeline() {
   const j = prompt("PipelineCreate JSON:");
-  if (j) { await mutate("POST", "/api/v1/pipelines/", JSON.parse(j)); render("pipelines"); }
+  if (j) { await mutate("POST", "/api/v1/pipeline/", JSON.parse(j)); render("pipelines"); }
 }
 async function validatePipeline() {
   const j = prompt("PipelineCreate JSON to validate:");
-  if (j) { const r = await api("POST", "/api/v1/pipelines/validate", { body: JSON.parse(j) });
+  if (j) { const r = await api("POST", "/api/v1/pipeline/validate", { body: JSON.parse(j) });
            toast(JSON.stringify(r)); }
 }
 async function createMonitor() {
   const j = prompt("MonitorCreate JSON:");
-  if (j) { await mutate("POST", "/api/v1/monitors/", JSON.parse(j)); render("monitors"); }
+  if (j) { await mutate("POST", "/api/v1/monitor/", JSON.parse(j)); render("monitors"); }
 }
 async function createZone() {
   const j = prompt("ZoneCreate JSON:");
-  if (j) { await mutate("POST", "/api/v1/zones/", JSON.parse(j)); render("zones"); }
+  if (j) { await mutate("POST", "/api/v1/zone/", JSON.parse(j)); render("zones"); }
 }
 async function createRule() {
   const j = prompt("RuleCreate JSON:");
-  if (j) { await mutate("POST", "/api/v1/rules/", JSON.parse(j)); render("rules"); }
+  if (j) { await mutate("POST", "/api/v1/rule/", JSON.parse(j)); render("rules"); }
 }
 async function createProfile() {
   const j = prompt("ProfileCreate JSON:");
-  if (j) { await mutate("POST", "/api/v1/profiles/", JSON.parse(j)); render("profiles"); }
+  if (j) { await mutate("POST", "/api/v1/profile/", JSON.parse(j)); render("profiles"); }
 }
 async function activateProfile() {
   const id = prompt("Profile id to activate:");
-  if (id) { await mutate("POST", `/api/v1/profiles/${id}/activate`); render("profiles"); }
+  if (id) { await mutate("POST", `/api/v1/profile/${id}/activate`); render("profiles"); }
 }
 async function startSession() {
   const j = prompt("SessionCreate JSON:", '{"source_id":"cam","pipeline_id":"p1"}');
-  if (j) { await mutate("POST", "/api/v1/sessions/", JSON.parse(j)); render("sessions"); }
+  if (j) { await mutate("POST", "/api/v1/session/", JSON.parse(j)); render("sessions"); }
 }
 async function stopSession() {
   const id = prompt("Session id to stop:");
-  if (id) { await api("POST", `/api/v1/sessions/${id}/stop`); render("sessions"); }
+  if (id) { await api("POST", `/api/v1/session/${id}/stop`); render("sessions"); }
 }
 async function sessionObservations() {
   const id = prompt("Session id:");
   if (id) $("#sess-out").textContent =
-    JSON.stringify(await api("GET", `/api/v1/sessions/${id}/observations/`), null, 2);
+    JSON.stringify(await api("GET", `/api/v1/session/${id}/observation/`), null, 2);
 }
 async function sessionStream() {
   const id = prompt("Session id:");
   if (!id) return;
   $("#sess-out").textContent = "";
-  await stream(`/api/v1/sessions/${id}/stream`,
+  await stream(`/api/v1/session/${id}/stream`,
     ev => { $("#sess-out").textContent += ev + "\n\n"; });
 }
 async function captureSource() {
   const id = prompt("Source id:");
-  if (id) { await mutate("POST", `/api/v1/sources/${id}/captures/`,
+  if (id) { await mutate("POST", `/api/v1/source/${id}/capture/`,
                           { retain: true }); render("captures"); }
 }
 async function downloadArtifact() {
   const id = prompt("Artifact id:");
-  if (id) window.open(`/api/v1/artifacts/${id}/content`, "_blank");
+  if (id) window.open(`/api/v1/artifact/${id}/content`, "_blank");
 }
 
 async function runAnalyze() {
@@ -283,7 +283,7 @@ async function analyzeImage() {
 async function startView() {
   const id = $("#vw-src").value; if (!id) return;
   stopStreams();
-  const resp = await fetch(`/api/v1/sources/${id}/stream`, { headers: _auth() });
+  const resp = await fetch(`/api/v1/source/${id}/stream`, { headers: _auth() });
   if (!resp.ok) { await _raise(resp); return; }
   const rd = resp.body.getReader();
   const chunks = [];

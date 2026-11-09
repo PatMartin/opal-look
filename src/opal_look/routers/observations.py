@@ -17,7 +17,7 @@ def _body(row) -> dict:
     return json.loads(row["body"])
 
 
-@router.get("/api/v1/observations/")
+@router.get("/api/v1/observation/")
 def get_api_v1_observations(
     request: Request, store: StoreDep,
     source_id: str | None = Query(default=None),
@@ -48,7 +48,7 @@ def get_api_v1_observations(
     }
 
 
-@router.get("/api/v1/observations/{observation_id}")
+@router.get("/api/v1/observation/{observation_id}")
 def get_api_v1_observations_observation_id(
     request: Request, store: StoreDep, observation_id: str
 ) -> dict:

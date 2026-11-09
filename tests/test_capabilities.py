@@ -48,7 +48,7 @@ def test_catalog_reflects_registered_capture(client, fake_rtsp):
 
 
 def test_catalog_omits_tasks_when_no_available_models(client):
-    client.patch("/api/v1/engines/synthetic", json={"enabled": False},
+    client.patch("/api/v1/engine/synthetic", json={"enabled": False},
                  headers={"If-Match": "*"})
     body = client.get("/api/v1/capabilities/").json()
     assert body["tasks"] == []
@@ -62,7 +62,7 @@ def test_catalog_honest_support_flags(client):
 
 
 def test_engine_schema_exact(client):
-    eng = client.get("/api/v1/engines/synthetic").json()
+    eng = client.get("/api/v1/engine/synthetic").json()
     # Kernel OpalEngine: required fields present; additionalProperties allowed.
     assert {"engine_id", "name", "enabled", "available", "state", "tasks",
             "device_types", "options_schema", "options", "metadata",
@@ -71,7 +71,7 @@ def test_engine_schema_exact(client):
 
 
 def test_model_schema_exact(client):
-    model = client.get("/api/v1/models/synthetic-vision").json()
+    model = client.get("/api/v1/model/synthetic-vision").json()
     assert set(model) <= {
         "id", "engine_id", "display_name", "tasks", "state",
         "resource_label", "created_at",
@@ -81,7 +81,7 @@ def test_model_schema_exact(client):
 
 def test_model_create_unsupported_task_422(client):
     resp = client.post(
-        "/api/v1/models/",
+        "/api/v1/model/",
         json={"id": "m1", "engine_id": "synthetic",
               "resource_ref": "x", "tasks": ["teleport"]},
         headers={"If-Match": "*"},
@@ -93,7 +93,7 @@ def test_model_create_unsupported_task_422(client):
 
 def test_model_create_bad_options_422(client):
     resp = client.post(
-        "/api/v1/models/",
+        "/api/v1/model/",
         json={"id": "m1", "engine_id": "synthetic",
               "resource_ref": "x", "tasks": ["detection"],
               "options": {"bogus": 1}},
@@ -104,11 +104,11 @@ def test_model_create_bad_options_422(client):
 
 def test_model_patch_options_422_and_ok(client):
     resp = client.patch(
-        "/api/v1/models/synthetic-vision", json={"options": {"bogus": 1}},
+        "/api/v1/model/synthetic-vision", json={"options": {"bogus": 1}},
         headers={"If-Match": "*"})
     assert resp.status_code == 422
     resp = client.patch(
-        "/api/v1/models/synthetic-vision", json={"options": {"seed": 7}},
+        "/api/v1/model/synthetic-vision", json={"options": {"seed": 7}},
         headers={"If-Match": "*"})
     assert resp.status_code == 200
 
@@ -117,11 +117,11 @@ def test_kernel_profile_does_not_reference_model(client):
     """Kernel OpalProfile has no model_id field: a profile does not block
     model deletion the way the retired local profile resource did."""
     resp = client.post(
-        "/api/v1/profiles/",
+        "/api/v1/profile/",
         json={"name": "p", "stages": [{"id": "s1", "kind": "inference", "model_id": "synthetic-vision", "task": "detection"}]},
         headers={"If-Match": "*"},
     )
     assert resp.status_code == 201
     pid = resp.json()["id"]
     # Cleanup: remove profile so other tests are unaffected.
-    client.delete(f"/api/v1/profiles/{pid}", headers={"If-Match": "*"})
+    client.delete(f"/api/v1/profile/{pid}", headers={"If-Match": "*"})

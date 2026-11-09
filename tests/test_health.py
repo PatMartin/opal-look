@@ -32,7 +32,7 @@ def test_ready_probe_ready_with_seeded_synthetic_model(client):
 
 
 def test_ready_probe_unavailable_when_engine_disabled(client):
-    client.patch("/api/v1/engines/synthetic", json={"enabled": False}, headers={"If-Match": "*"})
+    client.patch("/api/v1/engine/synthetic", json={"enabled": False}, headers={"If-Match": "*"})
     resp = client.get("/api/v1/health/ready")
     assert resp.status_code == 503
     assert resp.json()["ready"] is False

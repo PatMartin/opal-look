@@ -31,7 +31,7 @@ def _get_monitor_or_404(store: StoreDep, monitor_id: str):
     return row
 
 
-@router.get("/api/v1/monitors/")
+@router.get("/api/v1/monitor/")
 def get_api_v1_monitors(request: Request, store: StoreDep) -> list:
     return [
         monitor_read(store, row, _runtime(request, row["monitor_id"]))
@@ -57,7 +57,7 @@ def _resolve_monitor_pipeline(store: Store, pipeline_id, profile_id):
     return pipeline_id, profile
 
 
-@router.post("/api/v1/monitors/", status_code=201)
+@router.post("/api/v1/monitor/", status_code=201)
 def post_api_v1_monitors(request: Request, store: StoreDep, body: MonitorCreate):
     require_if_match(request)
     if store.monitors.get(body.id) is not None:
@@ -96,7 +96,7 @@ def post_api_v1_monitors(request: Request, store: StoreDep, body: MonitorCreate)
     return monitor_read(store, row, _runtime(request, body.id))
 
 
-@router.get("/api/v1/monitors/{monitor_id}")
+@router.get("/api/v1/monitor/{monitor_id}")
 def get_api_v1_monitors_monitor_id(
     request: Request, store: StoreDep, monitor_id: str
 ) -> dict:
@@ -104,7 +104,7 @@ def get_api_v1_monitors_monitor_id(
     return monitor_read(store, row, _runtime(request, monitor_id))
 
 
-@router.patch("/api/v1/monitors/{monitor_id}")
+@router.patch("/api/v1/monitor/{monitor_id}")
 def patch_api_v1_monitors_monitor_id(
     request: Request, store: StoreDep, monitor_id: str, body: MonitorPatch
 ) -> dict:
@@ -146,7 +146,7 @@ def patch_api_v1_monitors_monitor_id(
     return monitor_read(store, row, _runtime(request, monitor_id))
 
 
-@router.delete("/api/v1/monitors/{monitor_id}", status_code=204)
+@router.delete("/api/v1/monitor/{monitor_id}", status_code=204)
 def delete_api_v1_monitors_monitor_id(
     request: Request, store: StoreDep, monitor_id: str
 ) -> None:

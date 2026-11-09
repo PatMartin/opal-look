@@ -29,7 +29,7 @@ def _get_job_or_404(store: StoreDep, job_id: str):
     return row
 
 
-@router.get("/api/v1/jobs/")
+@router.get("/api/v1/job/")
 def get_api_v1_jobs(
     store: StoreDep, kind: str | None = None, state: str | None = None,
     limit: int = 50, cursor: str | None = None
@@ -45,7 +45,7 @@ def get_api_v1_jobs(
     return {"items": items, "next_cursor": next_cursor, "has_more": has_more}
 
 
-@router.post("/api/v1/jobs/", status_code=202)
+@router.post("/api/v1/job/", status_code=202)
 def post_api_v1_jobs(request: Request, store: StoreDep, body: JobCreate):
     idem = request_idempotency_key(request)
     fingerprint = None
@@ -63,7 +63,7 @@ def post_api_v1_jobs(request: Request, store: StoreDep, body: JobCreate):
             if prior_job is not None:
                 return JSONResponse(
                     job_read(prior_job), status_code=202,
-                    headers={"Location": f"/api/v1/jobs/{prior_job['job_id']}"})
+                    headers={"Location": f"/api/v1/job/{prior_job['job_id']}"})
 
     # dependency validation
     if body.source_id is not None:
@@ -125,15 +125,15 @@ def post_api_v1_jobs(request: Request, store: StoreDep, body: JobCreate):
     request.app.state.job_runtime.start(job_id)
     row = store.jobs.get(job_id)
     return JSONResponse(job_read(row), status_code=202,
-                        headers={"Location": f"/api/v1/jobs/{job_id}"})
+                        headers={"Location": f"/api/v1/job/{job_id}"})
 
 
-@router.get("/api/v1/jobs/{job_id}")
+@router.get("/api/v1/job/{job_id}")
 def get_api_v1_jobs_job_id(store: StoreDep, job_id: str) -> dict:
     return job_read(_get_job_or_404(store, job_id))
 
 
-@router.post("/api/v1/jobs/{job_id}/cancel")
+@router.post("/api/v1/job/{job_id}/cancel")
 def post_api_v1_jobs_job_id_cancel(
     store: StoreDep, job_id: str, request: Request
 ) -> dict:

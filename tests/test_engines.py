@@ -1,5 +1,5 @@
 def test_list_engines_includes_synthetic(client):
-    resp = client.get("/api/v1/engines/")
+    resp = client.get("/api/v1/engine/")
     assert resp.status_code == 200
     assert resp.headers["etag"].startswith('"')
     engines = {e["engine_id"]: e for e in resp.json()}
@@ -18,7 +18,7 @@ def test_list_engines_includes_synthetic(client):
 
 
 def test_get_engine(client):
-    resp = client.get("/api/v1/engines/synthetic")
+    resp = client.get("/api/v1/engine/synthetic")
     assert resp.status_code == 200
     body = resp.json()
     for field in ("engine_id", "name", "version", "enabled", "available",
@@ -29,19 +29,19 @@ def test_get_engine(client):
 
 
 def test_get_unknown_engine_404(client):
-    resp = client.get("/api/v1/engines/nope")
+    resp = client.get("/api/v1/engine/nope")
     assert resp.status_code == 404
     assert resp.json()["error"]["code"] == "not_found"
 
 
 def test_patch_engine_requires_if_match(client):
-    resp = client.patch("/api/v1/engines/synthetic", json={"enabled": False})
+    resp = client.patch("/api/v1/engine/synthetic", json={"enabled": False})
     assert resp.status_code == 428
 
 
 def test_patch_engine_disable_and_enable(client):
     resp = client.patch(
-        "/api/v1/engines/synthetic", json={"enabled": False}, headers={"If-Match": "*"}
+        "/api/v1/engine/synthetic", json={"enabled": False}, headers={"If-Match": "*"}
     )
     assert resp.status_code == 200
     body = resp.json()
@@ -49,7 +49,7 @@ def test_patch_engine_disable_and_enable(client):
     assert body["state"] == "disabled"
 
     resp = client.patch(
-        "/api/v1/engines/synthetic", json={"enabled": True}, headers={"If-Match": "*"}
+        "/api/v1/engine/synthetic", json={"enabled": True}, headers={"If-Match": "*"}
     )
     assert resp.json()["enabled"] is True
     assert resp.json()["state"] == "ready"
@@ -57,7 +57,7 @@ def test_patch_engine_disable_and_enable(client):
 
 def test_patch_engine_config_unknown_key_422(client):
     resp = client.patch(
-        "/api/v1/engines/synthetic",
+        "/api/v1/engine/synthetic",
         json={"options": {"bogus": 1}},
         headers={"If-Match": "*"},
     )
@@ -66,7 +66,7 @@ def test_patch_engine_config_unknown_key_422(client):
 
 def test_patch_engine_config_force_unavailable(client):
     resp = client.patch(
-        "/api/v1/engines/synthetic",
+        "/api/v1/engine/synthetic",
         json={"options": {"force_unavailable": True}},
         headers={"If-Match": "*"},
     )
@@ -78,7 +78,7 @@ def test_patch_engine_config_force_unavailable(client):
 
 def test_patch_engine_stale_etag(client):
     resp = client.patch(
-        "/api/v1/engines/synthetic",
+        "/api/v1/engine/synthetic",
         json={"enabled": False},
         headers={"If-Match": '"deadbeef"'},
     )
@@ -87,12 +87,12 @@ def test_patch_engine_stale_etag(client):
 
 def test_patch_engine_null_rejected(client):
     resp = client.patch(
-        "/api/v1/engines/synthetic", json={"enabled": None}, headers={"If-Match": "*"}
+        "/api/v1/engine/synthetic", json={"enabled": None}, headers={"If-Match": "*"}
     )
     assert resp.status_code == 422
 
 
 def test_engine_validate_route_removed(client):
     """Upstream v1.5.0 has no per-engine validate operation."""
-    resp = client.post("/api/v1/engines/synthetic/validate")
+    resp = client.post("/api/v1/engine/synthetic/validate")
     assert resp.status_code in (404, 405)

@@ -52,13 +52,13 @@ def _issues_422(issues: list[str]) -> None:
         raise ApiError(422, "Pipeline definition is invalid.", details={"issues": issues})
 
 
-@router.get("/api/v1/pipelines/")
+@router.get("/api/v1/pipeline/")
 def get_api_v1_pipelines(request: Request, store: StoreDep) -> JSONResponse:
     body = [pipeline_read(r) for r in store.pipelines.list()]
     return JSONResponse(body, headers={"ETag": store.config_revision()})
 
 
-@router.post("/api/v1/pipelines/", status_code=201)
+@router.post("/api/v1/pipeline/", status_code=201)
 def post_api_v1_pipelines(request: Request, store: StoreDep, pipe: PipelineCreate) -> JSONResponse:
     if store.pipelines.get(pipe.id) is not None:
         raise ApiError(409, f"Pipeline {pipe.id!r} already exists.")
@@ -78,7 +78,7 @@ def post_api_v1_pipelines(request: Request, store: StoreDep, pipe: PipelineCreat
     return JSONResponse(
         pipeline_read(store.pipelines.get(pipe.id)),
         status_code=201,
-        headers={"ETag": revision, "Location": f"/api/v1/pipelines/{pipe.id}"},
+        headers={"ETag": revision, "Location": f"/api/v1/pipeline/{pipe.id}"},
     )
 
 
@@ -88,13 +88,13 @@ def _check_stages(store: Store, stages) -> list[dict]:
     return validate_stages(store, stages)
 
 
-@router.get("/api/v1/pipelines/{pipeline_id}")
+@router.get("/api/v1/pipeline/{pipeline_id}")
 def get_api_v1_pipelines_pipeline_id(request: Request, store: StoreDep, pipeline_id: str) -> JSONResponse:
     row = _get_or_404(store, pipeline_id)
     return JSONResponse(pipeline_read(row), headers={"ETag": store.config_revision()})
 
 
-@router.patch("/api/v1/pipelines/{pipeline_id}")
+@router.patch("/api/v1/pipeline/{pipeline_id}")
 def patch_api_v1_pipelines_pipeline_id(
     request: Request, store: StoreDep, pipeline_id: str, patch: PipelinePatch
 ) -> JSONResponse:
@@ -123,7 +123,7 @@ def patch_api_v1_pipelines_pipeline_id(
                         headers={"ETag": revision})
 
 
-@router.delete("/api/v1/pipelines/{pipeline_id}", status_code=204)
+@router.delete("/api/v1/pipeline/{pipeline_id}", status_code=204)
 def delete_api_v1_pipelines_pipeline_id(
     request: Request, response: Response, store: StoreDep, pipeline_id: str
 ) -> None:
@@ -151,7 +151,7 @@ def _pipeline_refs(store: Store, pipeline_id: str) -> int:
     ).fetchone()["n"]
 
 
-@router.post("/api/v1/pipelines/validate")
+@router.post("/api/v1/pipeline/validate")
 def post_api_v1_pipelines_validate(request: Request, store: StoreDep, pipe: PipelineCreate) -> dict:
     issues = _check_stages(store, pipe.stages)
     return {"valid": not issues, "issues": issues}

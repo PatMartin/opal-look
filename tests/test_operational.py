@@ -16,12 +16,12 @@ def test_metrics_shape_and_counters(client):
 def test_metrics_reflect_work(client, fake_rtsp):
     fake_rtsp.frames_per_open = [None]
     fake_rtsp.frame_delay = 0.02
-    client.post("/api/v1/sources/", json={
+    client.post("/api/v1/source/", json={
         "id": "cam", "name": "C", "kind": "rtsp", "locator": "rtsp://x"},
         headers={"If-Match": "*"})
-    client.post("/api/v1/pipelines/", json={
+    client.post("/api/v1/pipeline/", json={
         "id": "p", "name": "P", "stages": [{"id": "s1", "kind": "inference", "model_id": "synthetic-vision", "task": "detection"}]}, headers={"If-Match": "*"})
-    client.post("/api/v1/monitors/", json={
+    client.post("/api/v1/monitor/", json={
         "id": "m", "name": "M", "source_id": "cam", "pipeline_id": "p"},
         headers={"If-Match": "*"})
     import time
@@ -32,7 +32,7 @@ def test_metrics_reflect_work(client, fake_rtsp):
             break
         time.sleep(0.05)
     assert g["active_source_streams"] >= 1
-    client.delete("/api/v1/monitors/m", headers={"If-Match": "*"})
+    client.delete("/api/v1/monitor/m", headers={"If-Match": "*"})
 
 
 def test_events_status_disabled_default(client):
@@ -79,30 +79,30 @@ def test_events_status_drops_counter(client):
 def test_viewer_quota_429(client, fake_rtsp):
     fake_rtsp.frames_per_open = [None]
     fake_rtsp.frame_delay = 0.02
-    client.put("/api/v1/settings/max_viewers",
+    client.put("/api/v1/setting/max_viewers",
                json={"value": 1}, headers={"If-Match": "*"})
-    client.post("/api/v1/sources/", json={
+    client.post("/api/v1/source/", json={
         "id": "cam", "name": "C", "kind": "rtsp", "locator": "rtsp://x"},
         headers={"If-Match": "*"})
-    with client.stream("GET", "/api/v1/sources/cam/stream") as r:
+    with client.stream("GET", "/api/v1/source/cam/stream") as r:
         next(r.iter_bytes(), b"")
-        resp2 = client.get("/api/v1/sources/cam/stream")
+        resp2 = client.get("/api/v1/source/cam/stream")
         assert resp2.status_code == 429
 
 
 def test_monitor_quota_429(client, fake_rtsp):
     fake_rtsp.frames_per_open = [None]
-    client.put("/api/v1/settings/max_monitors",
+    client.put("/api/v1/setting/max_monitors",
                json={"value": 1}, headers={"If-Match": "*"})
-    client.post("/api/v1/sources/", json={
+    client.post("/api/v1/source/", json={
         "id": "cam", "name": "C", "kind": "rtsp", "locator": "rtsp://x"},
         headers={"If-Match": "*"})
-    client.post("/api/v1/pipelines/", json={
+    client.post("/api/v1/pipeline/", json={
         "id": "p", "name": "P", "stages": [{"id": "s1", "kind": "inference", "model_id": "synthetic-vision", "task": "detection"}]}, headers={"If-Match": "*"})
-    client.post("/api/v1/monitors/", json={
+    client.post("/api/v1/monitor/", json={
         "id": "m1", "name": "M", "source_id": "cam", "pipeline_id": "p",
         "enabled": False}, headers={"If-Match": "*"})
-    assert client.post("/api/v1/monitors/", json={
+    assert client.post("/api/v1/monitor/", json={
         "id": "m2", "name": "M", "source_id": "cam", "pipeline_id": "p",
         "enabled": False}, headers={"If-Match": "*"}).status_code == 429
 
@@ -116,7 +116,7 @@ def test_health_surfaces(client):
 def test_uploaded_bytes_bound(client):
     import io
     from PIL import Image
-    client.put("/api/v1/settings/max_upload_bytes",
+    client.put("/api/v1/setting/max_upload_bytes",
                json={"value": 256}, headers={"If-Match": "*"})
     buf = io.BytesIO()
     Image.new("RGB", (200, 200), (10, 20, 30)).save(buf, "JPEG")
@@ -126,7 +126,7 @@ def test_uploaded_bytes_bound(client):
 
 
 def test_missing_engine_graceful(client):
-    resp = client.get("/api/v1/engines/ghost-engine")
+    resp = client.get("/api/v1/engine/ghost-engine")
     assert resp.status_code in (404, 422)
 
 
@@ -135,11 +135,11 @@ def test_disconnect_storm_no_unbounded_growth(client, fake_rtsp):
     responsive and the monitor count never leaks."""
     fake_rtsp.frames_per_open = [None]
     fake_rtsp.frame_delay = 0.01
-    client.post("/api/v1/sources/", json={
+    client.post("/api/v1/source/", json={
         "id": "cam", "name": "C", "kind": "rtsp", "locator": "rtsp://x"},
         headers={"If-Match": "*"})
     for _ in range(5):
-        with client.stream("GET", "/api/v1/sources/cam/stream") as r:
+        with client.stream("GET", "/api/v1/source/cam/stream") as r:
             next(r.iter_bytes(), b"")
     g = client.get("/api/v1/metrics/").json()
     assert g["active_source_streams"] <= 1  # disconnects released

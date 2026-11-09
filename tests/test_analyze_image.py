@@ -21,7 +21,7 @@ def _bytes(fmt="JPEG", size=(16, 16), color=(9, 9, 9)):
 
 
 def _pipeline(client, body=SIMPLE):
-    client.post("/api/v1/pipelines/", json=body, headers={"If-Match": "*"})
+    client.post("/api/v1/pipeline/", json=body, headers={"If-Match": "*"})
 
 
 def test_jpeg_json_default(client):
@@ -151,7 +151,7 @@ def test_oversize_413(client, monkeypatch):
     _pipeline(client)
     big = b"\xff\xd8" + b"\x00" * (1_073_741_824 + 1)  # > 1 GiB default cap
     # avoid actually shipping 1GiB: lower the cap via settings
-    client.put("/api/v1/settings/max_upload_bytes",
+    client.put("/api/v1/setting/max_upload_bytes",
                json={"value": 128}, headers={"If-Match": "*"})
     resp = client.post(
         "/api/v1/analyze/image",
@@ -180,7 +180,7 @@ def test_correlation_headers(client):
 
 def test_default_pipeline_used_when_request_omitted(client):
     _pipeline(client)
-    client.put("/api/v1/settings/default_pipeline_id",
+    client.put("/api/v1/setting/default_pipeline_id",
                json={"value": "p"}, headers={"If-Match": "*"})
     resp = client.post("/api/v1/analyze/image",
                        files={"image": ("a.jpg", _bytes("JPEG"), "image/jpeg")})

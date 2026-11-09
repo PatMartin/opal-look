@@ -14,7 +14,7 @@ def _img(fmt="JPEG", size=(48, 36), color=(10, 120, 220)):
 
 
 def _pipeline(client, task="detection", pid="p"):
-    client.post("/api/v1/pipelines/", json={
+    client.post("/api/v1/pipeline/", json={
         "id": pid, "name": "P", "stages": [
             {"id": "s1", "kind": "inference",
              "model_id": "synthetic-vision", "task": task}]},
@@ -57,7 +57,7 @@ def test_analyze_pipeline_required(client, media_id):
 
 def test_analyze_default_pipeline(client, media_id):
     _pipeline(client)
-    client.put("/api/v1/settings/default_pipeline_id",
+    client.put("/api/v1/setting/default_pipeline_id",
                json={"value": "p"}, headers={"If-Match": "*"})
     resp = client.post("/api/v1/analyze",
                        json={"source": {"media_id": media_id}})
@@ -66,10 +66,10 @@ def test_analyze_default_pipeline(client, media_id):
 
 def test_analyze_via_profile(client, media_id):
     _pipeline(client)
-    client.post("/api/v1/profiles/", json={
+    client.post("/api/v1/profile/", json={
         "name": "p", "pipeline_id": "p", "is_active": False},
         headers={"If-Match": "*"})
-    pid = client.get("/api/v1/profiles/").json()[0]["id"]
+    pid = client.get("/api/v1/profile/").json()[0]["id"]
     resp = client.post("/api/v1/analyze", json={
         "source": {"media_id": media_id}, "profile_id": str(pid)})
     assert resp.status_code == 200
@@ -81,7 +81,7 @@ def test_analyze_persisted_result(client, media_id):
     body = _analyze(
         client, media_id,
         retention={"persist_results": True}).json()
-    obs = client.get("/api/v1/observations/").json()["items"]
+    obs = client.get("/api/v1/observation/").json()["items"]
     assert obs, "persist_results should store observations"
 
 
@@ -121,10 +121,10 @@ def test_analyze_capture_input(client, media_id, tmp_path):
     up = client.post("/api/v1/media/",
                      files={"file": ("f.png", path.read_bytes(), "image/png")})
     mid = up.json()["id"]
-    client.post("/api/v1/sources/", json={
+    client.post("/api/v1/source/", json={
         "id": "ms", "name": "M", "kind": "media", "locator": mid},
         headers={"If-Match": "*"})
-    cap = client.post("/api/v1/sources/ms/captures/",
+    cap = client.post("/api/v1/source/ms/capture/",
                       json={"retain": True}, headers={"If-Match": "*"}).json()
     resp = client.post("/api/v1/analyze", json={
         "source": {"capture_id": cap["id"]}, "pipeline_id": "p"})
@@ -134,7 +134,7 @@ def test_analyze_capture_input(client, media_id, tmp_path):
 def test_analyze_rtsp_source(client, media_id, fake_rtsp):
     _pipeline(client)
     fake_rtsp.frames_per_open = [None]
-    client.post("/api/v1/sources/", json={
+    client.post("/api/v1/source/", json={
         "id": "cam", "name": "C", "kind": "rtsp", "locator": "rtsp://x"},
         headers={"If-Match": "*"})
     resp = client.post("/api/v1/analyze", json={

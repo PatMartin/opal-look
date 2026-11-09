@@ -23,7 +23,7 @@ def _pipeline(client, pid="p", **over):
         body.update(stages=[{"id": "s1", "kind": "inference",
                              "model_id": "synthetic-vision",
                              "task": "detection"}])
-    return client.post("/api/v1/pipelines/", json=body, headers={"If-Match": "*"})
+    return client.post("/api/v1/pipeline/", json=body, headers={"If-Match": "*"})
 
 
 def test_media_still_detections(client):
@@ -49,7 +49,7 @@ def test_media_still_detections(client):
 
 def test_source_current_frame(client, fake_rtsp):
     _pipeline(client)
-    client.post("/api/v1/sources/", json={
+    client.post("/api/v1/source/", json={
         "id": "cam", "name": "C", "kind": "rtsp",
         "locator": "rtsp://192.168.1.5/x"}, headers={"If-Match": "*"})
     resp = client.post("/api/v1/analyze/", json={
@@ -89,7 +89,7 @@ def test_missing_pipeline_and_default_422(client):
 
 def test_default_pipeline_resolves(client):
     _pipeline(client)
-    client.put("/api/v1/settings/default_pipeline_id",
+    client.put("/api/v1/setting/default_pipeline_id",
                json={"value": "p"}, headers={"If-Match": "*"})
     mid = _media(client)
     resp = client.post("/api/v1/analyze/", json={"source": {"media_id": mid}})
@@ -113,7 +113,7 @@ def test_unknown_source_404(client):
 
 def test_unavailable_source_503(client, fake_rtsp):
     _pipeline(client)
-    client.post("/api/v1/sources/", json={
+    client.post("/api/v1/source/", json={
         "id": "cam", "name": "C", "kind": "rtsp", "enabled": False,
         "locator": "rtsp://x"}, headers={"If-Match": "*"})
     resp = client.post("/api/v1/analyze/", json={
@@ -190,4 +190,4 @@ def test_no_public_session_created(client):
     client.post("/api/v1/analyze/", json={
         "pipeline_id": "p", "source": {"media_id": mid}})
     # sessions list should have no rows for this source/media
-    assert client.get("/api/v1/sessions/").json() == []
+    assert client.get("/api/v1/session/").json() == []

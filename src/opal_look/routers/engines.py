@@ -23,7 +23,7 @@ def _get_engine_or_404(store: Store, engine_id: str):
     return row
 
 
-@router.get("/api/v1/engines/")
+@router.get("/api/v1/engine/")
 def get_api_v1_engines(request: Request, store: StoreDep) -> JSONResponse:
     body = [
         engine_read(store, row)
@@ -33,7 +33,7 @@ def get_api_v1_engines(request: Request, store: StoreDep) -> JSONResponse:
     return JSONResponse(body, headers={"ETag": store.config_revision()})
 
 
-@router.get("/api/v1/engines/{engine_id}")
+@router.get("/api/v1/engine/{engine_id}")
 def get_api_v1_engines_engine_id(
     request: Request, store: StoreDep, engine_id: str
 ) -> JSONResponse:
@@ -41,7 +41,7 @@ def get_api_v1_engines_engine_id(
     return JSONResponse(engine_read(store, row), headers={"ETag": store.config_revision()})
 
 
-@router.patch("/api/v1/engines/{engine_id}")
+@router.patch("/api/v1/engine/{engine_id}")
 def patch_api_v1_engines_engine_id(
     request: Request, store: StoreDep, engine_id: str, patch: EnginePatch
 ) -> JSONResponse:

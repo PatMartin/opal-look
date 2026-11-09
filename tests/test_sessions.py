@@ -16,16 +16,16 @@ def _media_source(client, tmp_path):
     up = client.post("/api/v1/media/",
                      files={"file": ("x.png", path.read_bytes(), "image/png")})
     mid = up.json().get("id") or up.json()["media_id"]
-    client.post("/api/v1/sources/", json={
+    client.post("/api/v1/source/", json={
         "id": "ms", "name": "M", "kind": "media", "locator": mid},
         headers={"If-Match": "*"})
-    client.post("/api/v1/pipelines/", json=PIPE, headers={"If-Match": "*"})
+    client.post("/api/v1/pipeline/", json=PIPE, headers={"If-Match": "*"})
     return mid
 
 
 def test_start_and_terminal_state(client, tmp_path):
     _media_source(client, tmp_path)
-    resp = client.post("/api/v1/sessions/", json={
+    resp = client.post("/api/v1/session/", json={
         "source_id": "ms", "pipeline_id": "p1"}, headers={"If-Match": "*"})
     assert resp.status_code == 201, resp.text
     body = resp.json()
@@ -34,77 +34,77 @@ def test_start_and_terminal_state(client, tmp_path):
     assert body["source_id"] == "ms"
     # media source completes quickly — worker processes one frame then ends
     for _ in range(50):
-        row = client.get(f"/api/v1/sessions/{body['id']}").json()
+        row = client.get(f"/api/v1/session/{body['id']}").json()
         if row["state"] in ("completed", "stopped", "failed"):
             break
         time.sleep(0.1)
     assert row["state"] == "completed", row
     assert row["ended_at"]
     # observations endpoint returns persisted + runtime obs list shape
-    obs = client.get(f"/api/v1/sessions/{body['id']}/observations/")
+    obs = client.get(f"/api/v1/session/{body['id']}/observation/")
     assert obs.status_code == 200
 
 
 def test_queued_auto_start_false(client, tmp_path):
     _media_source(client, tmp_path)
-    resp = client.post("/api/v1/sessions/", json={
+    resp = client.post("/api/v1/session/", json={
         "source_id": "ms", "pipeline_id": "p1", "auto_start": False})
     assert resp.status_code == 201
     assert resp.json()["state"] == "queued"
     sid = resp.json()["id"]
-    stop = client.post(f"/api/v1/sessions/{sid}/stop")
+    stop = client.post(f"/api/v1/session/{sid}/stop")
     assert stop.status_code == 200
     assert stop.json()["state"] == "stopped"
 
 
 def test_default_pipeline_resolution(client, tmp_path):
     _media_source(client, tmp_path)
-    client.put("/api/v1/settings/default_pipeline_id",
+    client.put("/api/v1/setting/default_pipeline_id",
                json={"value": "p1"}, headers={"If-Match": "*"})
-    resp = client.post("/api/v1/sessions/", json={"source_id": "ms"})
+    resp = client.post("/api/v1/session/", json={"source_id": "ms"})
     assert resp.status_code == 201
     assert resp.json()["pipeline_id"] == "p1"
 
 
 def test_unknown_refs(client, tmp_path):
     _media_source(client, tmp_path)
-    assert client.post("/api/v1/sessions/", json={
+    assert client.post("/api/v1/session/", json={
         "source_id": "ghost"}).status_code == 404
-    assert client.post("/api/v1/sessions/", json={
+    assert client.post("/api/v1/session/", json={
         "source_id": "ms", "pipeline_id": "ghost"}).status_code == 404
-    assert client.post("/api/v1/sessions/", json={
+    assert client.post("/api/v1/session/", json={
         "source_id": "ms", "profile_id": 999}).status_code == 404
     # no pipeline resolvable -> 422
-    assert client.post("/api/v1/sessions/", json={
+    assert client.post("/api/v1/session/", json={
         "source_id": "ms"}).status_code in (404, 422)
 
 
 def test_stop_terminal_409(client, tmp_path):
     _media_source(client, tmp_path)
-    resp = client.post("/api/v1/sessions/", json={
+    resp = client.post("/api/v1/session/", json={
         "source_id": "ms", "pipeline_id": "p1", "auto_start": False})
     sid = resp.json()["id"]
-    client.post(f"/api/v1/sessions/{sid}/stop")
-    assert client.post(f"/api/v1/sessions/{sid}/stop").status_code == 409
+    client.post(f"/api/v1/session/{sid}/stop")
+    assert client.post(f"/api/v1/session/{sid}/stop").status_code == 409
 
 
 def test_stream_and_preview_respond(client, tmp_path):
     _media_source(client, tmp_path)
-    sid = client.post("/api/v1/sessions/", json={
+    sid = client.post("/api/v1/session/", json={
         "source_id": "ms", "pipeline_id": "p1"}).json()["id"]
-    with client.stream("GET", f"/api/v1/sessions/{sid}/stream") as r:
+    with client.stream("GET", f"/api/v1/session/{sid}/stream") as r:
         assert r.status_code == 200
         assert "text/event-stream" in r.headers["content-type"]
         chunk = next(r.iter_text(), "")
         assert chunk.startswith(":")
-    with client.stream("GET", f"/api/v1/sessions/{sid}/preview") as r:
+    with client.stream("GET", f"/api/v1/session/{sid}/preview") as r:
         assert r.status_code == 200
         assert "multipart" in r.headers["content-type"]
 
 
 def test_list_sessions(client, tmp_path):
     _media_source(client, tmp_path)
-    client.post("/api/v1/sessions/", json={
+    client.post("/api/v1/session/", json={
         "source_id": "ms", "pipeline_id": "p1", "auto_start": False})
-    rows = client.get("/api/v1/sessions/").json()
+    rows = client.get("/api/v1/session/").json()
     assert len(rows) == 1 and rows[0]["state"] == "queued"

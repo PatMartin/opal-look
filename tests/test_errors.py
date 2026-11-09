@@ -35,7 +35,7 @@ def test_error_includes_correlation_headers(client):
 def test_error_details_is_always_an_object(client):
     """ErrorBody.details must be a JSON object; list-shaped diagnostics are
     wrapped as {"errors": [...]} by the envelope."""
-    resp = client.put("/api/v1/settings/max_upload_bytes", json={"value": "notanint"},
+    resp = client.put("/api/v1/setting/max_upload_bytes", json={"value": "notanint"},
                       headers={"If-Match": "*"})
     assert resp.status_code == 422
     details = resp.json()["error"]["details"]
@@ -45,7 +45,7 @@ def test_error_details_is_always_an_object(client):
 
 
 def test_validation_error_details_shape(client):
-    resp = client.post("/api/v1/sources/", json={"bogus": True},
+    resp = client.post("/api/v1/source/", json={"bogus": True},
                        headers={"If-Match": "*"})
     assert resp.status_code == 422
     details = resp.json()["error"]["details"]
@@ -55,17 +55,17 @@ def test_validation_error_details_shape(client):
 def test_retryable_flag_on_transient_errors(client):
     """503/429/504 errors are marked retryable; definitive errors omit it."""
     client.post(
-        "/api/v1/sources/",
+        "/api/v1/source/",
         json={"id": "vid", "name": "V", "kind": "file",
               "locator": "Z:/no/such/file.mp4"},
         headers={"If-Match": "*"},
     )
-    client.post("/api/v1/pipelines/", json={
+    client.post("/api/v1/pipeline/", json={
         "id": "p", "name": "P", "stages": [
             {"id": "s1", "kind": "inference",
              "model_id": "synthetic-vision", "task": "detection"}]},
         headers={"If-Match": "*"})
-    resp = client.post("/api/v1/sessions/", json={
+    resp = client.post("/api/v1/session/", json={
         "source_id": "vid", "pipeline_id": "p",
     })
     assert resp.status_code == 503

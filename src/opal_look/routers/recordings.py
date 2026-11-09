@@ -32,7 +32,7 @@ def _get_recording_or_404(store: StoreDep, recording_id: str):
     return row
 
 
-@router.get("/api/v1/recordings/")
+@router.get("/api/v1/recording/")
 def get_api_v1_recordings(
     store: StoreDep, limit: int = 50, cursor: str | None = None
 ) -> dict:
@@ -47,7 +47,7 @@ def get_api_v1_recordings(
     return {"items": items, "next_cursor": next_cursor, "has_more": has_more}
 
 
-@router.post("/api/v1/recordings/", status_code=202)
+@router.post("/api/v1/recording/", status_code=202)
 def post_api_v1_recordings(
     request: Request, store: StoreDep, body: RecordingCreate
 ):
@@ -69,7 +69,7 @@ def post_api_v1_recordings(
                 return JSONResponse(
                     recording_read(prior_rec), status_code=202,
                     headers={"Location":
-                             f"/api/v1/recordings/{prior_rec['recording_id']}"})
+                             f"/api/v1/recording/{prior_rec['recording_id']}"})
 
     validate_recording_refs(store, body.source_id, body.pipeline_id,
                             body.include_audio, body.output)
@@ -94,17 +94,17 @@ def post_api_v1_recordings(
     row = store.recordings.get(recording_id)
     return JSONResponse(
         recording_read(row), status_code=202,
-        headers={"Location": f"/api/v1/recordings/{recording_id}"})
+        headers={"Location": f"/api/v1/recording/{recording_id}"})
 
 
-@router.get("/api/v1/recordings/{recording_id}")
+@router.get("/api/v1/recording/{recording_id}")
 def get_api_v1_recordings_recording_id(
     store: StoreDep, recording_id: str
 ) -> dict:
     return recording_read(_get_recording_or_404(store, recording_id))
 
 
-@router.post("/api/v1/recordings/{recording_id}/stop")
+@router.post("/api/v1/recording/{recording_id}/stop")
 def post_api_v1_recordings_recording_id_stop(
     request: Request, store: StoreDep, recording_id: str
 ) -> dict:

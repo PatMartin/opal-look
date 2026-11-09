@@ -7,12 +7,12 @@ import time
 
 
 def _setup(client):
-    client.post("/api/v1/sources/", json={
+    client.post("/api/v1/source/", json={
         "id": "cam", "name": "C", "kind": "rtsp", "locator": "rtsp://x:554/a"},
         headers={"If-Match": "*"})
-    client.post("/api/v1/pipelines/", json={
+    client.post("/api/v1/pipeline/", json={
         "id": "p", "name": "P", "stages": [{"id": "s1", "kind": "inference", "model_id": "synthetic-vision", "task": "detection"}]}, headers={"If-Match": "*"})
-    client.post("/api/v1/monitors/", json={
+    client.post("/api/v1/monitor/", json={
         "id": "m", "name": "M", "source_id": "cam", "pipeline_id": "p",
         "enabled": False}, headers={"If-Match": "*"})
 
@@ -58,7 +58,7 @@ def test_validate_gives_concrete_issues(client):
     assert "no import binding" in msgs
     assert "not in configuration" in msgs
     # validate is non-mutating
-    assert client.get("/api/v1/sources/").json() == []
+    assert client.get("/api/v1/source/").json() == []
 
 
 def test_import_replace_atomic(client):
@@ -79,7 +79,7 @@ def test_import_replace_atomic(client):
     # source came back with the rebound locator (verified indirectly via a
     # second export — locator stays redacted, but the source exists)
     src = next(s for s in client.get(
-        "/api/v1/sources/").json() if s["id"] == "cam")
+        "/api/v1/source/").json() if s["id"] == "cam")
     assert src["id"] == "cam"
 
 
@@ -94,7 +94,7 @@ def test_import_unresolved_binding_422(client):
         headers={"If-Match": "*"})
     assert resp.status_code == 422
     # nothing mutated (rollback)
-    assert {s["id"] for s in client.get("/api/v1/sources/").json()} == {"cam"}
+    assert {s["id"] for s in client.get("/api/v1/source/").json()} == {"cam"}
 
 
 def test_import_stale_etag_412(client):
@@ -114,7 +114,7 @@ def test_import_preserves_existing_source_locator(client):
         headers={"If-Match": "*"})
     # no binding for 'cam' -> reuses the existing row's locator
     assert resp.status_code == 200
-    src = client.get("/api/v1/sources/cam")
+    src = client.get("/api/v1/source/cam")
     assert src.status_code == 200
 
 
@@ -130,12 +130,12 @@ def test_import_409_running_work(client):
         "configuration": cfg}, headers={"If-Match": "*"})
     assert resp.status_code == 409
     # rollback: config untouched
-    assert {s["id"] for s in client.get("/api/v1/sources/").json()} == {"cam"}
+    assert {s["id"] for s in client.get("/api/v1/source/").json()} == {"cam"}
 
 
 def test_settings_default_pipeline_exported(client):
     _setup(client)
-    client.put("/api/v1/settings/default_pipeline_id",
+    client.put("/api/v1/setting/default_pipeline_id",
                json={"value": "p"}, headers={"If-Match": "*"})
     cfg = client.get("/api/v1/configuration/export").json()
     assert cfg["settings"].get("default_pipeline_id") == "p"
@@ -151,8 +151,8 @@ def test_import_rejects_untyped_settings_no_poison(client):
                        headers={"If-Match": "*"})
     assert resp.status_code == 422
     # service stays healthy: every settings read still works
-    assert client.get("/api/v1/settings/").status_code == 200
-    assert client.get("/api/v1/settings/result_retention_hours").json()["value"] == 168
+    assert client.get("/api/v1/setting/").status_code == 200
+    assert client.get("/api/v1/setting/result_retention_hours").json()["value"] == 168
 
 
 def test_import_roundtrip_preserves_settings(client):
@@ -160,4 +160,4 @@ def test_import_roundtrip_preserves_settings(client):
     resp = client.post("/api/v1/configuration/import", json=cfg,
                        headers={"If-Match": "*"})
     assert resp.status_code == 200
-    assert client.get("/api/v1/settings/").json()["result_retention_hours"] == 168
+    assert client.get("/api/v1/setting/").json()["result_retention_hours"] == 168

@@ -48,7 +48,7 @@ def _valid(stages):
 def test_filter_parameter_table(client, ftype, params, ok):
     pipe = _valid([{"id": "f", "kind": "filter",
                     "portable": {"filter": {"type": ftype, "parameters": params}}}])
-    resp = client.post("/api/v1/pipelines/validate", json=pipe)
+    resp = client.post("/api/v1/pipeline/validate", json=pipe)
     if ftype == "nope":
         assert resp.status_code == 422
         return
@@ -62,7 +62,7 @@ def test_filter_parameter_table(client, ftype, params, ok):
 # -- topology -----------------------------------------------------------------
 
 def test_forward_reference_rejected(client):
-    resp = client.post("/api/v1/pipelines/validate", json=_valid([
+    resp = client.post("/api/v1/pipeline/validate", json=_valid([
         {"id": "a", "kind": "filter", "inputs": ["b"],
          "portable": {"filter": {"type": "grayscale"}}},
         {"id": "b", "kind": "filter",
@@ -73,7 +73,7 @@ def test_forward_reference_rejected(client):
 
 
 def test_self_and_unknown_reference_rejected(client):
-    resp = client.post("/api/v1/pipelines/validate", json=_valid([
+    resp = client.post("/api/v1/pipeline/validate", json=_valid([
         {"id": "a", "kind": "filter", "inputs": ["a"],
          "portable": {"filter": {"type": "grayscale"}}},
         {"id": "b", "kind": "filter", "inputs": ["zzz"],
@@ -83,7 +83,7 @@ def test_self_and_unknown_reference_rejected(client):
 
 
 def test_duplicate_stage_ids_rejected(client):
-    resp = client.post("/api/v1/pipelines/validate", json=_valid([
+    resp = client.post("/api/v1/pipeline/validate", json=_valid([
         {"id": "a", "kind": "filter", "portable": {"filter": {"type": "grayscale"}}},
         {"id": "a", "kind": "filter", "portable": {"filter": {"type": "blur"}}},
     ]))
@@ -92,65 +92,65 @@ def test_duplicate_stage_ids_rejected(client):
 
 def test_inference_stage_requirements(client):
     # missing task
-    resp = client.post("/api/v1/pipelines/validate", json=_valid([
+    resp = client.post("/api/v1/pipeline/validate", json=_valid([
         {"id": "i", "kind": "inference", "model_id": "synthetic-vision"}]))
     assert any(i["code"] == "incomplete_inference_stage" for i in resp.json()["issues"])
     # unknown model
-    resp = client.post("/api/v1/pipelines/validate", json=_valid([
+    resp = client.post("/api/v1/pipeline/validate", json=_valid([
         {"id": "i", "kind": "inference", "model_id": "ghost", "task": "x"}]))
     assert any(i["code"] == "unknown_model" for i in resp.json()["issues"])
     # unsupported task
-    resp = client.post("/api/v1/pipelines/validate", json=_valid([
+    resp = client.post("/api/v1/pipeline/validate", json=_valid([
         {"id": "i", "kind": "inference", "model_id": "synthetic-vision", "task": "teleport"}]))
     assert any(i["code"] == "unsupported_task" for i in resp.json()["issues"])
     # unavailable model -> error
-    client.patch("/api/v1/engines/synthetic", json={"enabled": False},
+    client.patch("/api/v1/engine/synthetic", json={"enabled": False},
                  headers={"If-Match": "*"})
-    resp = client.post("/api/v1/pipelines/validate", json=_valid([INF]))
+    resp = client.post("/api/v1/pipeline/validate", json=_valid([INF]))
     assert any(i["code"] == "model_unavailable" for i in resp.json()["issues"])
 
 
 def test_tracker_requires_inference_input(client):
-    resp = client.post("/api/v1/pipelines/validate", json=_valid([
+    resp = client.post("/api/v1/pipeline/validate", json=_valid([
         {"id": "t", "kind": "tracker"}]))
     assert any(i["code"] == "tracker_without_inference" for i in resp.json()["issues"])
-    resp = client.post("/api/v1/pipelines/validate", json=_valid([
+    resp = client.post("/api/v1/pipeline/validate", json=_valid([
         dict(INF), {"id": "t", "kind": "tracker", "inputs": ["inf"]}]))
     assert resp.json()["valid"] is True
 
 
 def test_filter_stage_requires_portable_filter(client):
-    resp = client.post("/api/v1/pipelines/validate", json=_valid([
+    resp = client.post("/api/v1/pipeline/validate", json=_valid([
         {"id": "f", "kind": "filter"}]))
     assert any(i["code"] == "missing_filter_spec" for i in resp.json()["issues"])
 
 
 def test_portable_option_kind_whitelist(client):
-    resp = client.post("/api/v1/pipelines/validate", json=_valid([
+    resp = client.post("/api/v1/pipeline/validate", json=_valid([
         dict(INF, portable={"annotation": {"enabled": True}})]))
     assert any(i["code"] == "portable_option_wrong_kind" for i in resp.json()["issues"])
 
 
 def test_gate_requires_motion_filter_stage(client):
     # gate on non-inference -> wrong kind
-    resp = client.post("/api/v1/pipelines/validate", json=_valid([
+    resp = client.post("/api/v1/pipeline/validate", json=_valid([
         {"id": "f", "kind": "filter",
          "portable": {"filter": {"type": "motion"}, "gate": {"motion_stage_id": "f"}}}]))
     assert any(i["code"] == "portable_option_wrong_kind" for i in resp.json()["issues"])
     # gate referencing non-motion stage
-    resp = client.post("/api/v1/pipelines/validate", json=_valid([
+    resp = client.post("/api/v1/pipeline/validate", json=_valid([
         {"id": "f", "kind": "filter", "portable": {"filter": {"type": "grayscale"}}},
         dict(INF, inputs=["f"], portable={"gate": {"motion_stage_id": "f"}})]))
     assert any(i["code"] == "gate_requires_motion_stage" for i in resp.json()["issues"])
     # valid motion gate
-    resp = client.post("/api/v1/pipelines/validate", json=_valid([
+    resp = client.post("/api/v1/pipeline/validate", json=_valid([
         {"id": "m", "kind": "filter", "portable": {"filter": {"type": "motion"}}},
         dict(INF, inputs=["m"], portable={"gate": {"motion_stage_id": "m"}})]))
     assert resp.json()["valid"] is True, resp.json()
 
 
 def test_presentation_cannot_feed_inference(client):
-    resp = client.post("/api/v1/pipelines/validate", json=_valid([
+    resp = client.post("/api/v1/pipeline/validate", json=_valid([
         {"id": "a", "kind": "annotate", "phase": "presentation",
          "portable": {"annotation": {}}},
         dict(INF, inputs=["a"])]))
@@ -159,7 +159,7 @@ def test_presentation_cannot_feed_inference(client):
 
 
 def test_filter_only_pipeline_allowed(client):
-    resp = client.post("/api/v1/pipelines/validate", json=_valid([
+    resp = client.post("/api/v1/pipeline/validate", json=_valid([
         {"id": "f1", "kind": "filter", "portable": {"filter": {"type": "grayscale"}}},
         {"id": "f2", "kind": "filter", "inputs": ["f1"],
          "portable": {"filter": {"type": "blur", "parameters": {"kernel_size": 3}}}},
@@ -168,14 +168,14 @@ def test_filter_only_pipeline_allowed(client):
 
 
 def test_validate_is_side_effect_free(client):
-    etag_before = client.get("/api/v1/pipelines/").headers["etag"]
-    client.post("/api/v1/pipelines/validate", json=_valid([INF]))
-    assert client.get("/api/v1/pipelines/").headers["etag"] == etag_before
-    assert client.get("/api/v1/pipelines/").json() == []
+    etag_before = client.get("/api/v1/pipeline/").headers["etag"]
+    client.post("/api/v1/pipeline/validate", json=_valid([INF]))
+    assert client.get("/api/v1/pipeline/").headers["etag"] == etag_before
+    assert client.get("/api/v1/pipeline/").json() == []
 
 
 def test_create_advanced_422_details(client):
-    resp = client.post("/api/v1/pipelines/", json=_valid([
+    resp = client.post("/api/v1/pipeline/", json=_valid([
         {"id": "f", "kind": "filter", "inputs": ["nope"],
          "portable": {"filter": {"type": "grayscale"}}},
     ]), headers={"If-Match": "*"})
@@ -185,12 +185,12 @@ def test_create_advanced_422_details(client):
 
 
 def test_patch_mode_switch_to_invalid_422(client):
-    client.post("/api/v1/pipelines/",
+    client.post("/api/v1/pipeline/",
                 json={"id": "p1", "name": "P", "stages": [{"id": "s1", "kind": "inference", "model_id": "synthetic-vision", "task": "detection"}]}, headers={"If-Match": "*"})
     # patch with invalid DAG -> 422, pipeline unchanged
-    resp = client.patch("/api/v1/pipelines/p1",
+    resp = client.patch("/api/v1/pipeline/p1",
                         json={"stages": [{"id": "f", "kind": "filter",
                                           "inputs": ["x"]}]},
                         headers={"If-Match": "*"})
     assert resp.status_code == 422
-    assert client.get("/api/v1/pipelines/p1").json()["stages"][0]["model_id"] == "synthetic-vision"
+    assert client.get("/api/v1/pipeline/p1").json()["stages"][0]["model_id"] == "synthetic-vision"

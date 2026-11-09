@@ -65,13 +65,13 @@ def _setting_read(store, key: str) -> dict:
     return body
 
 
-@router.get("/api/v1/settings/")
+@router.get("/api/v1/setting/")
 def get_api_v1_settings(request: Request, store: StoreDep) -> JSONResponse:
     body = effective_settings(store).model_dump(mode="json")
     return JSONResponse(body, headers={"ETag": store.config_revision()})
 
 
-@router.patch("/api/v1/settings/")
+@router.patch("/api/v1/setting/")
 def patch_api_v1_settings(
     request: Request, store: StoreDep, patch: ServiceSettingsPatch
 ) -> JSONResponse:
@@ -90,7 +90,7 @@ def patch_api_v1_settings(
     return JSONResponse(body, headers={"ETag": revision})
 
 
-@router.get("/api/v1/settings/{key}")
+@router.get("/api/v1/setting/{key}")
 def get_look_setting(request: Request, store: StoreDep, key: str) -> JSONResponse:
     _check_key_path(key)
     _known_key(key)
@@ -98,7 +98,7 @@ def get_look_setting(request: Request, store: StoreDep, key: str) -> JSONRespons
                         headers={"ETag": store.config_revision()})
 
 
-@router.put("/api/v1/settings/{key}")
+@router.put("/api/v1/setting/{key}")
 def put_look_setting(
     request: Request, store: StoreDep, key: str, body: SingleSettingPut
 ) -> JSONResponse:
@@ -119,7 +119,7 @@ def put_look_setting(
     return JSONResponse(_setting_read(store, key), headers={"ETag": revision})
 
 
-@router.delete("/api/v1/settings/{key}", status_code=204)
+@router.delete("/api/v1/setting/{key}", status_code=204)
 def delete_look_setting(request: Request, response: Response, store: StoreDep, key: str) -> None:
     _check_key_path(key)
     _known_key(key)

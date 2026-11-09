@@ -1,7 +1,7 @@
 """Engine adapter registry.
 
 Engines are installed/discovered by the implementation and advertised via
-/api/v1/engines/. The built-in ``synthetic`` adapter produces deterministic,
+/api/v1/engine/. The built-in ``synthetic`` adapter produces deterministic,
 schema-shaped outputs for every task without hardware or ML dependencies,
 so the full contract is exercisable end to end. Real adapters (e.g.
 Ultralytics) slot behind the same interface.

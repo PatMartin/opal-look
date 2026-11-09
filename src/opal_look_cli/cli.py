@@ -122,37 +122,37 @@ def _post_action(path: str, json_data=None) -> None:
 
 # -- CRUD resources -------------------------------------------------------------
 app.add_typer(
-    _crud("engines", "/api/v1/engines/", epilog=(
+    _crud("engines", "/api/v1/engine/", epilog=(
         "Examples:\n"
         "  opal-look engines list\n"
         "  opal-look engines show ENGINE_ID")),
     name="engines")
 app.add_typer(
-    _crud("models", "/api/v1/models/", epilog=(
+    _crud("models", "/api/v1/model/", epilog=(
         "Examples:\n"
         "  opal-look models list\n"
         "  opal-look models show synthetic-vision")),
     name="models")
-_pipes = _crud("pipelines", "/api/v1/pipelines/", epilog=(
+_pipes = _crud("pipelines", "/api/v1/pipeline/", epilog=(
     "Examples:\n"
     "  opal-look pipelines list\n"
     "  opal-look pipelines add --file pipeline.json\n"
     "  opal-look pipelines validate --file pipeline.json\n"
     "  opal-look pipelines update PIPELINE_ID --file changes.json"))
-_mons = _crud("monitors", "/api/v1/monitors/", epilog=(
+_mons = _crud("monitors", "/api/v1/monitor/", epilog=(
     "Examples:\n"
     "  opal-look monitors add --file monitor.json\n"
     "  opal-look monitors stream MONITOR_ID    # tail SSE observations"))
 app.add_typer(_pipes, name="pipelines")
 app.add_typer(_mons, name="monitors")
 app.add_typer(
-    _crud("observations", "/api/v1/observations/", epilog=(
+    _crud("observations", "/api/v1/observation/", epilog=(
         "Examples:\n"
         "  opal-look observations list\n"
         "  opal-look observations show OBSERVATION_ID")),
     name="observations")
 
-src = _crud("sources", "/api/v1/sources/", epilog=(
+src = _crud("sources", "/api/v1/source/", epilog=(
     "Examples:\n"
     "  opal-look sources add --file camera.json\n"
     "  opal-look sources status SOURCE_ID\n"
@@ -165,17 +165,17 @@ src = _crud("sources", "/api/v1/sources/", epilog=(
 
 @src.command("status")
 def _src_status(source_id: str):
-    _emit(unwrap(_client().get(f"/api/v1/sources/{source_id}/status")))
+    _emit(unwrap(_client().get(f"/api/v1/source/{source_id}/status")))
 
 
 @src.command("probe")
 def _src_probe(source_id: str):
-    _post_action(f"/api/v1/sources/{source_id}/probe")
+    _post_action(f"/api/v1/source/{source_id}/probe")
 
 
 @src.command("frame")
 def _src_frame(source_id: str, out: Path = typer.Option(Path("frame.jpg"), "--out")):
-    data = unwrap(_client().get(f"/api/v1/sources/{source_id}/frame"))
+    data = unwrap(_client().get(f"/api/v1/source/{source_id}/frame"))
     Path(out).write_bytes(data)
     typer.echo(str(out))
 
@@ -185,7 +185,7 @@ def _src_view(source_id: str, out: Path = typer.Option(None, "--out"),
               max_bytes: int = typer.Option(5_000_000, "--max-bytes"),
               pipeline_id: str = typer.Option(None, "--pipeline")):
     q = f"?pipeline_id={pipeline_id}" if pipeline_id else ""
-    _stream_get(f"/api/v1/sources/{source_id}/stream{q}", out, max_bytes)
+    _stream_get(f"/api/v1/source/{source_id}/stream{q}", out, max_bytes)
 
 
 @src.command("capture")
@@ -202,7 +202,7 @@ def _src_capture(source_id: str,
     if observation_id:
         body["observation_id"] = observation_id
     _emit(unwrap(_client().mutate(
-        "POST", f"/api/v1/sources/{source_id}/captures/", json=body)))
+        "POST", f"/api/v1/source/{source_id}/capture/", json=body)))
 
 
 app.add_typer(src, name="sources")
@@ -210,7 +210,7 @@ app.add_typer(src, name="sources")
 @_pipes.command("validate")
 def _pipe_validate(body: str = typer.Option(None, "--body"),
                    file: Path = typer.Option(None, "--file")):
-    _emit(unwrap(_client().request("POST", "/api/v1/pipelines/validate",
+    _emit(unwrap(_client().request("POST", "/api/v1/pipeline/validate",
                                    json=_body(body, file))))
 
 
@@ -241,7 +241,7 @@ def _analyze_image(file: Path,
 
 app.add_typer(analyze, name="analyze")
 
-jobs = _crud("jobs", "/api/v1/jobs/", epilog=(
+jobs = _crud("jobs", "/api/v1/job/", epilog=(
     "Examples:\n"
     "  opal-look jobs submit --file job.json --idempotency-key run-001\n"
     "  opal-look jobs list\n"
@@ -253,13 +253,13 @@ def _job_submit(body: str = typer.Option(None, "--body"),
                 file: Path = typer.Option(None, "--file"),
                 idempotency_key: str = typer.Option(None, "--idempotency-key")):
     headers = {"Idempotency-Key": idempotency_key} if idempotency_key else None
-    _emit(unwrap(_client().request("POST", "/api/v1/jobs/",
+    _emit(unwrap(_client().request("POST", "/api/v1/job/",
                                    json=_body(body, file), headers=headers)))
 
 
 @jobs.command("cancel")
 def _job_cancel(job_id: str):
-    _post_action(f"/api/v1/jobs/{job_id}/cancel")
+    _post_action(f"/api/v1/job/{job_id}/cancel")
 
 
 app.add_typer(jobs, name="jobs")
@@ -282,7 +282,7 @@ def _media_upload(file: Path, ttl_seconds: int = typer.Option(None, "--ttl")):
 
 app.add_typer(med, name="media")
 
-rec = _crud("recordings", "/api/v1/recordings/", epilog=(
+rec = _crud("recordings", "/api/v1/recording/", epilog=(
     "Examples:\n"
     "  opal-look recordings start --source SOURCE_ID --duration 30\n"
     "  opal-look recordings stop RECORDING_ID\n"
@@ -298,18 +298,18 @@ def _rec_start(source_id: str = typer.Option(..., "--source"),
         body["pipeline_id"] = pipeline_id
     if max_duration_seconds:
         body["max_duration_seconds"] = max_duration_seconds
-    _emit(unwrap(_client().mutate("POST", "/api/v1/recordings/", json=body)))
+    _emit(unwrap(_client().mutate("POST", "/api/v1/recording/", json=body)))
 
 
 @rec.command("stop")
 def _rec_stop(recording_id: str):
     _emit(unwrap(_client().request(
-        "POST", f"/api/v1/recordings/{recording_id}/stop")))
+        "POST", f"/api/v1/recording/{recording_id}/stop")))
 
 
 app.add_typer(rec, name="recordings")
 
-settings = _crud("settings", "/api/v1/settings/", epilog=(
+settings = _crud("settings", "/api/v1/setting/", epilog=(
     "Examples:\n"
     "  opal-look settings list\n"
     "  opal-look settings show max_upload_bytes\n"
@@ -319,13 +319,13 @@ settings = _crud("settings", "/api/v1/settings/", epilog=(
 
 @settings.command("set")
 def _settings_set(key: str, value: str):
-    _emit(unwrap(_client().mutate("PUT", f"/api/v1/settings/{key}",
+    _emit(unwrap(_client().mutate("PUT", f"/api/v1/setting/{key}",
                                   json={"value": json.loads(value)})))
 
 
 @settings.command("reset")
 def _settings_reset(key: str):
-    _emit(unwrap(_client().mutate("DELETE", f"/api/v1/settings/{key}")))
+    _emit(unwrap(_client().mutate("DELETE", f"/api/v1/setting/{key}")))
 
 
 app.add_typer(settings, name="settings")
@@ -404,47 +404,47 @@ sessions = typer.Typer(help="sessions", epilog=(
 @sessions.command("start")
 def _sess_start(body: str = typer.Option(None, "--body"),
                 file: Path = typer.Option(None, "--file")):
-    _emit(unwrap(_client().mutate("POST", "/api/v1/sessions/",
+    _emit(unwrap(_client().mutate("POST", "/api/v1/session/",
                                   json=_body(body, file))))
 
 
 @sessions.command("list")
 def _sess_list():
-    _emit(unwrap(_client().get("/api/v1/sessions/")))
+    _emit(unwrap(_client().get("/api/v1/session/")))
 
 
 @sessions.command("show")
 def _sess_show(session_id: str):
-    _emit(unwrap(_client().get(f"/api/v1/sessions/{session_id}")))
+    _emit(unwrap(_client().get(f"/api/v1/session/{session_id}")))
 
 
 @sessions.command("stop")
 def _sess_stop(session_id: str):
     _emit(unwrap(_client().request(
-        "POST", f"/api/v1/sessions/{session_id}/stop")))
+        "POST", f"/api/v1/session/{session_id}/stop")))
 
 
 @sessions.command("observations")
 def _sess_observations(session_id: str):
     _emit(unwrap(_client().get(
-        f"/api/v1/sessions/{session_id}/observations/")))
+        f"/api/v1/session/{session_id}/observation/")))
 
 
 @sessions.command("stream")
 def _sess_stream(session_id: str):
-    _stream_get(f"/api/v1/sessions/{session_id}/stream", None, 0, sse=True)
+    _stream_get(f"/api/v1/session/{session_id}/stream", None, 0, sse=True)
 
 
 @sessions.command("preview")
 def _sess_preview(session_id: str,
                   out: Path = typer.Option(None, "--out"),
                   max_bytes: int = typer.Option(5_000_000, "--max-bytes")):
-    _stream_get(f"/api/v1/sessions/{session_id}/preview", out, max_bytes)
+    _stream_get(f"/api/v1/session/{session_id}/preview", out, max_bytes)
 
 
 app.add_typer(sessions, name="sessions")
 
-profiles = _crud("profiles", "/api/v1/profiles/", epilog=(
+profiles = _crud("profiles", "/api/v1/profile/", epilog=(
     "Examples:\n"
     "  opal-look profiles add --body '{\"name\":\"night\",\"pipeline_id\":\"p1\"}'\n"
     "  opal-look profiles activate PROFILE_ID\n"
@@ -454,13 +454,13 @@ profiles = _crud("profiles", "/api/v1/profiles/", epilog=(
 @profiles.command("activate")
 def _prof_activate(profile_id: str):
     _emit(unwrap(_client().mutate(
-        "POST", f"/api/v1/profiles/{profile_id}/activate")))
+        "POST", f"/api/v1/profile/{profile_id}/activate")))
 
 
 app.add_typer(profiles, name="profiles")
 
 app.add_typer(
-    _crud("rules", "/api/v1/rules/", epilog=(
+    _crud("rules", "/api/v1/rule/", epilog=(
         "Examples:\n"
         "  opal-look rules add --body "
         "'{\"id\":\"r1\",\"name\":\"R\",\"source_id\":\"cam\",\"kind\":\"enters_zone\",\"zone_id\":\"z1\"}'\n"
@@ -469,7 +469,7 @@ app.add_typer(
     name="rules")
 
 app.add_typer(
-    _crud("zones", "/api/v1/zones/", epilog=(
+    _crud("zones", "/api/v1/zone/", epilog=(
         "Examples:\n"
         "  opal-look zones add --body "
         "'{\"id\":\"z1\",\"source_id\":\"cam\",\"name\":\"Z\",\"kind\":\"polygon\",\"points\":[{\"x\":0,\"y\":0},{\"x\":1,\"y\":0},{\"x\":1,\"y\":1}]}'\n"
@@ -487,25 +487,25 @@ captures = typer.Typer(help="captures", epilog=(
 @captures.command("list")
 def _cap_list(source_id: str = typer.Option(None, "--source")):
     q = f"?source_id={source_id}" if source_id else ""
-    _emit(unwrap(_client().get(f"/api/v1/captures/{q}")))
+    _emit(unwrap(_client().get(f"/api/v1/capture/{q}")))
 
 
 @captures.command("show")
 def _cap_show(capture_id: str):
-    _emit(unwrap(_client().get(f"/api/v1/captures/{capture_id}")))
+    _emit(unwrap(_client().get(f"/api/v1/capture/{capture_id}")))
 
 
 @captures.command("remove")
 def _cap_remove(capture_id: str):
     _emit(unwrap(_client().mutate(
-        "DELETE", f"/api/v1/captures/{capture_id}")))
+        "DELETE", f"/api/v1/capture/{capture_id}")))
 
 
 @captures.command("download")
 def _cap_download(capture_id: str,
                   out: Path = typer.Option(Path("capture.jpg"), "--out")):
     resp = unwrap(_client().request(
-        "GET", f"/api/v1/captures/{capture_id}/content"))
+        "GET", f"/api/v1/capture/{capture_id}/content"))
     Path(out).write_bytes(resp)
     typer.echo(str(out))
 
@@ -524,25 +524,25 @@ def _art_list(kind: str = typer.Option(None, "--kind"),
               job_id: str = typer.Option(None, "--job")):
     q = "&".join(f"{k}={v}" for k, v in
                  (("kind", kind), ("job_id", job_id)) if v)
-    _emit(unwrap(_client().get(f"/api/v1/artifacts/{'?' + q if q else ''}")))
+    _emit(unwrap(_client().get(f"/api/v1/artifact/{'?' + q if q else ''}")))
 
 
 @artifacts.command("show")
 def _art_show(artifact_id: str):
-    _emit(unwrap(_client().get(f"/api/v1/artifacts/{artifact_id}")))
+    _emit(unwrap(_client().get(f"/api/v1/artifact/{artifact_id}")))
 
 
 @artifacts.command("remove")
 def _art_remove(artifact_id: str):
     _emit(unwrap(_client().request(
-        "DELETE", f"/api/v1/artifacts/{artifact_id}")))
+        "DELETE", f"/api/v1/artifact/{artifact_id}")))
 
 
 @artifacts.command("download")
 def _art_download(artifact_id: str,
                   out: Path = typer.Option(Path("artifact.bin"), "--out")):
     resp = unwrap(_client().request(
-        "GET", f"/api/v1/artifacts/{artifact_id}/content"))
+        "GET", f"/api/v1/artifact/{artifact_id}/content"))
     Path(out).write_bytes(resp)
     typer.echo(str(out))
 

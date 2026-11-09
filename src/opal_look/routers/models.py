@@ -54,7 +54,7 @@ def _delete_refs(store: Store, model_id: str) -> None:
         raise ApiError(409, f"Model {model_id!r} is referenced by other resources.")
 
 
-@router.get("/api/v1/models/")
+@router.get("/api/v1/model/")
 def get_api_v1_models(
     request: Request,
     store: StoreDep,
@@ -69,7 +69,7 @@ def get_api_v1_models(
     return JSONResponse(body, headers={"ETag": store.config_revision()})
 
 
-@router.post("/api/v1/models/", status_code=201)
+@router.post("/api/v1/model/", status_code=201)
 def post_api_v1_models(request: Request, store: StoreDep, model: ModelCreate) -> JSONResponse:
     if store.models.get(model.id) is not None:
         raise ApiError(409, f"Model {model.id!r} already exists.")
@@ -106,17 +106,17 @@ def post_api_v1_models(request: Request, store: StoreDep, model: ModelCreate) ->
     return JSONResponse(
         model_read(store, row),
         status_code=201,
-        headers={"ETag": revision, "Location": f"/api/v1/models/{model.id}"},
+        headers={"ETag": revision, "Location": f"/api/v1/model/{model.id}"},
     )
 
 
-@router.get("/api/v1/models/{model_id}")
+@router.get("/api/v1/model/{model_id}")
 def get_api_v1_models_model_id(request: Request, store: StoreDep, model_id: str) -> JSONResponse:
     row = _get_model_or_404(store, model_id)
     return JSONResponse(model_read(store, row), headers={"ETag": store.config_revision()})
 
 
-@router.patch("/api/v1/models/{model_id}")
+@router.patch("/api/v1/model/{model_id}")
 def patch_api_v1_models_model_id(
     request: Request, store: StoreDep, model_id: str, patch: ModelPatch
 ) -> JSONResponse:
@@ -145,7 +145,7 @@ def patch_api_v1_models_model_id(
     return JSONResponse(model_read(store, row), headers={"ETag": revision})
 
 
-@router.delete("/api/v1/models/{model_id}", status_code=204)
+@router.delete("/api/v1/model/{model_id}", status_code=204)
 def delete_api_v1_models_model_id(
     request: Request, response: Response, store: StoreDep, model_id: str
 ) -> None:

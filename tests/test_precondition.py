@@ -24,11 +24,11 @@ class _Req:
 
 
 def _etag(client):
-    return client.get("/api/v1/settings/").headers["etag"]
+    return client.get("/api/v1/setting/").headers["etag"]
 
 
 def test_missing_if_match_is_428(client):
-    resp = client.patch("/api/v1/settings/", json={"max_upload_bytes": 1})
+    resp = client.patch("/api/v1/setting/", json={"max_upload_bytes": 1})
     assert resp.status_code == 428
     assert resp.json()["error"]["code"] == "precondition_required"
 
@@ -41,7 +41,7 @@ def test_missing_if_match_is_428(client):
 ])
 def test_malformed_if_match_is_422(client, value):
     resp = client.patch(
-        "/api/v1/settings/", json={"max_upload_bytes": 1},
+        "/api/v1/setting/", json={"max_upload_bytes": 1},
         headers={"If-Match": value},
     )
     assert resp.status_code == 422
@@ -51,11 +51,11 @@ def test_malformed_if_match_is_422(client, value):
 def test_stale_if_match_is_412(client):
     old = _etag(client)
     client.patch(
-        "/api/v1/settings/", json={"max_upload_bytes": 5},
+        "/api/v1/setting/", json={"max_upload_bytes": 5},
         headers={"If-Match": "*"},
     )
     resp = client.patch(
-        "/api/v1/settings/", json={"max_upload_bytes": 6},
+        "/api/v1/setting/", json={"max_upload_bytes": 6},
         headers={"If-Match": old},
     )
     assert resp.status_code == 412
@@ -65,7 +65,7 @@ def test_stale_if_match_is_412(client):
 def test_star_and_matching_etag_accepted(client):
     before = _etag(client)
     resp = client.patch(
-        "/api/v1/settings/", json={"max_upload_bytes": 7},
+        "/api/v1/setting/", json={"max_upload_bytes": 7},
         headers={"If-Match": "*"},
     )
     assert resp.status_code == 200
@@ -73,7 +73,7 @@ def test_star_and_matching_etag_accepted(client):
     assert current != before
 
     resp2 = client.patch(
-        "/api/v1/settings/", json={"max_upload_bytes": 8},
+        "/api/v1/setting/", json={"max_upload_bytes": 8},
         headers={"If-Match": current},
     )
     assert resp2.status_code == 200
@@ -179,7 +179,7 @@ def test_import_with_stale_etag_fails_atomically(client):
     payload = client.get("/api/v1/configuration/export").json()
     stale = _etag(client)
     client.patch(
-        "/api/v1/settings/", json={"max_upload_bytes": 555},
+        "/api/v1/setting/", json={"max_upload_bytes": 555},
         headers={"If-Match": "*"},
     )
     resp = client.post(
@@ -187,7 +187,7 @@ def test_import_with_stale_etag_fails_atomically(client):
     )
     assert resp.status_code == 412
     # No partial import occurred.
-    assert client.get("/api/v1/settings/max_upload_bytes").json()["value"] == 555
+    assert client.get("/api/v1/setting/max_upload_bytes").json()["value"] == 555
 
 
 def test_import_advances_revision(client):

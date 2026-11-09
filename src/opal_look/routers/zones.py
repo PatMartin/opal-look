@@ -59,7 +59,7 @@ def _get_zone_or_404(store: Store, zone_id: str):
     return row
 
 
-@router.get("/api/v1/zones/")
+@router.get("/api/v1/zone/")
 def get_api_v1_zones(store: StoreDep, source_id: str | None = None) -> JSONResponse:
     rows = (store.zones.list_for_source(source_id) if source_id
             else store.zones.list())
@@ -67,7 +67,7 @@ def get_api_v1_zones(store: StoreDep, source_id: str | None = None) -> JSONRespo
                         headers={"ETag": store.config_revision()})
 
 
-@router.post("/api/v1/zones/", status_code=201)
+@router.post("/api/v1/zone/", status_code=201)
 def post_api_v1_zones(request: Request, store: StoreDep, body: ZoneCreate) -> JSONResponse:
     require_if_match(request)
     if store.sources.get(body.source_id) is None:
@@ -88,13 +88,13 @@ def post_api_v1_zones(request: Request, store: StoreDep, body: ZoneCreate) -> JS
                         status_code=201, headers={"ETag": revision})
 
 
-@router.get("/api/v1/zones/{zone_id}")
+@router.get("/api/v1/zone/{zone_id}")
 def get_api_v1_zones_zone_id(store: StoreDep, zone_id: str) -> JSONResponse:
     return JSONResponse(zone_read(_get_zone_or_404(store, zone_id)),
                         headers={"ETag": store.config_revision()})
 
 
-@router.patch("/api/v1/zones/{zone_id}")
+@router.patch("/api/v1/zone/{zone_id}")
 def patch_api_v1_zones_zone_id(
     request: Request, store: StoreDep, zone_id: str, body: ZonePatch
 ) -> JSONResponse:
@@ -123,7 +123,7 @@ def patch_api_v1_zones_zone_id(
                         headers={"ETag": revision})
 
 
-@router.delete("/api/v1/zones/{zone_id}", status_code=204)
+@router.delete("/api/v1/zone/{zone_id}", status_code=204)
 def delete_api_v1_zones_zone_id(
     request: Request, response: Response, store: StoreDep, zone_id: str
 ) -> None:

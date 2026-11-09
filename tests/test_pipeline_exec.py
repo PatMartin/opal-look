@@ -35,7 +35,7 @@ def _row(store, pipeline_id):
 
 
 def test_stage_order_and_trace(client, tmp_path):
-    client.post("/api/v1/pipelines/", json={
+    client.post("/api/v1/pipeline/", json={
         "id": "p", "name": "P",
         "stages": [
             {"id": "g", "kind": "filter", "portable": {"filter": {"type": "grayscale"}}},
@@ -50,7 +50,7 @@ def test_stage_order_and_trace(client, tmp_path):
 
 
 def test_inference_without_inputs_uses_base_frame(client):
-    client.post("/api/v1/pipelines/", json={
+    client.post("/api/v1/pipeline/", json={
         "id": "p", "name": "P", "stages": [
             {"id": "i", "kind": "inference", "model_id": "synthetic-vision", "task": "detection"}]},
         headers={"If-Match": "*"})
@@ -61,7 +61,7 @@ def test_inference_without_inputs_uses_base_frame(client):
 
 
 def test_filter_only_pipeline_no_model(client):
-    client.post("/api/v1/pipelines/", json={
+    client.post("/api/v1/pipeline/", json={
         "id": "p", "name": "P", "stages": [
             {"id": "g", "kind": "filter", "portable": {"filter": {"type": "grayscale"}}}]},
         headers={"If-Match": "*"})
@@ -73,7 +73,7 @@ def test_filter_only_pipeline_no_model(client):
 
 
 def test_motion_unknown_on_isolated_still(client):
-    client.post("/api/v1/pipelines/", json={
+    client.post("/api/v1/pipeline/", json={
         "id": "p", "name": "P", "stages": [
             {"id": "m", "kind": "filter", "portable": {"filter": {"type": "motion"}}},
             {"id": "i", "kind": "inference", "model_id": "synthetic-vision", "task": "detection", "inputs": ["m"],
@@ -88,7 +88,7 @@ def test_motion_unknown_on_isolated_still(client):
 
 
 def test_motion_gated_skip_then_periodic_sample(client):
-    client.post("/api/v1/pipelines/", json={
+    client.post("/api/v1/pipeline/", json={
         "id": "p", "name": "P", "stages": [
             {"id": "m", "kind": "filter", "portable": {"filter": {"type": "motion",
                                                                  "parameters": {"warmup_frames": 1}}}},
@@ -114,7 +114,7 @@ def test_motion_gated_skip_then_periodic_sample(client):
 
 
 def test_motion_moving_runs_inference(client):
-    client.post("/api/v1/pipelines/", json={
+    client.post("/api/v1/pipeline/", json={
         "id": "p", "name": "P", "stages": [
             {"id": "m", "kind": "filter", "portable": {"filter": {"type": "motion",
                                                                  "parameters": {"warmup_frames": 1}}}},
@@ -135,7 +135,7 @@ def test_motion_moving_runs_inference(client):
 
 
 def test_tracker_attaches_track_ids(client):
-    client.post("/api/v1/pipelines/", json={
+    client.post("/api/v1/pipeline/", json={
         "id": "p", "name": "P", "stages": [
             {"id": "i", "kind": "inference", "model_id": "synthetic-vision", "task": "detection"},
             {"id": "t", "kind": "tracker", "inputs": ["i"]}]},
@@ -148,7 +148,7 @@ def test_tracker_attaches_track_ids(client):
 
 
 def test_presentation_stage_isolated_from_inference(client):
-    client.post("/api/v1/pipelines/", json={
+    client.post("/api/v1/pipeline/", json={
         "id": "p", "name": "P", "stages": [
             {"id": "ann", "kind": "annotate", "phase": "presentation",
              "portable": {"annotation": {}}},
@@ -162,7 +162,7 @@ def test_presentation_stage_isolated_from_inference(client):
 
 
 def test_disabled_stage_skipped_in_trace_order(client):
-    client.post("/api/v1/pipelines/", json={
+    client.post("/api/v1/pipeline/", json={
         "id": "p", "name": "P", "stages": [
             {"id": "g", "kind": "filter", "enabled": False,
              "portable": {"filter": {"type": "grayscale"}}},
@@ -176,11 +176,11 @@ def test_disabled_stage_skipped_in_trace_order(client):
 
 
 def test_engine_unavailable_503(client):
-    client.post("/api/v1/pipelines/", json={
+    client.post("/api/v1/pipeline/", json={
         "id": "p", "name": "P", "stages": [
             {"id": "i", "kind": "inference", "model_id": "synthetic-vision", "task": "detection"}]},
         headers={"If-Match": "*"})
-    client.patch("/api/v1/engines/synthetic", json={"enabled": False},
+    client.patch("/api/v1/engine/synthetic", json={"enabled": False},
                  headers={"If-Match": "*"})
     store = client.app.state.store
     from opal_look.errors import ApiError
@@ -192,7 +192,7 @@ def test_engine_unavailable_503(client):
 
 def test_executor_via_http_pipeline_id(client):
     mid = _media_id(client)
-    client.post("/api/v1/pipelines/", json={
+    client.post("/api/v1/pipeline/", json={
         "id": "p", "name": "P", "stages": [
             {"id": "i", "kind": "inference", "model_id": "synthetic-vision", "task": "detection"}]},
         headers={"If-Match": "*"})
@@ -214,7 +214,7 @@ def test_pipeline_id_unknown_404(client):
 
 def test_simple_pipeline_via_pipeline_id(client):
     mid = _media_id(client)
-    client.post("/api/v1/pipelines/", json={
+    client.post("/api/v1/pipeline/", json={
         "id": "p", "name": "P", "stages": [{"id": "s1", "kind": "inference", "model_id": "synthetic-vision", "task": "ocr"}]},
         headers={"If-Match": "*"})
     resp = client.post("/api/v1/analyze/", json={
@@ -225,7 +225,7 @@ def test_simple_pipeline_via_pipeline_id(client):
 
 def test_motion_state_bounded(client):
     """Motion baseline map is bounded (evicts oldest)."""
-    client.post("/api/v1/pipelines/", json={
+    client.post("/api/v1/pipeline/", json={
         "id": "p", "name": "P", "stages": [
             {"id": "m", "kind": "filter", "portable": {"filter": {"type": "motion"}}},
             {"id": "i", "kind": "inference", "model_id": "synthetic-vision", "task": "detection", "inputs": ["m"],

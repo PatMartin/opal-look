@@ -51,7 +51,7 @@ def _session_refs(store: Store, source_id: str) -> None:
         raise ApiError(409, f"Source {source_id!r} is referenced by a nonterminal session.")
 
 
-@router.get("/api/v1/sources/")
+@router.get("/api/v1/source/")
 def get_api_v1_sources(
     request: Request,
     store: StoreDep,
@@ -61,7 +61,7 @@ def get_api_v1_sources(
     return JSONResponse(body, headers={"ETag": store.config_revision()})
 
 
-@router.post("/api/v1/sources/", status_code=201)
+@router.post("/api/v1/source/", status_code=201)
 def post_api_v1_sources(request: Request, store: StoreDep, source: SourceCreate) -> JSONResponse:
     if store.sources.get(source.id) is not None:
         raise ApiError(409, f"Source {source.id!r} already exists.")
@@ -79,17 +79,17 @@ def post_api_v1_sources(request: Request, store: StoreDep, source: SourceCreate)
     return JSONResponse(
         source_read(store, row),
         status_code=201,
-        headers={"ETag": revision, "Location": f"/api/v1/sources/{source.id}"},
+        headers={"ETag": revision, "Location": f"/api/v1/source/{source.id}"},
     )
 
 
-@router.get("/api/v1/sources/{source_id}")
+@router.get("/api/v1/source/{source_id}")
 def get_api_v1_sources_source_id(request: Request, store: StoreDep, source_id: str) -> JSONResponse:
     row = _get_source_or_404(store, source_id)
     return JSONResponse(source_read(store, row), headers={"ETag": store.config_revision()})
 
 
-@router.patch("/api/v1/sources/{source_id}")
+@router.patch("/api/v1/source/{source_id}")
 def patch_api_v1_sources_source_id(
     request: Request, store: StoreDep, source_id: str, patch: SourcePatch
 ) -> JSONResponse:
@@ -129,7 +129,7 @@ def _active_recording_for(store, source_id):
     return None
 
 
-@router.delete("/api/v1/sources/{source_id}", status_code=204)
+@router.delete("/api/v1/source/{source_id}", status_code=204)
 def delete_api_v1_sources_source_id(
     request: Request, response: Response, store: StoreDep, source_id: str
 ) -> None:
@@ -170,7 +170,7 @@ def _jpeg_bytes(image) -> bytes:
     return buf.getvalue()
 
 
-@router.get("/api/v1/sources/{source_id}/status")
+@router.get("/api/v1/source/{source_id}/status")
 def get_api_v1_sources_source_id_status(request: Request, store: StoreDep, source_id: str) -> dict:
     _get_source_or_404(store, source_id)
     from ..sessions import TERMINAL
@@ -186,7 +186,7 @@ def get_api_v1_sources_source_id_status(request: Request, store: StoreDep, sourc
     }
 
 
-@router.post("/api/v1/sources/{source_id}/probe")
+@router.post("/api/v1/source/{source_id}/probe")
 def post_api_v1_sources_source_id_probe(request: Request, store: StoreDep, source_id: str) -> dict:
     import os
 
@@ -254,7 +254,7 @@ def post_api_v1_sources_source_id_probe(request: Request, store: StoreDep, sourc
     }
 
 
-@router.get("/api/v1/sources/{source_id}/frame")
+@router.get("/api/v1/source/{source_id}/frame")
 def get_api_v1_sources_source_id_frame(request: Request, store: StoreDep, source_id: str) -> Response:
     import io
     import os
@@ -312,7 +312,7 @@ def get_api_v1_sources_source_id_frame(request: Request, store: StoreDep, source
 
 # -- v1.5 raw ephemeral MJPEG view (step 13) ------------------------------------
 
-@router.get("/api/v1/sources/{source_id}/stream")
+@router.get("/api/v1/source/{source_id}/stream")
 async def get_api_v1_sources_source_id_stream(
     request: Request, store: StoreDep, source_id: str,
     pipeline_id: str | None = None, annotations: bool | None = None,

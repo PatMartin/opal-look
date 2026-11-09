@@ -69,7 +69,7 @@ def test_upload_empty_422(client):
 
 def test_upload_over_limit_413(client):
     client.patch(
-        "/api/v1/settings/", json={"max_upload_bytes": 10}, headers={"If-Match": "*"}
+        "/api/v1/setting/", json={"max_upload_bytes": 10}, headers={"If-Match": "*"}
     )
     resp = _upload(client)
     assert resp.status_code == 413
@@ -137,7 +137,7 @@ def test_expired_media_410(client):
 def test_media_backed_source_lifecycle(client):
     mid = _upload(client).json()["id"]
     resp = client.post(
-        "/api/v1/sources/",
+        "/api/v1/source/",
         json={
             "id": "vid-src",
             "name": "Video",
@@ -153,7 +153,7 @@ def test_media_backed_source_lifecycle(client):
     # v1.5: media is pinned while a media source references it (409)
     assert client.delete(f"/api/v1/media/{mid}",
                          headers={"If-Match": "*"}).status_code == 409
-    client.delete("/api/v1/sources/vid-src", headers={"If-Match": "*"})
+    client.delete("/api/v1/source/vid-src", headers={"If-Match": "*"})
     assert client.delete(f"/api/v1/media/{mid}",
                          headers={"If-Match": "*"}).status_code == 204
     assert client.get(f"/api/v1/media/{mid}").status_code == 404

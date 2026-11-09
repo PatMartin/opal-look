@@ -73,7 +73,7 @@ def _merged_retention(body: SessionCreate, profile) -> dict:
     return merged
 
 
-@router.post("/api/v1/sessions/", status_code=201)
+@router.post("/api/v1/session/", status_code=201)
 async def post_api_v1_sessions(request: Request, store: StoreDep, body: SessionCreate):
     idem = request_idempotency_key(request)
     if idem is not None:
@@ -92,7 +92,7 @@ async def post_api_v1_sessions(request: Request, store: StoreDep, body: SessionC
                                     "was deleted.", code="idempotency_conflict")
             return JSONResponse(
                 session_read(prior_session), status_code=201,
-                headers={"Location": f"/api/v1/sessions/{prior['session_id']}"})
+                headers={"Location": f"/api/v1/session/{prior['session_id']}"})
 
     source = store.sources.get(body.source_id)
     if source is None:
@@ -134,11 +134,11 @@ async def post_api_v1_sessions(request: Request, store: StoreDep, body: SessionC
     return JSONResponse(
         session_read(store.sessions.get(session_id)),
         status_code=201,
-        headers={"Location": f"/api/v1/sessions/{session_id}"},
+        headers={"Location": f"/api/v1/session/{session_id}"},
     )
 
 
-@router.get("/api/v1/sessions/")
+@router.get("/api/v1/session/")
 def get_api_v1_sessions(request: Request, store: StoreDep) -> JSONResponse:
     rows = store.sessions.page(now_iso(),
                                effective_settings(store).result_retention_hours,
@@ -147,13 +147,13 @@ def get_api_v1_sessions(request: Request, store: StoreDep) -> JSONResponse:
                         headers={"ETag": store.config_revision()})
 
 
-@router.get("/api/v1/sessions/{session_id}")
+@router.get("/api/v1/session/{session_id}")
 def get_api_v1_sessions_session_id(store: StoreDep, session_id: str) -> JSONResponse:
     return JSONResponse(session_read(_session_or_404(store, session_id)),
                         headers={"ETag": store.config_revision()})
 
 
-@router.post("/api/v1/sessions/{session_id}/stop")
+@router.post("/api/v1/session/{session_id}/stop")
 def post_api_v1_sessions_session_id_stop(
     request: Request, store: StoreDep, session_id: str
 ) -> JSONResponse:
@@ -174,7 +174,7 @@ def post_api_v1_sessions_session_id_stop(
                         headers={"ETag": store.config_revision()})
 
 
-@router.get("/api/v1/sessions/{session_id}/observations/")
+@router.get("/api/v1/session/{session_id}/observation/")
 def get_api_v1_sessions_observations(
     store: StoreDep, session_id: str, limit: int = 100
 ) -> JSONResponse:
@@ -185,7 +185,7 @@ def get_api_v1_sessions_observations(
                         headers={"ETag": store.config_revision()})
 
 
-@router.get("/api/v1/sessions/{session_id}/stream")
+@router.get("/api/v1/session/{session_id}/stream")
 async def get_api_v1_sessions_session_id_stream(
     request: Request, store: StoreDep, session_id: str
 ) -> StreamingResponse:
@@ -212,7 +212,7 @@ async def get_api_v1_sessions_session_id_stream(
     return StreamingResponse(events(), media_type="text/event-stream")
 
 
-@router.get("/api/v1/sessions/{session_id}/preview")
+@router.get("/api/v1/session/{session_id}/preview")
 async def get_api_v1_sessions_session_id_preview(
     request: Request, store: StoreDep, session_id: str
 ) -> StreamingResponse:

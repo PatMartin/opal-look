@@ -79,7 +79,7 @@ def _validate_refs(store: Store, source_id: str, zone_id, kind: str) -> None:
             raise ApiError(422, f"Zone {zone_id!r} belongs to a different source")
 
 
-@router.get("/api/v1/rules/")
+@router.get("/api/v1/rule/")
 def get_api_v1_rules(store: StoreDep, source_id: str | None = None) -> JSONResponse:
     rows = (store.rules.list_for_source(source_id) if source_id
             else store.rules.list())
@@ -87,7 +87,7 @@ def get_api_v1_rules(store: StoreDep, source_id: str | None = None) -> JSONRespo
                         headers={"ETag": store.config_revision()})
 
 
-@router.post("/api/v1/rules/", status_code=201)
+@router.post("/api/v1/rule/", status_code=201)
 def post_api_v1_rules(request: Request, store: StoreDep, body: RuleCreate) -> JSONResponse:
     require_if_match(request)
     _validate_refs(store, body.source_id, body.zone_id, body.kind)
@@ -102,13 +102,13 @@ def post_api_v1_rules(request: Request, store: StoreDep, body: RuleCreate) -> JS
                         status_code=201, headers={"ETag": revision})
 
 
-@router.get("/api/v1/rules/{rule_id}")
+@router.get("/api/v1/rule/{rule_id}")
 def get_api_v1_rules_rule_id(store: StoreDep, rule_id: str) -> JSONResponse:
     return JSONResponse(rule_read(_get_rule_or_404(store, rule_id)),
                         headers={"ETag": store.config_revision()})
 
 
-@router.patch("/api/v1/rules/{rule_id}")
+@router.patch("/api/v1/rule/{rule_id}")
 def patch_api_v1_rules_rule_id(
     request: Request, store: StoreDep, rule_id: str, body: RulePatch
 ) -> JSONResponse:
@@ -135,7 +135,7 @@ def patch_api_v1_rules_rule_id(
                         headers={"ETag": revision})
 
 
-@router.delete("/api/v1/rules/{rule_id}", status_code=204)
+@router.delete("/api/v1/rule/{rule_id}", status_code=204)
 def delete_api_v1_rules_rule_id(
     request: Request, response: Response, store: StoreDep, rule_id: str
 ) -> None:

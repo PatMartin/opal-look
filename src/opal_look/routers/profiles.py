@@ -45,13 +45,13 @@ def _validate_body(store, supplied: dict) -> None:
         raise ApiError(422, "is_active must be a boolean.")
 
 
-@router.get("/api/v1/profiles/")
+@router.get("/api/v1/profile/")
 def get_api_v1_profiles(store: StoreDep) -> JSONResponse:
     return JSONResponse([profile_read(r) for r in store.profiles.list()],
                         headers={"ETag": store.config_revision()})
 
 
-@router.post("/api/v1/profiles/", status_code=201)
+@router.post("/api/v1/profile/", status_code=201)
 def post_api_v1_profiles(request: Request, store: StoreDep, body: dict) -> JSONResponse:
     require_if_match(request)
     if not isinstance(body, dict):
@@ -74,14 +74,14 @@ def post_api_v1_profiles(request: Request, store: StoreDep, body: dict) -> JSONR
                         status_code=201, headers={"ETag": revision})
 
 
-@router.get("/api/v1/profiles/{profile_id}")
+@router.get("/api/v1/profile/{profile_id}")
 def get_api_v1_profiles_profile_id(store: StoreDep, profile_id: str) -> JSONResponse:
     row = _get_profile_or_404(store, profile_id)
     return JSONResponse(profile_read(row),
                         headers={"ETag": store.config_revision()})
 
 
-@router.patch("/api/v1/profiles/{profile_id}")
+@router.patch("/api/v1/profile/{profile_id}")
 def patch_api_v1_profiles_profile_id(
         request: Request, store: StoreDep, profile_id: str, body: dict) -> JSONResponse:
     require_if_match(request)
@@ -116,7 +116,7 @@ def patch_api_v1_profiles_profile_id(
                         headers={"ETag": revision})
 
 
-@router.delete("/api/v1/profiles/{profile_id}", status_code=204)
+@router.delete("/api/v1/profile/{profile_id}", status_code=204)
 def delete_api_v1_profiles_profile_id(
         request: Request, response: Response, store: StoreDep, profile_id: str) -> None:
     require_if_match(request)
@@ -127,7 +127,7 @@ def delete_api_v1_profiles_profile_id(
         response.headers["ETag"] = store.bump_revision()
 
 
-@router.post("/api/v1/profiles/{profile_id}/activate")
+@router.post("/api/v1/profile/{profile_id}/activate")
 def post_api_v1_profiles_profile_id_activate(
         request: Request, store: StoreDep, profile_id: str) -> JSONResponse:
     require_if_match(request)

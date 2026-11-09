@@ -12,8 +12,8 @@ def test_spa_js_only_v15_paths(client):
     for legacy in ("/api/v1/results", "/api/v1/snapshots", "/api/v1/backup"):
         assert legacy not in js, legacy
     # v1.5 ops are referenced
-    for path in ("/api/v1/sources/", "/api/v1/pipelines/", "/api/v1/analyze/",
-                 "/api/v1/monitors/", "/api/v1/configuration/export",
+    for path in ("/api/v1/source/", "/api/v1/pipeline/", "/api/v1/analyze/",
+                 "/api/v1/monitor/", "/api/v1/configuration/export",
                  "/api/v1/events/status", "/api/v1/metrics/"):
         assert path in js, path
 

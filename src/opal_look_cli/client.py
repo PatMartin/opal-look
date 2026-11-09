@@ -35,7 +35,7 @@ class ApiClient:
         return resp.headers.get("etag", '"*"')
 
     def mutate(self, method: str, path: str, etag_path: str | None = None, **kwargs):
-        etag = self.etag_for(etag_path or "/api/v1/settings/")
+        etag = self.etag_for(etag_path or "/api/v1/setting/")
         return self.request(method, path, headers={"If-Match": etag}, **kwargs)
 
     def close(self) -> None:

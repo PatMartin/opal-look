@@ -25,7 +25,7 @@ def _artifact_or_404(store: Store, artifact_id: str):
     return row
 
 
-@router.get("/api/v1/artifacts/")
+@router.get("/api/v1/artifact/")
 def get_api_v1_artifacts(
     store: StoreDep, kind: str | None = None, source_id: str | None = None,
     job_id: str | None = None,
@@ -37,7 +37,7 @@ def get_api_v1_artifacts(
                         headers={"ETag": store.config_revision()})
 
 
-@router.get("/api/v1/artifacts/{artifact_id}")
+@router.get("/api/v1/artifact/{artifact_id}")
 def get_api_v1_artifacts_artifact_id(
     store: StoreDep, artifact_id: str
 ) -> JSONResponse:
@@ -45,7 +45,7 @@ def get_api_v1_artifacts_artifact_id(
                         headers={"ETag": store.config_revision()})
 
 
-@router.delete("/api/v1/artifacts/{artifact_id}", status_code=204)
+@router.delete("/api/v1/artifact/{artifact_id}", status_code=204)
 def delete_api_v1_artifacts_artifact_id(store: StoreDep, artifact_id: str) -> None:
     row = store.artifacts.get(artifact_id)
     if row is None:
@@ -54,7 +54,7 @@ def delete_api_v1_artifacts_artifact_id(store: StoreDep, artifact_id: str) -> No
         store.artifacts.delete(artifact_id)
 
 
-@router.get("/api/v1/artifacts/{artifact_id}/content")
+@router.get("/api/v1/artifact/{artifact_id}/content")
 def get_api_v1_artifacts_artifact_id_content(store: StoreDep, artifact_id: str):
     row = _artifact_or_404(store, artifact_id)
     path = Path(row["path"])

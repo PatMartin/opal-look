@@ -79,13 +79,13 @@ def test_binary_response_carries_correlation_headers(client):
     mid = client.post(
         "/api/v1/media/", files={"file": ("x.png", buf.getvalue(), "image/png")}
     ).json()["id"]
-    client.post("/api/v1/sources/", json={
+    client.post("/api/v1/source/", json={
         "id": "ms", "name": "M", "kind": "media", "locator": mid},
         headers={"If-Match": "*"})
-    cap = client.post("/api/v1/sources/ms/captures/",
+    cap = client.post("/api/v1/source/ms/capture/",
                       json={"retain": True}, headers={"If-Match": "*"}).json()
     resp = client.get(
-        f"/api/v1/captures/{cap['id']}/content",
+        f"/api/v1/capture/{cap['id']}/content",
         headers={"X-Opal-Transaction-Id": "txn-bin"},
     )
     assert resp.status_code == 200
@@ -106,17 +106,17 @@ def test_internal_session_ids_never_leak_into_x_opal_header(client):
         "/api/v1/media/", files={"file": ("x.jpg", buf.getvalue(), "image/jpeg")}
     ).json()["id"]
     client.post(
-        "/api/v1/sources/",
+        "/api/v1/source/",
         json={"id": "ms", "name": "M", "kind": "media", "locator": mid},
         headers={"If-Match": "*"},
     )
-    client.post("/api/v1/pipelines/", json={
+    client.post("/api/v1/pipeline/", json={
         "id": "p", "name": "P", "stages": [
             {"id": "s1", "kind": "inference",
              "model_id": "synthetic-vision", "task": "detection"}]},
         headers={"If-Match": "*"})
     resp = client.post(
-        "/api/v1/sessions/",
+        "/api/v1/session/",
         json={"source_id": "ms", "pipeline_id": "p"},
         headers={"X-Opal-Session-Id": "caller-logical-ctx"},
     )
@@ -131,7 +131,7 @@ def test_internal_session_ids_never_leak_into_x_opal_header(client):
 
     deadline = time.monotonic() + 5.0
     while time.monotonic() < deadline:
-        row = client.get(f"/api/v1/sessions/{internal}").json()
+        row = client.get(f"/api/v1/session/{internal}").json()
         if row["state"] in ("stopped", "completed", "failed"):
             break
         time.sleep(0.05)

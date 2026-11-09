@@ -18,4 +18,4 @@ opal-look sources list --json
 opal-look sources show side-eye
 opal-look sources status side-eye
 opal-look sources probe side-eye
-opal-look sources delete side-eye
+opal-look sources remove side-eye

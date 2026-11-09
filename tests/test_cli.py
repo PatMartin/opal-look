@@ -1,4 +1,4 @@
-"""v1.5 CLI: every command mirrors a real REST op; no obsolete flows."""
+"""v1.6 CLI: every command mirrors a real REST op; no obsolete flows."""
 
 import io
 import json

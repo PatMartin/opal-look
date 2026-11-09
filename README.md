@@ -189,7 +189,7 @@ This is intentional separation of concerns: **YOLO owns inference; OPAL Look own
 | **Jobs** | Finite, queued background processing | Batch work without blocking a request |
 | **Recordings** | Explicit live recording lifecycle | Save a feed independently of monitoring |
 
-**Simplification in v1.5:** profiles became pipeline defaults; zones live inside sources; conditions live inside monitors; public session management is gone. You can still build complicated graphs without asking every beginner to manage one.
+**Current contract (v1.6.0):** sessions, profiles, zones, rules, captures, artifacts and personas are first-class resources; collection paths are singular (`/api/v1/source/`, `/api/v1/session/` …); personas are named observer identities that may bind an OPAL Say `voice_id`.
 
 ---
 
@@ -600,32 +600,33 @@ Capability discovery exists, but several boolean fields currently remain hard-co
 
 ## REST, streams, and OPAL integrations
 
-The pinned [OpenAPI v1.5.0 specification](opal_look_v1.5.0.yaml) defines **42 paths / 62 operations**. The old [v1.4.0 specification](opal_look_v1.4.0.yaml) stays for comparison. [opal-api](https://github.com/PatMartin/opal-api) is the intended canonical contract repository; its LOOK contract still requires reconciliation with this v1.5 implementation.
+The pinned [OpenAPI v1.6.0 specification](openapi/opal_look_v1.6.0.yaml) plus the shared [OPAL Suite Kernel](openapi/shared/opal_kernel.yaml) define **63 paths / 98 operations**. The old v1.4.0-era specification stays under `vendor/opal-api/` for comparison.
 
 ### The main REST surface
 
 | Goal | Request |
 |---|---|
 | Capabilities | `GET /api/v1/capabilities/` |
-| Engines / models | `GET /api/v1/engines/` / `GET /api/v1/models/` |
-| Source list | `GET /api/v1/sources/` |
-| Single frame | `GET /api/v1/sources/{source_id}/frame` |
-| MJPEG view | `GET /api/v1/sources/{source_id}/stream` |
-| Source observation SSE | `GET /api/v1/sources/{source_id}/observations/stream` |
-| Capture | `POST /api/v1/sources/{source_id}/capture` |
-| Pipelines | `GET /api/v1/pipelines/` |
-| Pipeline validation | `POST /api/v1/pipelines/validate` |
+| Engines / models | `GET /api/v1/engine/` / `GET /api/v1/model/` |
+| Source list | `GET /api/v1/source/` |
+| Single frame | `GET /api/v1/source/{source_id}/frame` |
+| MJPEG view | `GET /api/v1/source/{source_id}/stream` |
+| Capture | `POST /api/v1/source/{source_id}/capture/` |
+| Pipelines | `GET /api/v1/pipeline/` |
+| Pipeline validation | `POST /api/v1/pipeline/validate` |
 | Image analysis | `POST /api/v1/analyze/image` |
 | Source/media analysis | `POST /api/v1/analyze/` |
-| Monitors | `GET /api/v1/monitors/` |
-| Monitor SSE | `GET /api/v1/monitors/{monitor_id}/observations/stream` |
-| Observations | `GET /api/v1/observations/` |
+| Sessions | `GET|POST /api/v1/session/` |
+| Monitors | `GET /api/v1/monitor/` |
+| Observations | `GET /api/v1/observation/` |
 | Media | `GET /api/v1/media/` |
-| Jobs | `POST /api/v1/jobs/` |
-| Recordings | `POST /api/v1/recordings/` |
-| Settings | `GET /api/v1/settings/` |
+| Jobs | `POST /api/v1/job/` |
+| Recordings | `POST /api/v1/recording/` |
+| Personas | `GET|POST /api/v1/persona/` |
+| Settings | `GET /api/v1/setting/` |
 | Export configuration | `GET /api/v1/configuration/export` |
 | Health | `GET /api/v1/health/` |
+| Service info | `GET /api/v1/info/` |
 
 Trailing slashes on collection endpoints matter; match the OpenAPI file exactly.
 
@@ -707,7 +708,7 @@ These are honest distinctions between an implemented REST surface and an end-to-
 | Clean CI | Latest verified main run was blocked by missing `PyYAML` dependency |
 | Full OpenAPI compliance | Route presence alone doesn't prove schema or runtime compliance |
 
-The package metadata currently still mentions contract v1.4.0 and version 0.1.0; do not confuse that with the pinned **v1.5.0 REST contract**. The [migration notes](specs/OPAL_LOOK_V1_5_MIGRATION.md) and [implementation ledger](specs/OPAL_LOOK_V1_5_LEDGER.md) describe how the current revision was constructed.
+The pinned REST contract is **v1.6.0** (`openapi/opal_look_v1.6.0.yaml` + kernel 1.6.0); the service reports `contract_version: "1.6.0"`. The [v1.6 ledger](specs/OPAL_LOOK_V1_6_LEDGER.md) describes the current revision; the [v1.5 notes](specs/OPAL_LOOK_V1_5_MIGRATION.md) and [ledger](specs/OPAL_LOOK_V1_5_LEDGER.md) document the previous migration.
 
 ---
 

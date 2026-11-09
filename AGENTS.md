@@ -1,12 +1,18 @@
 # OPAL Look
 
-Implementation of the `opal_look_v1.4.0.yaml` OpenAPI contract (authoritative
-interface; do not serve a generated spec). Python 3.12+ / FastAPI / SQLite.
+Implementation of `openapi/opal_look_v1.6.0.yaml` + `openapi/shared/
+opal_kernel.yaml` (OPAL Suite Kernel 1.6.0) as the authoritative contract
+(do not serve a generated spec; do not edit the contract files — amendments
+go upstream first). Python 3.12+ / FastAPI / SQLite.
 
-**Migration in progress:** branch `feature/opal-look-1.5` targets the pinned
-`opal_look_v1.5.0.yaml` (breaking revision; see
-`specs/OPAL_LOOK_V1_5_MIGRATION.md` + `OPAL_LOOK_V1_5_LEDGER.md`). v1.4.0 YAML
-stays as historical reference — do not edit either contract file.
+v1.6.0 highlights vs v1.5.0: all resource collection paths are singular
+(`/api/v1/source/`, `/api/v1/session/`, `/api/v1/setting/` …); personas
+(named observer identities with optional OPAL Say `voice_id`) are a new
+config resource; `/api/v1/info/` + `/api/v1/info/ping` serve the kernel
+ServiceInfo/LivenessRead. Migration record:
+`specs/OPAL_LOOK_V1_6_LEDGER.md`; the v1.5 migration history is in
+`specs/OPAL_LOOK_V1_5_LEDGER.md` and v1.4.0-era upstream copies live under
+`vendor/opal-api/`.
 
 ## Commands
 
@@ -21,8 +27,9 @@ stays as historical reference — do not edit either contract file.
 
 - Persistence: per-aggregate repositories behind Protocols under
   `src/opal_look/repositories/`; `Store` owns the connection + schema and
-  exposes `store.meta/settings/engines/models`. `store.write_txn()` is the
-  unit-of-work context manager for atomic check-and-mutate.
+  exposes `store.meta/settings/engines/models/…/personas`.
+  `store.write_txn()` is the unit-of-work context manager for atomic
+  check-and-mutate.
 - DI: FastAPI `Depends` providers in `src/opal_look/dependencies.py`
   (`StoreDep`); handlers inject the store rather than reaching app.state.
 - Engines: `EngineAdapter` Protocol + `ENGINE_REGISTRY` (factory/registry,
@@ -38,11 +45,12 @@ stays as historical reference — do not edit either contract file.
   statements serialize through `Store._lock` (`_LockedConnection` proxy),
   and `write_txn()` holds it for the whole transaction.
 - DTOs: pydantic models in `src/opal_look/schemas.py` + `settings.py`.
-- v1.5 resource reads vs internals: `engine_read`/`model_read` return the
-  contract Engine/Model shapes; `engine_runtime`/`model_runtime` are the
-  richer internal views (probe/config/adapter description) used by
-  services. Models store `created_at/tasks/options/resource_ref` columns
-  (auto-migrated in `Store._migrate`).
+- Contract resource reads vs internals: `engine_read`/`model_read`/
+  `persona_read` return the contract shapes; `engine_runtime`/
+  `model_runtime` are the richer internal views (probe/config/adapter
+  description) used by services. Models store
+  `created_at/tasks/options/resource_ref` columns (auto-migrated in
+  `Store._migrate`).
 - Middleware: `CorrelationMiddleware` (outer correlation/validation),
   `AccessLogMiddleware` (outermost, logs all requests).
 - All errors use the OpalError envelope (`src/opal_look/errors.py`,
@@ -64,7 +72,7 @@ stays as historical reference — do not edit either contract file.
   Correlation so 401s keep X-Opal headers). Unset -> loopback dev mode;
   `main.py` refuses non-loopback binds without it. Never log/export/echo
   the token or accept it in query strings. CLI sends it automatically.
-- Planned clients (later phases): `opal-look` (Typer, REST-only via
+- Clients: `opal-look` Typer CLI + `opal look` umbrella (REST-only via
   httpx; suite verb taxonomy add/remove/update/list/show + operational
   verbs per upstream x-opal-cli conventions) and a full-coverage SPA
   (static assets at /app/ calling REST, no business logic).
@@ -79,27 +87,35 @@ stays as historical reference — do not edit either contract file.
 | Area | Status |
 |---|---|
 | errors/correlation envelope | verified |
-| health (/, /health, live, ready, suite health) | verified |
+| health/info (/, /health, /info/, /info/ping, live, ready, suite health) | verified |
 | settings (map GET/PATCH + per-key GET/PUT/DELETE, If-Match/ETag) | verified |
-| engines (list/get/patch/validate; synthetic adapter) | verified |
-| models (list+filters/create/get/patch/delete/validate) | verified |
-| sources (CRUD+validate, per-type locator/option adapters, rtsp live probe) | verified |
-| profiles (CRUD+activate+validate, resolved settings) | verified |
-| devices/cameras (empty discovery; no adapters yet) | verified |
+| engines (list/get/patch; kernel shapes; synthetic adapter) | verified |
+| models (list+filters/create/get/patch/delete) | verified |
+| sources (CRUD+status/probe/frame/stream, per-type adapters, rtsp live probe) | verified |
+| profiles (CRUD+activate, kernel shapes) | verified |
+| zones (standalone CRUD, source-scoped geometry) | verified |
+| rules (standalone CRUD, monitor-time evaluation) | verified |
+| personas (CRUD+enabled filter+validate, export/import section) | verified |
+| pipelines (CRUD+validate, DAG stages, executor) | verified |
 | media (upload JPEG/PNG+EXIF, cursor list, get/delete/content, expiry) | verified |
-| analyze (selection resolution, media/source frame inputs, all 5 tasks, filters, persistence) | verified |
-| results (search filters, cursor+budget, get/delete), ephemeral frame cache | verified |
-| snapshots (exact-frame capture, annotate, retain, CRUD+content) | verified |
-| sessions (admission/state machine/reconnect/worker/stop/delete/latest) | verified |
-| SSE events stream (result+end events, heartbeat), MJPEG preview | verified |
-| backup (export/import/validate + managed create/list/download/restore/delete) | verified |
+| analyze (selection resolution, media/source/capture inputs, tasks, filters) | verified |
+| observations (list/show, retained immutable records) | verified |
+| captures (exact-frame capture, annotate, retain, CRUD+content) | verified |
+| artifacts (list/show/delete/content, job/recording outputs) | verified |
+| sessions (admission/state machine/worker/stop/observations/stream/preview) | verified |
+| jobs (submit/list/show/cancel, idempotency-key admission) | verified |
+| monitors (CRUD, durable workers, rule evaluation, SSE) | verified |
+| recordings (start/list/show/stop, artifact on finalize) | verified |
+| configuration (export/validate/import, personas section) | verified |
+| metrics + events status | verified |
+| SSE session stream (heartbeat), MJPEG preview, source MJPEG view | verified |
 | event bus (pyzmq PUSH two-frame, allowlist+rate+drop counters) | verified |
-| CLI (opal look / opal-look, all verbs, REST-only) | verified |
-| SPA (/app/ static client, all sections) | verified |
+| CLI (opal look / opal-look, all verbs incl. persona+info, REST-only) | verified |
+| SPA (/app/ static client, all sections incl. personas) | verified |
 
 | idempotency (durable keys, fingerprint replay, 409s) | verified |
 | retention sweep (startup purge of expired rows) | verified |
-| conformance (Spectral 0 errors; Schemathesis fixes applied) | verified |
+| conformance (strict audit rc=0 CONFORMANT: 63 paths / 98 ops) | verified |
 | CI (GitHub Actions pytest) | verified |
 
 Deferred (documented): video decoder (media/host_video -> 415/503 until

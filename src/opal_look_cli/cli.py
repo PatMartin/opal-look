@@ -603,9 +603,9 @@ app.add_typer(persona, name="persona")
 
 info = typer.Typer(help="info", epilog=(
     "Examples:\n"
-    "  opal-look info show\n"
+    "  opal-look info version\n"
     "  opal-look info ping"))
-info.command("show")(lambda: _emit(unwrap(_client().get("/api/v1/info/"))))
+info.command("version")(lambda: _emit(unwrap(_client().get("/api/v1/info/"))))
 info.command("ping")(lambda: _emit(unwrap(_client().get("/api/v1/info/ping"))))
 app.add_typer(info, name="info")
 

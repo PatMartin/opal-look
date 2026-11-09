@@ -16,3 +16,4 @@ __pycache__/
 # tool artifacts
 /.schemathesis/
 specs/logs/
+logs/

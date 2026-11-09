@@ -123,7 +123,7 @@ def test_cli_persona_crud(cli):
 
 
 def test_cli_info(cli):
-    r = cli.invoke(cli_app, ["info", "show"])
+    r = cli.invoke(cli_app, ["info", "version"])
     assert r.exit_code == 0 and "opal-look-svc" in r.output
     r = cli.invoke(cli_app, ["info", "ping"])
     assert r.exit_code == 0 and '"status": "ok"' in r.output

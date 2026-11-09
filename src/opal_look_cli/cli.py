@@ -11,6 +11,8 @@ honestly surfaces streaming/bearer limits.
 from __future__ import annotations
 
 import json
+import os
+import subprocess
 import sys
 from pathlib import Path
 from typing import Optional
@@ -606,6 +608,128 @@ info = typer.Typer(help="info", epilog=(
 info.command("show")(lambda: _emit(unwrap(_client().get("/api/v1/info/"))))
 info.command("ping")(lambda: _emit(unwrap(_client().get("/api/v1/info/ping"))))
 app.add_typer(info, name="info")
+
+
+# -- local service process control -------------------------------------------
+
+service = typer.Typer(help="service", epilog=(
+    "Examples:\n"
+    "  opal-look service start\n"
+    "  opal-look service start --port 9000\n"
+    "  opal-look service stop\n"
+    "  opal-look service log"))
+
+_LOG_DIR = Path("logs")
+_LOG_FILE = "opal_listen.log"
+_PID_FILE = "opal_look.pid"
+
+
+def _log_dir() -> Path:
+    return _LOG_DIR
+
+
+def _log_path() -> Path:
+    return _log_dir() / _LOG_FILE
+
+
+def _pid_path() -> Path:
+    return _log_dir() / _PID_FILE
+
+
+def _pid_alive(pid: int) -> bool:
+    if pid <= 0:
+        return False
+    if sys.platform == "win32":
+        out = subprocess.run(
+            ["tasklist", "/FI", f"PID eq {pid}", "/FO", "CSV", "/NH"],
+            capture_output=True, text=True).stdout
+        return f'"{pid}"' in out
+    try:
+        os.kill(pid, 0)
+    except OSError:
+        return False
+    return True
+
+
+def _read_pid() -> int | None:
+    try:
+        return int(_pid_path().read_text().strip())
+    except (OSError, ValueError):
+        return None
+
+
+def _kill_pid(pid: int) -> None:
+    if sys.platform == "win32":
+        subprocess.run(["taskkill", "/PID", str(pid), "/T", "/F"],
+                       capture_output=True)
+    else:
+        try:
+            os.kill(pid, 15)
+        except OSError:
+            pass
+
+
+@service.command("start")
+def _svc_start(
+        port: int = typer.Option(None, "--port"),
+        host: str = typer.Option(None, "--host"),
+        data_dir: str = typer.Option(None, "--data-dir"),
+        append: bool = typer.Option(False, "--append",
+                                    help="Append to the log instead of overwriting it.")):
+    """Start the server in the background (kills a running instance first)."""
+    _log_dir().mkdir(parents=True, exist_ok=True)
+    existing = _read_pid()
+    if existing is not None and _pid_alive(existing):
+        _kill_pid(existing)
+        typer.echo(f"killed running server (pid {existing})")
+    _pid_path().unlink(missing_ok=True)
+
+    env = dict(os.environ)
+    if port is not None:
+        env["OPAL_LOOK_PORT"] = str(port)
+    if host is not None:
+        env["OPAL_LOOK_HOST"] = host
+    if data_dir is not None:
+        env["OPAL_LOOK_DATA_DIR"] = data_dir
+
+    log = _log_path().open("a" if append else "w")
+    kwargs: dict = {"stdout": log, "stderr": subprocess.STDOUT, "env": env}
+    if sys.platform == "win32":
+        kwargs["creationflags"] = (subprocess.DETACHED_PROCESS
+                                   | subprocess.CREATE_NEW_PROCESS_GROUP)
+    else:
+        kwargs["start_new_session"] = True
+    proc = subprocess.Popen([sys.executable, "-m", "opal_look.main"], **kwargs)
+    log.close()
+    _pid_path().write_text(f"{proc.pid}\n")
+    typer.echo(f"started opal-look (pid {proc.pid}); output -> {_log_path()}")
+
+
+@service.command("stop")
+def _svc_stop():
+    """Stop the background server if it is running."""
+    pid = _read_pid()
+    if pid is None or not _pid_alive(pid):
+        _pid_path().unlink(missing_ok=True)
+        typer.echo("no server running")
+        return
+    _kill_pid(pid)
+    _pid_path().unlink(missing_ok=True)
+    typer.echo(f"stopped opal-look (pid {pid})")
+
+
+@service.command("log")
+def _svc_log(lines: int = typer.Option(10, "--lines")):
+    """Show the last N lines of the service log (default 10)."""
+    path = _log_path()
+    if not path.is_file():
+        raise SystemExit(f"no log file at {path}")
+    tail = path.read_text(errors="replace").splitlines()[-lines:]
+    for line in tail:
+        typer.echo(line)
+
+
+app.add_typer(service, name="service")
 
 
 @app.command("tree", epilog=(

@@ -129,6 +129,43 @@ def test_cli_info(cli):
     assert r.exit_code == 0 and '"status": "ok"' in r.output
 
 
+def test_cli_service_log_tail(cli, tmp_path, monkeypatch):
+    logdir = tmp_path / "logs"
+    monkeypatch.setattr(cli_mod, "_LOG_DIR", logdir)
+    logdir.mkdir()
+    (logdir / "opal_listen.log").write_text(
+        "\n".join(f"line{i}" for i in range(15)))
+    r = cli.invoke(cli_app, ["service", "log"])
+    assert r.exit_code == 0
+    assert "line14" in r.output and "line5" in r.output
+    assert "line4" not in r.output  # default tail is 10 lines
+
+
+def test_cli_service_log_missing(cli, tmp_path, monkeypatch):
+    monkeypatch.setattr(cli_mod, "_LOG_DIR", tmp_path / "logs")
+    assert cli.invoke(cli_app, ["service", "log"]).exit_code != 0
+
+
+def test_cli_service_stop_not_running(cli, tmp_path, monkeypatch):
+    monkeypatch.setattr(cli_mod, "_LOG_DIR", tmp_path / "logs")
+    r = cli.invoke(cli_app, ["service", "stop"])
+    assert r.exit_code == 0 and "no server running" in r.output
+
+
+def test_cli_service_start_writes_pidfile(cli, tmp_path, monkeypatch):
+    logdir = tmp_path / "logs"
+    monkeypatch.setattr(cli_mod, "_LOG_DIR", logdir)
+
+    class _FakeProc:
+        pid = -1  # never a real pid; no stop call follows this test
+
+    monkeypatch.setattr(cli_mod.subprocess, "Popen", lambda *a, **k: _FakeProc())
+    r = cli.invoke(cli_app, ["service", "start"])
+    assert r.exit_code == 0, r.output
+    assert (logdir / "opal_listen.log").is_file()
+    assert (logdir / "opal_look.pid").read_text().strip() == "-1"
+
+
 def test_cli_obsolete_commands_gone(cli):
     """v1.4 resources have no REST op — the CLI must not expose them."""
     for group in ("results", "snapshots", "backup"):

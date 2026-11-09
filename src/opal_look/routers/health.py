@@ -190,3 +190,15 @@ def get_service_info() -> dict:
         "contract_version": CONTRACT_VERSION,
         "description": SERVICE_DESCRIPTION,
     }
+
+
+@router.get("/api/v1/info/")
+def get_info() -> dict:
+    """Kernel ServiceInfo on the contract path; same payload as GET /."""
+    return get_service_info()
+
+
+@router.get("/api/v1/info/ping")
+def get_info_ping() -> dict:
+    """Kernel LivenessRead for process supervisors."""
+    return {"status": "ok"}

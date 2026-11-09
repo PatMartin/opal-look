@@ -14,6 +14,23 @@ def test_liveness_alias(client):
     assert resp.json() == {"status": "ok"}
 
 
+def test_info_contract_path(client):
+    resp = client.get("/api/v1/info/")
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["name"] == "opal-look-svc"
+    assert body["version"]
+    assert body["api_version"] == "v1"
+    assert body["contract_version"] == "1.6.0"
+    assert body["description"]
+
+
+def test_info_ping(client):
+    resp = client.get("/api/v1/info/ping")
+    assert resp.status_code == 200
+    assert resp.json() == {"status": "ok"}
+
+
 def test_live_probe(client):
     resp = client.get("/api/v1/health/live")
     assert resp.status_code == 200

@@ -106,6 +106,29 @@ def test_cli_configuration_export(cli):
     assert r.exit_code == 0 and "settings" in r.output
 
 
+def test_cli_persona_crud(cli):
+    r = cli.invoke(cli_app, ["persona", "add", "--body",
+                             '{"persona_id":"amy","name":"Amy"}'])
+    assert r.exit_code == 0, r.output
+    assert "amy" in cli.invoke(cli_app, ["persona", "list"]).output
+    assert "Amy" in cli.invoke(cli_app, ["persona", "show", "amy"]).output
+    r = cli.invoke(cli_app, ["persona", "update", "amy", "--body",
+                             '{"voice_id":"en-gb-alan-low"}'])
+    assert r.exit_code == 0, r.output
+    assert '"valid": true' in cli.invoke(
+        cli_app, ["--json", "persona", "validate", "amy"]).output
+    r = cli.invoke(cli_app, ["persona", "remove", "amy"])
+    assert r.exit_code == 0, r.output
+    assert cli.invoke(cli_app, ["persona", "show", "amy"]).exit_code != 0
+
+
+def test_cli_info(cli):
+    r = cli.invoke(cli_app, ["info", "show"])
+    assert r.exit_code == 0 and "opal-look-svc" in r.output
+    r = cli.invoke(cli_app, ["info", "ping"])
+    assert r.exit_code == 0 and '"status": "ok"' in r.output
+
+
 def test_cli_obsolete_commands_gone(cli):
     """v1.4 resources have no REST op — the CLI must not expose them."""
     for group in ("results", "snapshots", "backup"):

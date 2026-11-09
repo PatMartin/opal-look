@@ -1,4 +1,4 @@
-"""opal-look: thin REST client mirroring the v1.5 contract.
+"""opal-look: thin REST client mirroring the v1.6 contract.
 
 Group/verb layout follows the contract's x-opal-cli metadata:
 add/remove/update/list/show plus operational verbs (view, observe,
@@ -20,7 +20,7 @@ import typer
 from .client import ApiClient, unwrap
 
 app = typer.Typer(
-    help="OPAL Look v1.5 REST CLI (thin client; no business logic).",
+    help="OPAL Look v1.6 REST CLI (thin client; no business logic).",
     epilog=(
         "Examples:\n"
         "  opal-look health show\n"
@@ -549,12 +549,63 @@ def _art_download(artifact_id: str,
 
 app.add_typer(artifacts, name="artifacts")
 
-
-@app.command("info", epilog=(
+persona = typer.Typer(help="persona", epilog=(
     "Examples:\n"
-    "  opal-look info"))
-def _info():
-    _emit(unwrap(_client().get("/")))
+    "  opal-look persona list\n"
+    "  opal-look persona add --body '{\"persona_id\":\"amy\",\"name\":\"Amy\"}'\n"
+    "  opal-look persona update amy --body '{\"voice_id\":\"en-gb-alan-low\"}'\n"
+    "  opal-look persona validate amy"))
+
+
+@persona.command("list")
+def _per_list(enabled: bool = typer.Option(None, "--enabled/--disabled")):
+    q = "" if enabled is None else f"?enabled={'true' if enabled else 'false'}"
+    _emit(unwrap(_client().get(f"/api/v1/persona/{q}")))
+
+
+@persona.command("add")
+def _per_add(body: str = typer.Option(None, "--body"),
+             file: Path = typer.Option(None, "--file")):
+    _emit(unwrap(_client().mutate("POST", "/api/v1/persona/",
+                                  json=_body(body, file))))
+
+
+@persona.command("show")
+def _per_show(persona_id: str):
+    _emit(unwrap(_client().get(f"/api/v1/persona/{persona_id}")))
+
+
+@persona.command("update")
+def _per_update(persona_id: str,
+                body: str = typer.Option(None, "--body"),
+                file: Path = typer.Option(None, "--file")):
+    _emit(unwrap(_client().mutate(
+        "PATCH", f"/api/v1/persona/{persona_id}",
+        etag_path=f"/api/v1/persona/{persona_id}", json=_body(body, file))))
+
+
+@persona.command("remove")
+def _per_remove(persona_id: str):
+    _emit(unwrap(_client().mutate(
+        "DELETE", f"/api/v1/persona/{persona_id}",
+        etag_path=f"/api/v1/persona/{persona_id}")))
+
+
+@persona.command("validate")
+def _per_validate(persona_id: str):
+    _emit(unwrap(_client().request(
+        "POST", f"/api/v1/persona/{persona_id}/validate")))
+
+
+app.add_typer(persona, name="persona")
+
+info = typer.Typer(help="info", epilog=(
+    "Examples:\n"
+    "  opal-look info show\n"
+    "  opal-look info ping"))
+info.command("show")(lambda: _emit(unwrap(_client().get("/api/v1/info/"))))
+info.command("ping")(lambda: _emit(unwrap(_client().get("/api/v1/info/ping"))))
+app.add_typer(info, name="info")
 
 
 @app.command("tree", epilog=(

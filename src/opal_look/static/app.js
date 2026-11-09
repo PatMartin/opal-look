@@ -130,6 +130,12 @@ const SCREENS = {
       `<button onclick="createProfile()">add</button>` +
       `<button onclick="activateProfile()">activate</button>`;
   },
+  async personas(el) {
+    el.innerHTML = await _list("Personas", "/api/v1/persona/") +
+      `<button onclick="createPersona()">add</button>` +
+      `<button onclick="validatePersona()">validate</button>` +
+      `<button onclick="removePersona()">remove</button>`;
+  },
   async sessions(el) {
     el.innerHTML = await _list("Sessions", "/api/v1/session/") +
       `<button onclick="startSession()">start</button>` +
@@ -198,6 +204,8 @@ const SCREENS = {
     el.innerHTML = `<h3>Operations</h3>
       <button onclick="showCaps()">capabilities</button>
       <button onclick="showMetrics()">metrics</button>
+      <button onclick="showInfo()">info</button>
+      <button onclick="pingInfo()">ping</button>
       <pre id="ops-out"></pre>`;
   },
 };
@@ -235,6 +243,18 @@ async function createProfile() {
 async function activateProfile() {
   const id = prompt("Profile id to activate:");
   if (id) { await mutate("POST", `/api/v1/profile/${id}/activate`); render("profiles"); }
+}
+async function createPersona() {
+  const j = prompt("PersonaCreate JSON:");
+  if (j) { await mutate("POST", "/api/v1/persona/", JSON.parse(j)); render("personas"); }
+}
+async function validatePersona() {
+  const id = prompt("Persona id to validate:");
+  if (id) toast(JSON.stringify(await api("POST", `/api/v1/persona/${id}/validate`)));
+}
+async function removePersona() {
+  const id = prompt("Persona id to remove:");
+  if (id) { await mutate("DELETE", `/api/v1/persona/${id}`); render("personas"); }
 }
 async function startSession() {
   const j = prompt("SessionCreate JSON:", '{"source_id":"cam","pipeline_id":"p1"}');
@@ -326,10 +346,16 @@ async function showCaps() {
 async function showMetrics() {
   $("#ops-out").textContent = JSON.stringify(await api("GET", "/api/v1/metrics/"), null, 2);
 }
+async function showInfo() {
+  $("#ops-out").textContent = JSON.stringify(await api("GET", "/api/v1/info/"), null, 2);
+}
+async function pingInfo() {
+  $("#ops-out").textContent = JSON.stringify(await api("GET", "/api/v1/info/ping"), null, 2);
+}
 const GROUPS = ["dashboard", "sources", "zones", "rules", "profiles",
-                "sessions", "pipelines", "analyze", "view", "monitors",
-                "observations", "media", "captures", "artifacts", "jobs",
-                "recordings", "settings", "config", "ops"];
+                "personas", "sessions", "pipelines", "analyze", "view",
+                "monitors", "observations", "media", "captures", "artifacts",
+                "jobs", "recordings", "settings", "config", "ops"];
 GROUPS.forEach(id => {
   const b = document.createElement("button");
   b.textContent = id; b.onclick = () => render(id);

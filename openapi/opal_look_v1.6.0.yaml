@@ -2,7 +2,7 @@ openapi: 3.1.0
 jsonSchemaDialect: https://json-schema.org/draft/2020-12/schema
 info:
   title: OPAL Look — Visual Observation API
-  version: 1.5.0
+  version: 1.6.0
   description: 'Clean-sheet, implementation-neutral visual perception API for OPAL 1.4.0. OpenAPI is normative for
     REST, generated CLI, and SPA clients. A source provides frames; a pipeline is an ordered acyclic graph of inference
     and processing stages; a stage produces immutable observations; sessions run live pipelines; jobs run finite
@@ -22,7 +22,7 @@ info:
 
 
     Configuration: portable logical configuration has one strong ETag, returned on configuration GETs and successful
-    writes; all configuration mutations require If-Match strong validator (or ''*''). Missing 428, stale 412, malformed
+    writes; all configuration mutations require If-Match strong validator. Missing 428, stale 412, malformed
     422. Validation never mutates and returns valid=false with issues. Runtime state does not advance portable configuration
     revision; concurrent runtime jobs/sessions may block incompatible configuration mutation with 409. Write operations
     are atomic. Source locators are redacted in GET/exports; secrets are never exportable. Filesystem/provider resources
@@ -137,15 +137,12 @@ tags:
 - name: settings
 - name: backup
 - name: operations
+- name: persona
+  description: Manage named persona identities adopting the shared OPAL persona identifiers introduced by OPAL Say v1.6.0.
+- name: info
+  description: Service identity, version and liveness probes.
 components:
   schemas:
-    Id:
-      type: string
-      minLength: 1
-      maxLength: 128
-    Timestamp:
-      type: string
-      format: date-time
     CapabilityDescriptor:
       type: object
       properties:
@@ -445,25 +442,6 @@ components:
           items:
             $ref: '#/components/schemas/PipelineStage'
       additionalProperties: false
-    ValidationIssue:
-      type: object
-      properties:
-        code:
-          type: string
-        message:
-          type: string
-        path:
-          type: string
-        severity:
-          type: string
-          enum:
-          - error
-          - warning
-      additionalProperties: false
-      required:
-      - code
-      - message
-      - severity
     InferenceOptions:
       type: object
       properties:
@@ -1475,19 +1453,6 @@ components:
         restart_policy: *id025
         options: *id026
       additionalProperties: false
-    SettingValue:
-      description: Typed JSON leaf value; key determines required type. Unknown keys and incorrect types return
-        422.
-      oneOf:
-      - type: string
-      - type: integer
-        minimum: 0
-      - type: number
-      - type: boolean
-      - type: array
-        items:
-          type: string
-      - type: 'null'
     Metrics:
       type: object
       properties:
@@ -1770,34 +1735,6 @@ components:
             ranges.
       description: Portable filter type and parameter object. Unknown types/parameters and unsupported implementations
         yield 422.
-    MotionFilterParameters:
-      type: object
-      additionalProperties: false
-      properties:
-        sensitivity:
-          type: number
-          minimum: 0
-          maximum: 1
-          default: 0.5
-        minimum_area:
-          type: integer
-          minimum: 1
-          default: 500
-        warmup_frames:
-          type: integer
-          minimum: 1
-          default: 3
-        visualization:
-          type: string
-          enum:
-          - none
-          - highlight
-          - mask
-          default: highlight
-        roi:
-          $ref: '#/components/schemas/NormalizedPolygon'
-      description: Motion compares frames from the same source, in sequence. Missing baseline/warmup produces motion_state=unknown,
-        never false.
     MotionGateOptions:
       type: object
       additionalProperties: false
@@ -1836,33 +1773,116 @@ components:
           $ref: '#/components/schemas/VideoProcessingOptions'
       description: Portable stage controls. Stage kind determines which keys are valid; the generic options object
         on PipelineStage remains for existing engine-specific options.
-    FrameDiagnostics:
+    PersonaCreate:
       type: object
       additionalProperties: false
+      required:
+      - persona_id
+      - name
       properties:
-        source_fps:
-          type: number
-          minimum: 0
-        output_fps:
-          type: number
-          minimum: 0
-        processing_latency_ms:
-          type: number
-          minimum: 0
-        dropped_frames:
-          type: integer
-          minimum: 0
-        motion_state:
+        persona_id:
           type: string
-          enum:
-          - unknown
-          - present
-          - absent
-        inference_skipped_frames:
-          type: integer
-          minimum: 0
-      description: Non-guaranteed live counters; may reset when a source reconnects.
+          minLength: 1
+          maxLength: 200
+          pattern: ^[A-Za-z0-9][A-Za-z0-9._-]*
+          description: Globally unique OPAL persona identifier.
+          example: amy
+        name:
+          type: string
+          minLength: 1
+          maxLength: 200
+          description: Human-readable persona name.
+          example: Amy
+        description:
+          anyOf:
+          - type: string
+            maxLength: 1000
+          - type: 'null'
+          description: Optional human-readable description or character notes.
+        voice_id:
+          anyOf:
+          - type: string
+            minLength: 1
+          - type: 'null'
+          description: Optional OPAL Say voice identifier associated with this persona.
+          example: en-gb-alan-low
+        enabled:
+          type: boolean
+          default: true
+          description: Whether this persona may be selected.
+      example:
+        persona_id: amy
+        name: Amy
+        voice_id: en-gb-alan-low
+        enabled: true
+    PersonaUpdate:
+      type: object
+      minProperties: 1
+      additionalProperties: false
+      description: Partial update to a persona.
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 200
+        description:
+          anyOf:
+          - type: string
+            maxLength: 1000
+          - type: 'null'
+        voice_id:
+          anyOf:
+          - type: string
+            minLength: 1
+          - type: 'null'
+          description: Rebind the persona to a different OPAL Say voice identifier.
+        enabled:
+          type: boolean
+    PersonaRead:
+      type: object
+      required:
+      - persona_id
+      - name
+      - enabled
+      - created_at
+      - updated_at
+      properties:
+        persona_id:
+          type: string
+          description: Globally unique OPAL persona identifier.
+          example: amy
+        name:
+          type: string
+          example: Amy
+        description:
+          anyOf:
+          - type: string
+          - type: 'null'
+        voice_id:
+          anyOf:
+          - type: string
+          - type: 'null'
+          description: Optional OPAL Say voice identifier associated with this persona.
+        enabled:
+          type: boolean
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
   parameters:
+    PersonaId:
+      name: persona_id
+      in: path
+      required: true
+      description: Globally unique OPAL persona identifier.
+      schema:
+        type: string
+        minLength: 1
+        maxLength: 200
+        pattern: ^[A-Za-z0-9][A-Za-z0-9._-]*$
+      example: amy
     IdempotencyKey:
       name: Idempotency-Key
       in: header
@@ -1948,13 +1968,13 @@ paths:
       x-opal-cli:
         group: capabilities
         command: show
-  /api/v1/engines/:
+  /api/v1/engine/:
     $ref: ./shared/opal_kernel.yaml#/components/pathItems/engines_collection
     x-opal-cli:
       get:
         group: engines
         command: list
-  /api/v1/engines/{engine_id}:
+  /api/v1/engine/{engine_id}:
     $ref: ./shared/opal_kernel.yaml#/components/pathItems/engine_item
     x-opal-cli:
       get:
@@ -1963,7 +1983,7 @@ paths:
       patch:
         group: engines
         command: update
-  /api/v1/models/:
+  /api/v1/model/:
     get:
       tags:
       - models
@@ -2063,7 +2083,7 @@ paths:
       x-opal-cli:
         group: models
         command: add
-  /api/v1/models/{model_id}:
+  /api/v1/model/{model_id}:
     get:
       tags:
       - models
@@ -2210,7 +2230,7 @@ paths:
         type: string
         minLength: 1
         maxLength: 128
-  /api/v1/sources/:
+  /api/v1/source/:
     get:
       tags:
       - sources
@@ -2310,7 +2330,7 @@ paths:
       x-opal-cli:
         group: sources
         command: add
-  /api/v1/sources/{source_id}:
+  /api/v1/source/{source_id}:
     get:
       tags:
       - sources
@@ -2457,7 +2477,7 @@ paths:
         type: string
         minLength: 1
         maxLength: 128
-  /api/v1/pipelines/:
+  /api/v1/pipeline/:
     get:
       tags:
       - pipelines
@@ -2557,7 +2577,7 @@ paths:
       x-opal-cli:
         group: pipelines
         command: add
-  /api/v1/pipelines/{pipeline_id}:
+  /api/v1/pipeline/{pipeline_id}:
     get:
       tags:
       - pipelines
@@ -2704,7 +2724,7 @@ paths:
         type: string
         minLength: 1
         maxLength: 128
-  /api/v1/profiles/:
+  /api/v1/profile/:
     $ref: ./shared/opal_kernel.yaml#/components/pathItems/profiles_collection
     x-opal-cli:
       get:
@@ -2713,7 +2733,7 @@ paths:
       post:
         group: profiles
         command: add
-  /api/v1/profiles/{profile_id}:
+  /api/v1/profile/{profile_id}:
     $ref: ./shared/opal_kernel.yaml#/components/pathItems/profile_item
     x-opal-cli:
       get:
@@ -2725,7 +2745,7 @@ paths:
       delete:
         group: profiles
         command: remove
-  /api/v1/zones/:
+  /api/v1/zone/:
     get:
       tags:
       - zones
@@ -2825,7 +2845,7 @@ paths:
       x-opal-cli:
         group: zones
         command: add
-  /api/v1/zones/{zone_id}:
+  /api/v1/zone/{zone_id}:
     get:
       tags:
       - zones
@@ -2972,7 +2992,7 @@ paths:
         type: string
         minLength: 1
         maxLength: 128
-  /api/v1/rules/:
+  /api/v1/rule/:
     get:
       tags:
       - rules
@@ -3072,7 +3092,7 @@ paths:
       x-opal-cli:
         group: rules
         command: add
-  /api/v1/rules/{rule_id}:
+  /api/v1/rule/{rule_id}:
     get:
       tags:
       - rules
@@ -3219,7 +3239,7 @@ paths:
         type: string
         minLength: 1
         maxLength: 128
-  /api/v1/monitors/:
+  /api/v1/monitor/:
     get:
       tags:
       - monitors
@@ -3319,7 +3339,7 @@ paths:
       x-opal-cli:
         group: monitors
         command: add
-  /api/v1/monitors/{monitor_id}:
+  /api/v1/monitor/{monitor_id}:
     get:
       tags:
       - monitors
@@ -3466,7 +3486,7 @@ paths:
         type: string
         minLength: 1
         maxLength: 128
-  /api/v1/pipelines/validate:
+  /api/v1/pipeline/validate:
     post:
       tags:
       - pipelines
@@ -3513,13 +3533,13 @@ paths:
       x-opal-cli:
         group: pipelines
         command: validate
-  /api/v1/profiles/{profile_id}/activate:
+  /api/v1/profile/{profile_id}/activate:
     $ref: ./shared/opal_kernel.yaml#/components/pathItems/profile_activate
     x-opal-cli:
       post:
         group: profiles
         command: activate
-  /api/v1/sources/{source_id}/status:
+  /api/v1/source/{source_id}/status:
     get:
       tags:
       - sources
@@ -3568,7 +3588,7 @@ paths:
         type: string
         minLength: 1
         maxLength: 128
-  /api/v1/sources/{source_id}/probe:
+  /api/v1/source/{source_id}/probe:
     post:
       tags:
       - sources
@@ -3753,7 +3773,7 @@ paths:
       x-opal-cli:
         group: analyze
         command: image
-  /api/v1/sessions/:
+  /api/v1/session/:
     post:
       tags:
       - sessions
@@ -3857,7 +3877,7 @@ paths:
       x-opal-cli:
         group: sessions
         command: list
-  /api/v1/sessions/{session_id}:
+  /api/v1/session/{session_id}:
     get:
       tags:
       - sessions
@@ -3906,7 +3926,7 @@ paths:
         type: string
         minLength: 1
         maxLength: 128
-  /api/v1/sessions/{session_id}/stop:
+  /api/v1/session/{session_id}/stop:
     post:
       tags:
       - sessions
@@ -3955,7 +3975,7 @@ paths:
         type: string
         minLength: 1
         maxLength: 128
-  /api/v1/sessions/{session_id}/observations/:
+  /api/v1/session/{session_id}/observation/:
     get:
       tags:
       - sessions
@@ -4006,7 +4026,7 @@ paths:
         type: string
         minLength: 1
         maxLength: 128
-  /api/v1/sessions/{session_id}/stream:
+  /api/v1/session/{session_id}/stream:
     get:
       tags:
       - sessions
@@ -4060,7 +4080,7 @@ paths:
         type: string
         minLength: 1
         maxLength: 128
-  /api/v1/sessions/{session_id}/preview:
+  /api/v1/session/{session_id}/preview:
     get:
       tags:
       - sessions
@@ -4164,7 +4184,7 @@ paths:
         type: string
         minLength: 1
         maxLength: 128
-  /api/v1/jobs/:
+  /api/v1/job/:
     post:
       tags:
       - jobs
@@ -4266,7 +4286,7 @@ paths:
       x-opal-cli:
         group: jobs
         command: list
-  /api/v1/jobs/{job_id}:
+  /api/v1/job/{job_id}:
     get:
       tags:
       - jobs
@@ -4315,7 +4335,7 @@ paths:
         type: string
         minLength: 1
         maxLength: 128
-  /api/v1/jobs/{job_id}/cancel:
+  /api/v1/job/{job_id}/cancel:
     post:
       tags:
       - jobs
@@ -4364,7 +4384,7 @@ paths:
         type: string
         minLength: 1
         maxLength: 128
-  /api/v1/observations/:
+  /api/v1/observation/:
     get:
       tags:
       - observations
@@ -4450,7 +4470,7 @@ paths:
       x-opal-cli:
         group: observations
         command: list
-  /api/v1/observations/{observation_id}:
+  /api/v1/observation/{observation_id}:
     get:
       tags:
       - observations
@@ -4511,12 +4531,6 @@ paths:
       - *id032
       - *id033
       - *id034
-      - name: Content-Type
-        in: header
-        required: true
-        schema:
-          type: string
-        description: Required supported media MIME type e.g. video/mp4, image/jpeg.
       responses:
         '401':
           $ref: ./shared/opal_kernel.yaml#/components/responses/Unauthorized
@@ -4550,6 +4564,18 @@ paths:
       requestBody:
         required: true
         content:
+          video/mp4:
+            schema:
+              type: string
+              format: binary
+          image/jpeg:
+            schema:
+              type: string
+              format: binary
+          image/png:
+            schema:
+              type: string
+              format: binary
           application/octet-stream:
             schema:
               type: string
@@ -4684,7 +4710,7 @@ paths:
         type: string
         minLength: 1
         maxLength: 128
-  /api/v1/sources/{source_id}/frame:
+  /api/v1/source/{source_id}/frame:
     get:
       tags:
       - captures
@@ -4767,7 +4793,7 @@ paths:
         type: string
         minLength: 1
         maxLength: 128
-  /api/v1/sources/{source_id}/captures/:
+  /api/v1/source/{source_id}/capture/:
     post:
       tags:
       - captures
@@ -4837,7 +4863,7 @@ paths:
         type: string
         minLength: 1
         maxLength: 128
-  /api/v1/captures/:
+  /api/v1/capture/:
     get:
       tags:
       - captures
@@ -4880,7 +4906,7 @@ paths:
       x-opal-cli:
         group: captures
         command: list
-  /api/v1/captures/{capture_id}:
+  /api/v1/capture/{capture_id}:
     get:
       tags:
       - captures
@@ -4965,7 +4991,7 @@ paths:
         type: string
         minLength: 1
         maxLength: 128
-  /api/v1/captures/{capture_id}/content:
+  /api/v1/capture/{capture_id}/content:
     get:
       tags:
       - captures
@@ -5015,7 +5041,7 @@ paths:
         type: string
         minLength: 1
         maxLength: 128
-  /api/v1/artifacts/:
+  /api/v1/artifact/:
     get:
       tags:
       - artifacts
@@ -5058,7 +5084,7 @@ paths:
       x-opal-cli:
         group: artifacts
         command: list
-  /api/v1/artifacts/{artifact_id}:
+  /api/v1/artifact/{artifact_id}:
     get:
       tags:
       - artifacts
@@ -5143,7 +5169,7 @@ paths:
         type: string
         minLength: 1
         maxLength: 128
-  /api/v1/artifacts/{artifact_id}/content:
+  /api/v1/artifact/{artifact_id}/content:
     get:
       tags:
       - artifacts
@@ -5213,7 +5239,7 @@ paths:
         type: string
         minLength: 1
         maxLength: 128
-  /api/v1/settings/:
+  /api/v1/setting/:
     $ref: ./shared/opal_kernel.yaml#/components/pathItems/settings_collection
     x-opal-cli:
       get:
@@ -5222,7 +5248,7 @@ paths:
       patch:
         group: settings
         command: patch
-  /api/v1/settings/{key}:
+  /api/v1/setting/{key}:
     $ref: ./shared/opal_kernel.yaml#/components/pathItems/settings_key
     x-opal-cli:
       get:
@@ -5258,6 +5284,18 @@ paths:
       get:
         group: health
         command: show
+  /api/v1/info/:
+    $ref: './shared/opal_kernel.yaml#/components/pathItems/info'
+    x-opal-cli:
+      get:
+        group: info
+        command: show
+  /api/v1/info/ping:
+    $ref: './shared/opal_kernel.yaml#/components/pathItems/info_ping'
+    x-opal-cli:
+      get:
+        group: info
+        command: ping
   /api/v1/health/live:
     $ref: ./shared/opal_kernel.yaml#/components/pathItems/health_live
     x-opal-cli:
@@ -5352,7 +5390,7 @@ paths:
       x-opal-cli:
         group: events
         command: status
-  /api/v1/recordings/:
+  /api/v1/recording/:
     post:
       tags:
       - artifacts
@@ -5444,7 +5482,7 @@ paths:
       x-opal-cli:
         group: recordings
         command: list
-  /api/v1/recordings/{recording_id}:
+  /api/v1/recording/{recording_id}:
     get:
       tags:
       - artifacts
@@ -5493,7 +5531,7 @@ paths:
         type: string
         minLength: 1
         maxLength: 128
-  /api/v1/recordings/{recording_id}/stop:
+  /api/v1/recording/{recording_id}/stop:
     post:
       tags:
       - artifacts
@@ -5542,7 +5580,7 @@ paths:
         type: string
         minLength: 1
         maxLength: 128
-  /api/v1/sources/{source_id}/stream:
+  /api/v1/source/{source_id}/stream:
     parameters:
     - name: source_id
       in: path
@@ -5667,6 +5705,294 @@ paths:
           $ref: ./shared/opal_kernel.yaml#/components/responses/ServiceUnavailable
         '409':
           $ref: ./shared/opal_kernel.yaml#/components/responses/Conflict
+  /api/v1/persona/:
+    get:
+      tags:
+      - persona
+      summary: List Personas
+      description: List registered OPAL persona. A persona is a named observer identity for analysis context; may bind an OPAL Say voice identifier for spoken announcements. Return the complete bounded configuration collection; pagination is not supported.
+      operationId: opal_persona_list
+      parameters:
+      - name: enabled
+        in: query
+        required: false
+        description: If supplied, filter by enabled state.
+        schema:
+          type: boolean
+      responses:
+        '401':
+          $ref: './shared/opal_kernel.yaml#/components/responses/Unauthorized'
+        '403':
+          $ref: './shared/opal_kernel.yaml#/components/responses/Forbidden'
+        '200':
+          description: Registered persona.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/PersonaRead'
+          headers:
+            X-Opal-Session-Id:
+              $ref: './shared/opal_kernel.yaml#/components/headers/OpalSessionIdHeader'
+            X-Opal-Transaction-Id:
+              $ref: './shared/opal_kernel.yaml#/components/headers/OpalTransactionIdHeader'
+            X-Opal-Request-Id:
+              $ref: './shared/opal_kernel.yaml#/components/headers/OpalRequestIdHeader'
+            X-Opal-Causation-Id:
+              $ref: './shared/opal_kernel.yaml#/components/headers/OpalCausationIdHeader'
+            ETag:
+              description: Strong revision of logical portable configuration
+              schema:
+                type: string
+
+        '422':
+          $ref: './shared/opal_kernel.yaml#/components/responses/UnprocessableEntity'
+      x-opal-cli:
+        group: persona
+        command: list
+
+    post:
+      tags:
+      - persona
+      summary: Create Persona
+      description: Register a persona. If `voice_id` is supplied, it names an OPAL Say voice identifier; this service does not validate voice existence locally. Strong If-Match is mandatory.
+      operationId: opal_persona_create
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PersonaCreate'
+      responses:
+        '401':
+          $ref: './shared/opal_kernel.yaml#/components/responses/Unauthorized'
+        '403':
+          $ref: './shared/opal_kernel.yaml#/components/responses/Forbidden'
+        '201':
+          description: Persona created.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PersonaRead'
+          headers:
+            X-Opal-Session-Id:
+              $ref: './shared/opal_kernel.yaml#/components/headers/OpalSessionIdHeader'
+            X-Opal-Transaction-Id:
+              $ref: './shared/opal_kernel.yaml#/components/headers/OpalTransactionIdHeader'
+            X-Opal-Request-Id:
+              $ref: './shared/opal_kernel.yaml#/components/headers/OpalRequestIdHeader'
+            X-Opal-Causation-Id:
+              $ref: './shared/opal_kernel.yaml#/components/headers/OpalCausationIdHeader'
+            Location:
+              description: Resource URL
+              schema:
+                type: string
+        '409':
+          description: The requested `persona_id` is already registered.
+          content:
+            application/json:
+              schema:
+                $ref: './shared/opal_kernel.yaml#/components/schemas/OpalError'
+          headers:
+            X-Opal-Session-Id:
+              $ref: './shared/opal_kernel.yaml#/components/headers/OpalSessionIdHeader'
+            X-Opal-Transaction-Id:
+              $ref: './shared/opal_kernel.yaml#/components/headers/OpalTransactionIdHeader'
+            X-Opal-Request-Id:
+              $ref: './shared/opal_kernel.yaml#/components/headers/OpalRequestIdHeader'
+            X-Opal-Causation-Id:
+              $ref: './shared/opal_kernel.yaml#/components/headers/OpalCausationIdHeader'
+
+        '422':
+          $ref: './shared/opal_kernel.yaml#/components/responses/UnprocessableEntity'
+        '412':
+          $ref: './shared/opal_kernel.yaml#/components/responses/PreconditionFailed'
+        '428':
+          $ref: './shared/opal_kernel.yaml#/components/responses/PreconditionRequired'
+      parameters:
+      - $ref: './shared/opal_kernel.yaml#/components/parameters/IfMatch'
+      x-opal-cli:
+        group: persona
+        command: add
+    parameters:
+    - $ref: './shared/opal_kernel.yaml#/components/parameters/OpalSessionIdParameter'
+    - $ref: './shared/opal_kernel.yaml#/components/parameters/OpalTransactionIdParameter'
+    - $ref: './shared/opal_kernel.yaml#/components/parameters/OpalRequestIdParameter'
+    - $ref: './shared/opal_kernel.yaml#/components/parameters/OpalCausationIdParameter'
+
+  /api/v1/persona/{persona_id}/validate:
+    post:
+      summary: Validate Persona
+      description: Check that a persona is registered and enabled and that its declared bindings can be resolved.
+      operationId: opal_persona_validate
+      tags:
+      - persona
+      responses:
+        '401':
+          $ref: './shared/opal_kernel.yaml#/components/responses/Unauthorized'
+        '403':
+          $ref: './shared/opal_kernel.yaml#/components/responses/Forbidden'
+        '404':
+          $ref: './shared/opal_kernel.yaml#/components/responses/NotFound'
+        '200':
+          description: Persona validation report.
+          content:
+            application/json:
+              schema:
+                $ref: './shared/opal_kernel.yaml#/components/schemas/OpalValidationReport'
+          headers:
+            X-Opal-Session-Id:
+              $ref: './shared/opal_kernel.yaml#/components/headers/OpalSessionIdHeader'
+            X-Opal-Transaction-Id:
+              $ref: './shared/opal_kernel.yaml#/components/headers/OpalTransactionIdHeader'
+            X-Opal-Request-Id:
+              $ref: './shared/opal_kernel.yaml#/components/headers/OpalRequestIdHeader'
+            X-Opal-Causation-Id:
+              $ref: './shared/opal_kernel.yaml#/components/headers/OpalCausationIdHeader'
+
+        '422':
+          $ref: './shared/opal_kernel.yaml#/components/responses/UnprocessableEntity'
+      x-opal-cli:
+        group: persona
+        command: validate
+    parameters:
+    - $ref: '#/components/parameters/PersonaId'
+    - $ref: './shared/opal_kernel.yaml#/components/parameters/OpalSessionIdParameter'
+    - $ref: './shared/opal_kernel.yaml#/components/parameters/OpalTransactionIdParameter'
+    - $ref: './shared/opal_kernel.yaml#/components/parameters/OpalRequestIdParameter'
+    - $ref: './shared/opal_kernel.yaml#/components/parameters/OpalCausationIdParameter'
+
+  /api/v1/persona/{persona_id}:
+    parameters:
+    - $ref: '#/components/parameters/PersonaId'
+    - $ref: './shared/opal_kernel.yaml#/components/parameters/OpalSessionIdParameter'
+    - $ref: './shared/opal_kernel.yaml#/components/parameters/OpalTransactionIdParameter'
+    - $ref: './shared/opal_kernel.yaml#/components/parameters/OpalRequestIdParameter'
+    - $ref: './shared/opal_kernel.yaml#/components/parameters/OpalCausationIdParameter'
+    get:
+      tags:
+      - persona
+      summary: Get Persona
+      description: Return one registered persona.
+      operationId: opal_persona_get
+      responses:
+        '401':
+          $ref: './shared/opal_kernel.yaml#/components/responses/Unauthorized'
+        '403':
+          $ref: './shared/opal_kernel.yaml#/components/responses/Forbidden'
+        '200':
+          description: Persona.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PersonaRead'
+          headers:
+            X-Opal-Session-Id:
+              $ref: './shared/opal_kernel.yaml#/components/headers/OpalSessionIdHeader'
+            X-Opal-Transaction-Id:
+              $ref: './shared/opal_kernel.yaml#/components/headers/OpalTransactionIdHeader'
+            X-Opal-Request-Id:
+              $ref: './shared/opal_kernel.yaml#/components/headers/OpalRequestIdHeader'
+            X-Opal-Causation-Id:
+              $ref: './shared/opal_kernel.yaml#/components/headers/OpalCausationIdHeader'
+            ETag:
+              description: Strong revision of logical portable configuration
+              schema:
+                type: string
+
+        '404':
+          $ref: './shared/opal_kernel.yaml#/components/responses/NotFound'
+        '422':
+          $ref: './shared/opal_kernel.yaml#/components/responses/UnprocessableEntity'
+      x-opal-cli:
+        group: persona
+        command: show
+
+    patch:
+      tags:
+      - persona
+      summary: Update Persona
+      description: Partially update a persona.
+      operationId: opal_persona_patch
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PersonaUpdate'
+      responses:
+        '401':
+          $ref: './shared/opal_kernel.yaml#/components/responses/Unauthorized'
+        '403':
+          $ref: './shared/opal_kernel.yaml#/components/responses/Forbidden'
+        '200':
+          description: Updated persona.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PersonaRead'
+          headers:
+            X-Opal-Session-Id:
+              $ref: './shared/opal_kernel.yaml#/components/headers/OpalSessionIdHeader'
+            X-Opal-Transaction-Id:
+              $ref: './shared/opal_kernel.yaml#/components/headers/OpalTransactionIdHeader'
+            X-Opal-Request-Id:
+              $ref: './shared/opal_kernel.yaml#/components/headers/OpalRequestIdHeader'
+            X-Opal-Causation-Id:
+              $ref: './shared/opal_kernel.yaml#/components/headers/OpalCausationIdHeader'
+
+        '404':
+          $ref: './shared/opal_kernel.yaml#/components/responses/NotFound'
+        '422':
+          $ref: './shared/opal_kernel.yaml#/components/responses/UnprocessableEntity'
+        '412':
+          $ref: './shared/opal_kernel.yaml#/components/responses/PreconditionFailed'
+        '428':
+          $ref: './shared/opal_kernel.yaml#/components/responses/PreconditionRequired'
+      parameters:
+      - $ref: './shared/opal_kernel.yaml#/components/parameters/IfMatch'
+      x-opal-cli:
+        group: persona
+        command: update
+
+    delete:
+      tags:
+      - persona
+      summary: Delete Persona
+      description: Remove a persona registration. Strong If-Match is mandatory.
+      operationId: opal_persona_delete
+      responses:
+        '401':
+          $ref: './shared/opal_kernel.yaml#/components/responses/Unauthorized'
+        '403':
+          $ref: './shared/opal_kernel.yaml#/components/responses/Forbidden'
+        '204':
+          description: Persona removed.
+          headers:
+            X-Opal-Session-Id:
+              $ref: './shared/opal_kernel.yaml#/components/headers/OpalSessionIdHeader'
+            X-Opal-Transaction-Id:
+              $ref: './shared/opal_kernel.yaml#/components/headers/OpalTransactionIdHeader'
+            X-Opal-Request-Id:
+              $ref: './shared/opal_kernel.yaml#/components/headers/OpalRequestIdHeader'
+            X-Opal-Causation-Id:
+              $ref: './shared/opal_kernel.yaml#/components/headers/OpalCausationIdHeader'
+
+        '404':
+          $ref: './shared/opal_kernel.yaml#/components/responses/NotFound'
+        '422':
+          $ref: './shared/opal_kernel.yaml#/components/responses/UnprocessableEntity'
+        '412':
+          $ref: './shared/opal_kernel.yaml#/components/responses/PreconditionFailed'
+        '428':
+          $ref: './shared/opal_kernel.yaml#/components/responses/PreconditionRequired'
+      parameters:
+      - $ref: './shared/opal_kernel.yaml#/components/parameters/IfMatch'
+      x-opal-cli:
+        group: persona
+        command: remove
+
 x-opal-filter-catalog:
   portable_filters:
     grayscale: No parameters

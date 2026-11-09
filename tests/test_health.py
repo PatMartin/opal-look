@@ -5,7 +5,7 @@ def test_service_info(client):
     assert body["name"] == "opal-look-svc"
     assert body["version"]
     assert body["api_version"] == "v1"
-    assert body["contract_version"] == "1.5.0"
+    assert body["contract_version"] == "1.6.0"
 
 
 def test_liveness_alias(client):

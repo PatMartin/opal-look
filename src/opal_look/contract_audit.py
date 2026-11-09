@@ -1,4 +1,4 @@
-"""Offline contract audit: pinned openapi/opal_look_v1.5.0.yaml (+ shared kernel) vs implemented routes.
+"""Offline contract audit: pinned openapi/opal_look_v1.6.0.yaml (+ shared kernel) vs implemented routes.
 
 Reads the pinned YAML contract and the live FastAPI application, then reports:
 
@@ -33,7 +33,7 @@ HTTP_METHODS = frozenset(
 API_PREFIX = "/api/v1"
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-DEFAULT_CONTRACT = REPO_ROOT / "openapi" / "opal_look_v1.5.0.yaml"
+DEFAULT_CONTRACT = REPO_ROOT / "openapi" / "opal_look_v1.6.0.yaml"
 
 
 @dataclass(frozen=True)
@@ -349,7 +349,7 @@ def format_text(report: AuditReport) -> str:
     if report.legacy_only:
         lines.append(
             f"LEGACY-ONLY ({len(report.legacy_only)}) -- implemented /api/v1 ops "
-            "absent from v1.5.0:"
+            "absent from v1.6.0:"
         )
         for m, p in report.legacy_only:
             lines.append(f"  {m:6} {p}")
@@ -384,10 +384,10 @@ def _build_app(data_dir: Path | None) -> Any:
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         prog="opal-look-audit",
-        description="Audit implemented routes against the pinned v1.5.0 contract.",
+        description="Audit implemented routes against the pinned v1.6.0 contract.",
     )
     parser.add_argument("--contract", type=Path, default=DEFAULT_CONTRACT,
-                        help="pinned OpenAPI YAML (default: openapi/opal_look_v1.5.0.yaml)")
+                        help="pinned OpenAPI YAML (default: openapi/opal_look_v1.6.0.yaml)")
     parser.add_argument("--strict", action="store_true",
                         help="exit 1 on missing/legacy routes or contract problems")
     parser.add_argument("--json", action="store_true", dest="as_json",

@@ -17,7 +17,7 @@ from ..precondition import check_if_match, require_if_match
 router = APIRouter()
 
 _SECTIONS = ("settings", "engines", "profiles", "models", "sources",
-             "pipelines", "zones", "rules", "monitors")
+             "pipelines", "zones", "rules", "monitors", "personas")
 
 
 def _report(issues: list[dict[str, Any]]) -> dict[str, Any]:

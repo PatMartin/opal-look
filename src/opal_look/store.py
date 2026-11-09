@@ -33,6 +33,7 @@ from .repositories import (
     SqliteSettingsRepository,
     SqliteSnapshotRepository,
     SqliteSourceRepository,
+    SqlitePersonaRepository,
     new_revision,
 )
 
@@ -98,6 +99,7 @@ class Store:
         self.results = SqliteResultRepository(self._conn)
         self.snapshots = SqliteSnapshotRepository(self._conn)
         self.sessions = SqliteSessionRepository(self._conn)
+        self.personas = SqlitePersonaRepository(self._conn)
 
     def _init_schema(self) -> None:
         self._conn.executescript(
@@ -327,6 +329,15 @@ class Store:
                 tracking_epoch INTEGER NOT NULL DEFAULT 0,
                 last_result_id TEXT,
                 error TEXT
+            );
+            CREATE TABLE IF NOT EXISTS personas (
+                persona_id TEXT PRIMARY KEY,
+                name TEXT NOT NULL,
+                description TEXT,
+                voice_id TEXT,
+                enabled INTEGER NOT NULL DEFAULT 1,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
             );
             CREATE TABLE IF NOT EXISTS idempotency_keys (
                 key TEXT PRIMARY KEY,

@@ -11,10 +11,12 @@ a `redacted_locator` marker is never imported as a real URI.
 from __future__ import annotations
 
 import json
+import re
 import sqlite3
 from typing import Any
 
 from .errors import ApiError
+from .schemas import IDENTIFIER_PATTERN
 from .settings import effective_settings
 from .sources import redact_locator
 from .timeutil import now_iso
@@ -123,6 +125,12 @@ def build_export(store) -> dict[str, Any]:
             for r in store.rules.list()
         ],
         "monitors": monitors,
+        "personas": [
+            {"persona_id": p["persona_id"], "name": p["name"],
+             "description": p["description"], "voice_id": p["voice_id"],
+             "enabled": bool(p["enabled"])}
+            for p in store.personas.list()
+        ],
     }
 
 
@@ -208,6 +216,20 @@ def validate_configuration(store, config: dict[str, Any],
                 and not any(p.get("id") == pid for p in config.get("profiles", [])):
             issues.append(_issue(f"monitors[{i}].profile_id",
                                  f"profile {pid!r} not in configuration"))
+    for i, per in enumerate(config.get("personas", [])):
+        pid = per.get("persona_id") or per.get("id")
+        if not pid:
+            issues.append(_issue(f"personas[{i}].persona_id",
+                                 "persona_id is required"))
+        elif not re.match(IDENTIFIER_PATTERN, str(pid)):
+            issues.append(_issue(f"personas[{i}].persona_id",
+                                 f"invalid persona identifier {pid!r}"))
+        if not per.get("name"):
+            issues.append(_issue(f"personas[{i}].name", "name is required"))
+        vid = per.get("voice_id")
+        if vid is not None and not str(vid).strip():
+            issues.append(_issue(f"personas[{i}].voice_id",
+                                 "voice_id must be a non-empty identifier"))
     return issues
 
 
@@ -263,6 +285,7 @@ def apply_import(store, request, config: dict[str, Any],
         store.models.delete(row["model_id"])
     for row in store.profiles.list():
         store.profiles.delete(row["profile_id"])
+    store.personas.delete_all()
 
     for e in config.get("engines", []):
         eid = e.get("engine_id") or e.get("id")
@@ -325,6 +348,14 @@ def apply_import(store, request, config: dict[str, Any],
             store.profiles.insert_kernel(
                 {"name": data.pop("name", "profile"),
                  "is_active": bool(p.get("is_active")), "data": data})
+    for per in config.get("personas", []):
+        store.personas.insert({
+            "persona_id": per.get("persona_id") or per.get("id"),
+            "name": per.get("name", per.get("persona_id") or per.get("id")),
+            "description": per.get("description"),
+            "voice_id": per.get("voice_id"),
+            "enabled": bool(per.get("enabled", True)),
+        })
     for mon in config.get("monitors", []):
         store.monitors.insert({
             "monitor_id": mon["id"], "name": mon.get("name", mon["id"]),

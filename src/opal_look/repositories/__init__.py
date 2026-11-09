@@ -19,6 +19,7 @@ from .sessions import SessionRepository, SqliteSessionRepository
 from .settings import SettingsRepository, SqliteSettingsRepository
 from .snapshots import SnapshotRepository, SqliteSnapshotRepository
 from .sources import SourceRepository, SqliteSourceRepository
+from .personas import PersonaRepository, SqlitePersonaRepository
 
 __all__ = [
     "EngineRepository",
@@ -63,5 +64,7 @@ __all__ = [
     "SqliteSessionRepository",
     "SqliteSnapshotRepository",
     "SqliteSourceRepository",
+    "PersonaRepository",
+    "SqlitePersonaRepository",
     "new_revision",
 ]

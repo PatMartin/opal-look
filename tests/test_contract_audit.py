@@ -53,7 +53,6 @@ def test_contract_has_no_structural_problems():
     assert inv.problems == [], "; ".join(inv.problems)
 
 
-@pytest.mark.xfail(reason="v1.6 migration in progress; un-xfail at certification")
 def test_audit_classifies_routes_honestly(app):
     report = contract_audit.audit(app, CONTRACT)
     # Nothing is silently treated as passing: every contract operation is
@@ -81,7 +80,6 @@ def test_report_accounts_for_every_implemented_route(app):
     assert impl == classified
 
 
-@pytest.mark.xfail(reason="v1.6 migration in progress; un-xfail at certification")
 def test_main_is_nonblocking_by_default_and_strict_on_gaps(app, capsys):
     report = contract_audit.audit(app, CONTRACT)
     expected = 1 if (report.missing or report.legacy_only
@@ -95,7 +93,6 @@ def test_main_is_nonblocking_by_default_and_strict_on_gaps(app, capsys):
     assert "CONFORMANT" in out
 
 
-@pytest.mark.xfail(reason="v1.6 migration in progress; un-xfail at certification")
 def test_main_json_output_is_machine_readable(capsys):
     rc = contract_audit.main(["--contract", str(CONTRACT), "--json"])
     assert rc == 0

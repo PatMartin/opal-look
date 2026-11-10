@@ -31,11 +31,6 @@ def app(tmp_path):
 # steps 2-4 and the retired configuration/* + session observation routes come
 # down in steps 2/5. These sets shrink to empty at the certification step.
 EXPECTED_MISSING = {
-    ("GET", "/api/v1/backup/list"),
-    ("POST", "/api/v1/backup/create"),
-    ("GET", "/api/v1/backup/download/{filename}"),
-    ("POST", "/api/v1/backup/restore/{filename}"),
-    ("DELETE", "/api/v1/backup/{filename}"),
     ("POST", "/api/v1/service/start"),
     ("POST", "/api/v1/service/stop"),
     ("GET", "/api/v1/service/log"),

@@ -1,4 +1,11 @@
-"""ConfigExport export/import/validate + server-managed backup files."""
+"""Server-managed backup archives under <data_dir>/backups/.
+
+A backup is a single JSON file holding the OpalConfigExport bundle —
+portable logical configuration only (redacted locators, no secrets, no
+runtime state). Filenames are generated server-side and validated against
+the kernel BackupFilename rules (no separators, no traversal) plus an
+in-directory containment check.
+"""
 
 from __future__ import annotations
 
@@ -8,180 +15,11 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from .engines import ENGINE_REGISTRY
 from .errors import ApiError
-from .schemas import AnalysisSettings
-from .settings import ServiceSettings, effective_settings
-from .sources import check_locator, redact_locator
 from .store import Store
 from .timeutil import iso, now_iso
 
-_FILENAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
-
-
-def export_config(store: Store) -> dict[str, Any]:
-    return {
-        "version": "1.1.0",
-        "exported_at": now_iso(),
-        "engines": [
-            {"engine_id": r["engine_id"], "enabled": bool(r["enabled"]),
-             "config": json.loads(r["config"])}
-            for r in store.engines.list()
-        ],
-        "models": [
-            {"model_id": r["model_id"], "name": r["name"], "engine_id": r["engine_id"],
-             "resource": json.loads(r["resource"]), "enabled": bool(r["enabled"])}
-            for r in store.models.list()
-        ],
-        "sources": [
-            {"source_id": r["source_id"], "name": r["name"], "type": r["type"],
-             "redacted_locator": redact_locator(r["type"], r["locator"]),
-             "credential_ref": r["credential_ref"],
-             "enabled": bool(r["enabled"]),
-             "source_options": json.loads(r["source_options"])}
-            for r in store.sources.list()
-        ],
-        "profiles": [
-            {"profile_id": r["profile_id"], "name": r["name"], "model_id": r["model_id"],
-             "task": r["task"], "settings": json.loads(r["settings"]),
-             "active": bool(r["active"])}
-            for r in store.profiles.list()
-        ],
-        "settings": effective_settings(store).model_dump(),
-    }
-
-
-def validate_config(store: Store, payload: dict[str, Any]) -> tuple[list[str], list[str]]:
-    """Semantic (non-structural) validation of a ConfigExport payload."""
-    errors: list[str] = []
-    warnings: list[str] = []
-    try:
-        ServiceSettings.model_validate(payload.get("settings") or {})
-    except Exception as exc:
-        errors.append(f"settings: {exc}")
-
-    for e in payload.get("engines") or []:
-        eid = e.get("engine_id")
-        adapter = ENGINE_REGISTRY.get(eid) if eid else None
-        if adapter is None:
-            errors.append(f"engine {eid!r} is not installed")
-        else:
-            errors.extend(adapter.validate_engine_options(e.get("config") or {}))
-
-    model_ids: set[str] = set()
-    model_tasks: dict[str, list[str]] = {}
-    for m in payload.get("models") or []:
-        # Legacy export shape: {model_id, name, engine_id, resource, enabled}.
-        mc = m if isinstance(m, dict) and {"model_id", "name", "engine_id", "resource"} <= set(m) else None
-        if mc is None:
-            errors.append("model: missing required fields (model_id/name/engine_id/resource)")
-            continue
-        if mc["model_id"] in model_ids:
-            errors.append(f"duplicate model_id {mc['model_id']!r}")
-        model_ids.add(mc["model_id"])
-        adapter = ENGINE_REGISTRY.get(mc["engine_id"])
-        if adapter is None:
-            errors.append(f"model {mc['model_id']!r}: engine {mc['engine_id']!r} not installed")
-        else:
-            e2, _ = adapter.validate_model(mc["resource"])
-            errors.extend(f"model {mc['model_id']!r}: {x}" for x in e2)
-            model_tasks[mc["model_id"]] = adapter.describe_model(mc["resource"])["tasks"]
-
-    source_ids: set[str] = set()
-    for s in payload.get("sources") or []:
-        # Legacy export shape: {source_id, name, type, locator, ...}; the
-        # v1.5 shape {id, kind} is also accepted for forward-compat.
-        if isinstance(s, dict) and {"id", "kind", "locator"} <= set(s):
-            sc = {"source_id": s["id"], "name": s.get("name", s["id"]),
-                  "type": s["kind"], "locator": s.get("locator") or s.get("redacted_locator", ""),
-                  "credential_ref": s.get("secret_ref"),
-                  "source_options": s.get("options") or {}}
-        elif isinstance(s, dict) and {"source_id", "type", "locator"} <= set(s):
-            sc = dict(s)
-        else:
-            errors.append("source: missing required fields")
-            continue
-        if sc["source_id"] in source_ids:
-            errors.append(f"duplicate source_id {sc['source_id']!r}")
-        source_ids.add(sc["source_id"])
-        errors.extend(f"source {sc['source_id']!r}: {x}"
-                      for x in check_locator(sc["type"], sc["locator"]))
-        if sc["type"] == "media" and store.media.get(sc["locator"]) is None:
-            warnings.append(f"source {sc['source_id']!r}: media {sc['locator']!r} unavailable")
-
-    profiles = payload.get("profiles") or []
-    pids, actives = set(), 0
-    for p in profiles:
-        pid = p.get("profile_id")
-        if pid in pids:
-            errors.append(f"duplicate profile_id {pid}")
-        pids.add(pid)
-        if p.get("active"):
-            actives += 1
-        mid = p.get("model_id")
-        if mid is not None and mid not in model_ids:
-            # Fall back to an existing registered model for partial restores.
-            row = store.models.get(mid)
-            if row is not None:
-                adapter = ENGINE_REGISTRY.get(row["engine_id"])
-                tasks = adapter.describe_model(json.loads(row["resource"]))["tasks"]
-            else:
-                errors.append(f"profile {pid}: unknown model {mid!r}")
-                tasks = []
-        else:
-            tasks = model_tasks.get(mid, [])
-        if tasks and p.get("task") is not None and p["task"] not in tasks:
-            errors.append(f"profile {pid}: task {p['task']!r} incompatible")
-        try:
-            AnalysisSettings.model_validate(p.get("settings") or {})
-        except Exception as exc:
-            errors.append(f"profile {pid}: settings: {exc}")
-    if profiles and actives != 1:
-        errors.append("exactly one profile must be active")
-    return errors, warnings
-
-
-def import_config(store: Store, payload: dict[str, Any]) -> list[str]:
-    """Validate then atomically replace configuration. Raises 422/409."""
-    if payload.get("version") not in ("1.0.0", "1.1.0"):
-        raise ApiError(422, "Unsupported backup version.")
-    if store.sessions.count_nonterminal():
-        raise ApiError(409, "Import rejected while sessions are nonterminal.")
-    errors, warnings = validate_config(store, payload)
-    if errors:
-        raise ApiError(422, "Backup is structurally incompatible.", details=errors)
-    with store.write_txn():
-        store.profiles.delete_all()
-        store.models.delete_all()
-        store.sources.delete_all()
-        for e in payload.get("engines") or []:
-            if store.engines.get(e["engine_id"]):
-                store.engines.update(
-                    e["engine_id"],
-                    {"enabled": int(bool(e.get("enabled", True))),
-                     "config": json.dumps(e.get("config") or {})})
-        for m in payload.get("models") or []:
-            store.models.insert(m["model_id"], m["name"], m["engine_id"],
-                                m["resource"], bool(m.get("enabled", True)))
-        for s in payload.get("sources") or []:
-            store.sources.insert({
-                "source_id": s.get("source_id") or s.get("id"),
-                "name": s["name"], "type": s.get("type") or s.get("kind"),
-                "locator": s.get("locator") or s.get("redacted_locator"),
-                "credential_ref": s.get("credential_ref") or s.get("secret_ref"),
-                "enabled": int(bool(s.get("enabled", True))),
-                "source_options": s.get("source_options") or s.get("options") or {},
-                "zones": s.get("zones") or []})
-        for p in payload.get("profiles") or []:
-            store.profiles.insert_explicit({
-                "profile_id": p["profile_id"], "name": p["name"],
-                "model_id": p["model_id"], "task": p["task"],
-                "settings": json.dumps(p.get("settings") or {}),
-                "active": bool(p.get("active"))})
-        svc = ServiceSettings.model_validate(payload.get("settings") or {})
-        for key, value in svc.model_dump().items():
-            store.settings.set(key, value)
-    return warnings
+_KERNEL_NAME_RE = re.compile(r"^[^/\\]{1,255}$")
 
 
 def backup_dir(store: Store) -> Path:
@@ -191,14 +29,66 @@ def backup_dir(store: Store) -> Path:
 
 
 def check_backup_filename(name: str) -> None:
-    if not _FILENAME_RE.match(name):
+    """Kernel BackupFilename: 1..255 chars, no separators or traversal."""
+    if not _KERNEL_NAME_RE.match(name) or name in (".", "..") \
+            or ".." in Path(name).parts:
         raise ApiError(422, "Invalid backup filename.")
 
 
+def backup_path(store: Store, filename: str) -> Path:
+    check_backup_filename(filename)
+    path = (backup_dir(store) / filename).resolve()
+    if path.parent != backup_dir(store).resolve():
+        raise ApiError(422, "Invalid backup filename.")
+    if not path.is_file():
+        raise ApiError(404, f"Backup {filename!r} not found.")
+    return path
+
+
 def backup_read(path: Path) -> dict[str, Any]:
+    """Kernel OpalBackupInfo."""
     stat = path.stat()
     return {
         "filename": path.name,
         "created_at": iso(datetime.fromtimestamp(stat.st_mtime, tz=timezone.utc)),
         "size_bytes": stat.st_size,
     }
+
+
+def list_backups(store: Store) -> list[dict[str, Any]]:
+    rows = [backup_read(p) for p in backup_dir(store).glob("*.json")]
+    rows.sort(key=lambda b: (b["created_at"], b["filename"]), reverse=True)
+    return rows
+
+
+def create_backup(store: Store) -> str:
+    """Write opal-look-<UTCts>.json holding the export bundle; return name."""
+    from .configuration import build_export
+
+    d = backup_dir(store)
+    stamp = now_iso().replace(":", "").replace("-", "").split(".")[0]
+    name = f"opal-look-{stamp}Z.json"
+    path = d / name
+    for seq in range(2, 100):
+        if not path.exists():
+            break
+        name = f"opal-look-{stamp}Z-{seq}.json"
+        path = d / name
+    bundle = build_export(store)
+    tmp = path.with_suffix(".json.tmp")
+    tmp.write_text(json.dumps(bundle, indent=2), encoding="utf-8")
+    tmp.replace(path)
+    return name
+
+
+def read_backup(store: Store, filename: str) -> dict[str, Any]:
+    """Parse a managed backup into a configuration bundle."""
+    path = backup_path(store, filename)
+    try:
+        bundle = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise ApiError(422, f"Backup {filename!r} is not a readable "
+                            f"configuration bundle: {exc}")
+    if not isinstance(bundle, dict):
+        raise ApiError(422, f"Backup {filename!r} is not a JSON object.")
+    return bundle

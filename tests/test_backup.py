@@ -185,3 +185,82 @@ def test_import_null_body_uses_config_file_set(client, tmp_path, monkeypatch):
                                 "Content-Type": "application/json"})
     assert resp.status_code == 200
     assert resp.json()["status"] == "imported"
+
+
+# -- service-managed backup files ----------------------------------------------
+
+
+def test_backup_create_list_download_delete(client):
+    _setup(client)
+    resp = client.post("/api/v1/backup/create")
+    assert resp.status_code == 201
+    body = resp.json()
+    assert body["filename"].startswith("opal-look-")
+    assert body["filename"].endswith(".json")
+    assert resp.headers["location"] == \
+        f"/api/v1/backup/download/{body['filename']}"
+
+    listed = client.get("/api/v1/backup/list").json()
+    assert listed[0]["filename"] == body["filename"]
+    assert listed[0]["size_bytes"] > 0
+    assert listed[0]["created_at"]
+
+    dl = client.get(resp.headers["location"])
+    assert dl.status_code == 200
+    assert "octet-stream" in dl.headers["content-type"]
+    import json as _j
+    assert _j.loads(dl.content)["format_version"] == "1.0.0"
+
+    assert client.delete(f"/api/v1/backup/{body['filename']}").status_code == 204
+    assert client.get(
+        f"/api/v1/backup/download/{body['filename']}").status_code == 404
+
+
+def test_backup_filename_guards(client):
+    # '..' never reaches the app (URL normalization) — traversal is guarded
+    # at the validator level, tested below.
+    bad = "x" * 300
+    assert client.get(f"/api/v1/backup/download/{bad}").status_code == 422
+    assert client.delete(f"/api/v1/backup/{bad}").status_code == 422
+    assert client.get("/api/v1/backup/download/nope.json").status_code == 404
+    assert client.delete("/api/v1/backup/nope.json").status_code == 404
+
+
+def test_backup_filename_unit_guards():
+    import pytest
+    from opal_look.backup import check_backup_filename
+    from opal_look.errors import ApiError
+    for bad in ("..", ".", "a/b", "a\\b", "", "x" * 300):
+        with pytest.raises(ApiError) as exc:
+            check_backup_filename(bad)
+        assert exc.value.status_code == 422
+    check_backup_filename("opal-look-20261110T120000Z.json")
+
+
+def test_backup_restore_under_if_match(client):
+    _setup(client)
+    name = client.post("/api/v1/backup/create").json()["filename"]
+    # mutate config after the snapshot: drop the zone-less rule target
+    client.delete("/api/v1/monitor/m", headers={"If-Match": "*"})
+    assert client.get("/api/v1/monitor/m").status_code == 404
+
+    resp = client.post(f"/api/v1/backup/restore/{name}")
+    assert resp.status_code == 428  # If-Match is mandatory
+    resp = client.post(f"/api/v1/backup/restore/{name}",
+                       headers={"If-Match": '"stale"'})
+    assert resp.status_code == 412
+    resp = client.post(f"/api/v1/backup/restore/{name}",
+                       headers={"If-Match": "*"})
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["status"] == "imported"
+    assert body["backup_filename"] == name
+    # monitor came back; source locator was reused from the existing row
+    assert client.get("/api/v1/monitor/m").status_code == 200
+    assert client.get("/api/v1/source/cam").status_code == 200
+
+
+def test_backup_restore_missing_404(client):
+    resp = client.post("/api/v1/backup/restore/nope.json",
+                       headers={"If-Match": "*"})
+    assert resp.status_code == 404

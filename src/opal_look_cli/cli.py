@@ -342,12 +342,12 @@ config = typer.Typer(help="configuration", epilog=(
 
 @config.command("export")
 def _cfg_export():
-    _emit(unwrap(_client().get("/api/v1/configuration/export")))
+    _emit(unwrap(_client().get("/api/v1/backup/export")))
 
 
 @config.command("validate")
 def _cfg_validate(file: Path = typer.Option(..., "--file")):
-    _emit(unwrap(_client().request("POST", "/api/v1/configuration/validate",
+    _emit(unwrap(_client().request("POST", "/api/v1/backup/validate",
                                    json=json.loads(Path(file).read_text()))))
 
 
@@ -357,7 +357,7 @@ def _cfg_import(file: Path = typer.Option(..., "--file"),
     body = {"configuration": json.loads(Path(file).read_text())}
     if bindings:
         body["source_bindings"] = json.loads(Path(bindings).read_text())
-    _emit(unwrap(_client().mutate("POST", "/api/v1/configuration/import",
+    _emit(unwrap(_client().mutate("POST", "/api/v1/backup/import",
                                   json=body)))
 
 

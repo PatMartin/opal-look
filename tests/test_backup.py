@@ -1,4 +1,4 @@
-"""v1.5 configuration export/validate/import: atomic replace, rebind."""
+"""v1.7.1 backup export/validate/import: atomic replace, rebind."""
 
 from __future__ import annotations
 
@@ -19,7 +19,7 @@ def _setup(client):
 
 def test_export_redacts_and_excludes_runtime(client):
     _setup(client)
-    resp = client.get("/api/v1/configuration/export")
+    resp = client.get("/api/v1/backup/export")
     assert resp.status_code == 200
     cfg = resp.json()
     assert set(cfg) >= {"format_version", "exported_at", "settings",
@@ -49,7 +49,7 @@ def test_validate_gives_concrete_issues(client):
         "monitors": [{"id": "m1", "source_id": "ghost-src",
                       "pipeline_id": "p1"}],
     }
-    resp = client.post("/api/v1/configuration/validate", json=cfg)
+    resp = client.post("/api/v1/backup/validate", json=cfg)
     assert resp.status_code == 200
     body = resp.json()
     assert body["valid"] is False
@@ -63,11 +63,11 @@ def test_validate_gives_concrete_issues(client):
 
 def test_import_replace_atomic(client):
     _setup(client)
-    cfg = client.get("/api/v1/configuration/export").json()
+    cfg = client.get("/api/v1/backup/export").json()
     # rebind the exported source via source_bindings (locator was redacted)
     cfg["monitors"] = []  # drop monitor to keep it simple
     cfg["source_bindings"] = {"cam": {"locator": "rtsp://new:554/b"}}
-    resp = client.post("/api/v1/configuration/import", json=cfg,
+    resp = client.post("/api/v1/backup/import", json=cfg,
                        headers={"If-Match": "*"})
     assert resp.status_code == 200
     body = resp.json()
@@ -85,11 +85,11 @@ def test_import_replace_atomic(client):
 
 def test_import_unresolved_binding_422(client):
     _setup(client)
-    cfg = client.get("/api/v1/configuration/export").json()
+    cfg = client.get("/api/v1/backup/export").json()
     # a NEW source id has no binding and no existing row to reuse
     cfg["sources"].append({"id": "s2", "kind": "rtsp", "name": "S2",
                            "redacted_locator": "redacted_locator"})
-    resp = client.post("/api/v1/configuration/import", json={
+    resp = client.post("/api/v1/backup/import", json={
         "configuration": cfg},
         headers={"If-Match": "*"})
     assert resp.status_code == 422
@@ -98,8 +98,8 @@ def test_import_unresolved_binding_422(client):
 
 
 def test_import_stale_etag_412(client):
-    cfg = client.get("/api/v1/configuration/export").json()
-    resp = client.post("/api/v1/configuration/import", json={
+    cfg = client.get("/api/v1/backup/export").json()
+    resp = client.post("/api/v1/backup/import", json={
         "configuration": cfg,
         "source_bindings": {"cam": {"locator": "rtsp://b"}}},
         headers={"If-Match": '"stale-etag"'})
@@ -108,8 +108,8 @@ def test_import_stale_etag_412(client):
 
 def test_import_preserves_existing_source_locator(client):
     _setup(client)
-    cfg = client.get("/api/v1/configuration/export").json()
-    resp = client.post("/api/v1/configuration/import", json={
+    cfg = client.get("/api/v1/backup/export").json()
+    resp = client.post("/api/v1/backup/import", json={
         "configuration": cfg},
         headers={"If-Match": "*"})
     # no binding for 'cam' -> reuses the existing row's locator
@@ -125,8 +125,8 @@ def test_import_409_running_work(client):
     store.jobs.insert({"job_id": "jq", "kind": "video_analysis",
                        "payload_json": "{}", "state": "running",
                        "created_at": "2026-01-01T00:00:00Z"})
-    cfg = client.get("/api/v1/configuration/export").json()
-    resp = client.post("/api/v1/configuration/import", json={
+    cfg = client.get("/api/v1/backup/export").json()
+    resp = client.post("/api/v1/backup/import", json={
         "configuration": cfg}, headers={"If-Match": "*"})
     assert resp.status_code == 409
     # rollback: config untouched
@@ -137,7 +137,7 @@ def test_settings_default_pipeline_exported(client):
     _setup(client)
     client.put("/api/v1/setting/default_pipeline_id",
                json={"value": "p"}, headers={"If-Match": "*"})
-    cfg = client.get("/api/v1/configuration/export").json()
+    cfg = client.get("/api/v1/backup/export").json()
     assert cfg["settings"].get("default_pipeline_id") == "p"
 
 
@@ -145,9 +145,9 @@ def test_import_rejects_untyped_settings_no_poison(client):
     """A settings section that fails ServiceSettings validation must be
     rejected — never stored as an override that would make
     effective_settings() unvalidatable (the float-hours poisoning bug)."""
-    cfg = client.get("/api/v1/configuration/export").json()
+    cfg = client.get("/api/v1/backup/export").json()
     cfg["settings"]["result_retention_hours"] = 168.5
-    resp = client.post("/api/v1/configuration/import", json=cfg,
+    resp = client.post("/api/v1/backup/import", json=cfg,
                        headers={"If-Match": "*"})
     assert resp.status_code == 422
     # service stays healthy: every settings read still works
@@ -156,8 +156,32 @@ def test_import_rejects_untyped_settings_no_poison(client):
 
 
 def test_import_roundtrip_preserves_settings(client):
-    cfg = client.get("/api/v1/configuration/export").json()
-    resp = client.post("/api/v1/configuration/import", json=cfg,
+    cfg = client.get("/api/v1/backup/export").json()
+    resp = client.post("/api/v1/backup/import", json=cfg,
                        headers={"If-Match": "*"})
     assert resp.status_code == 200
     assert client.get("/api/v1/setting/").json()["result_retention_hours"] == 168
+
+
+def test_import_null_body_without_config_set_422(client):
+    """v1.7.1: a null body imports the ./config/ file set; none provisioned
+    here, so the endpoint reports honestly."""
+    resp = client.post("/api/v1/backup/import", content=b"null",
+                       headers={"If-Match": "*",
+                                "Content-Type": "application/json"})
+    assert resp.status_code == 422
+    assert "./config/" in resp.json()["error"]["message"]
+
+
+def test_import_null_body_uses_config_file_set(client, tmp_path, monkeypatch):
+    cfg = client.get("/api/v1/backup/export").json()
+    config_dir = tmp_path / "config"
+    config_dir.mkdir()
+    (config_dir / "bundle.json").write_text(
+        __import__("json").dumps(cfg), encoding="utf-8")
+    monkeypatch.chdir(tmp_path)
+    resp = client.post("/api/v1/backup/import", content=b"null",
+                       headers={"If-Match": "*",
+                                "Content-Type": "application/json"})
+    assert resp.status_code == 200
+    assert resp.json()["status"] == "imported"

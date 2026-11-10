@@ -36,17 +36,11 @@ EXPECTED_MISSING = {
     ("GET", "/api/v1/backup/download/{filename}"),
     ("POST", "/api/v1/backup/restore/{filename}"),
     ("DELETE", "/api/v1/backup/{filename}"),
-    ("GET", "/api/v1/backup/export"),
-    ("POST", "/api/v1/backup/import"),
-    ("POST", "/api/v1/backup/validate"),
     ("POST", "/api/v1/service/start"),
     ("POST", "/api/v1/service/stop"),
     ("GET", "/api/v1/service/log"),
 }
 EXPECTED_LEGACY = {
-    ("GET", "/api/v1/configuration/export"),
-    ("POST", "/api/v1/configuration/import"),
-    ("POST", "/api/v1/configuration/validate"),
     ("GET", "/api/v1/session/{session_id}/observation/"),
 }
 

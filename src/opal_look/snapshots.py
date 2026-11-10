@@ -32,6 +32,11 @@ def capture_read(row: sqlite3.Row) -> dict[str, Any]:
         "annotated": bool(row["annotated"]),
         "frame_time": (row["frame_time"] if "frame_time" in cols
                        else row["created_at"]),
+        "output_ref": {
+            "kind": "capture",
+            "id": row["snapshot_id"],
+            "content_url": f"/api/v1/capture/{row['snapshot_id']}/content",
+        },
     }
 
 

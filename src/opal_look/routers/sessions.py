@@ -181,7 +181,7 @@ def get_api_v1_sessions_observations(
 ) -> JSONResponse:
     _session_or_404(store, session_id)
     rows = store.observations.page(now_iso(), {"session_id": session_id},
-                                   None, min(limit, 500))
+                                   min(limit, 500))
     return JSONResponse([json.loads(r["body"]) for r in rows],
                         headers={"ETag": store.config_revision()})
 

@@ -981,6 +981,15 @@ components:
             type: string
             minLength: 1
             maxLength: 128
+        output_refs:
+          oneOf:
+          - type: array
+            items:
+              $ref: '#/components/schemas/OutputRef'
+          - type: 'null'
+          description: >-
+            Byte references for produced artifacts (kind=artifact), one per
+            artifact_ids entry once the job finishes; null while pending.
         failure:
           oneOf:
           - $ref: ./shared/opal_kernel.yaml#/components/schemas/OpalErrorBody
@@ -1081,6 +1090,11 @@ components:
         frame_time:
           type: string
           format: date-time
+        output_ref:
+          oneOf:
+          - $ref: '#/components/schemas/OutputRef'
+          - type: 'null'
+          description: This capture's byte reference (kind=capture).
       additionalProperties: false
       required:
       - id
@@ -1090,6 +1104,31 @@ components:
       - mime_type
       - annotated
       - frame_time
+    OutputRef:
+      type: object
+      required:
+      - kind
+      - id
+      - content_url
+      properties:
+        kind:
+          type: string
+          enum: [capture, artifact]
+          description: Which content route serves the bytes.
+        id:
+          type: string
+          minLength: 1
+          maxLength: 128
+          description: The capture_id or artifact_id the bytes belong to.
+        content_url:
+          type: string
+          description: >-
+            Byte retrieval URL (the existing `/capture/{id}/content` or
+            `/artifact/{id}/content` route). `output_ref` absent or null means
+            the output is not produced yet; `expires_at` on the record governs
+            liveness — a swept record returns 404 on the content route.
+      additionalProperties: false
+      description: Typed reference to retrievable output bytes (see docs/LOOK_OUTPUT_RETRIEVAL.md).
     CaptureList:
       type: array
       items:
@@ -1551,6 +1590,13 @@ components:
             minLength: 1
             maxLength: 128
           - type: 'null'
+        artifact_ref:
+          oneOf:
+          - $ref: '#/components/schemas/OutputRef'
+          - type: 'null'
+          description: >-
+            The finalized recording's artifact byte reference (kind=artifact);
+            null until finalize produces the artifact.
       additionalProperties: false
       required:
       - id

@@ -37,6 +37,15 @@ def recording_read(row: sqlite3.Row) -> dict[str, Any]:
         "artifact_id": (row["artifact_id"] if "artifact_id" in row.keys()
                         else None),
         "failure": (json.loads(row["failure"]) if row["failure"] else None),
+        "artifact_ref": (
+            {
+                "kind": "artifact",
+                "id": row["artifact_id"],
+                "content_url": f"/api/v1/artifact/{row['artifact_id']}/content",
+            }
+            if "artifact_id" in row.keys() and row["artifact_id"]
+            else None
+        ),
     }
 
 

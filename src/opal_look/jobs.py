@@ -36,6 +36,14 @@ def job_read(row: sqlite3.Row) -> dict[str, Any]:
         # produced media are mirrored as artifacts (art-{media_id})
         "artifact_ids": [
             f"art-{m}" for m in json.loads(row["media_ids"] or "[]")],
+        "output_refs": (
+            [
+                {"kind": "artifact", "id": f"art-{m}", "content_url": f"/api/v1/artifact/art-{m}/content"}
+                for m in json.loads(row["media_ids"] or "[]")
+            ]
+            if json.loads(row["media_ids"] or "[]")
+            else None
+        ),
         "failure": (json.loads(row["failure"]) if row["failure"] else None),
     }
 

@@ -550,6 +550,32 @@ def _art_download(artifact_id: str,
 
 app.add_typer(artifacts, name="artifacts")
 
+output = typer.Typer(help="common output retrieval", epilog=(
+    "Examples:\n"
+    "  opal-look output fetch /api/v1/capture/cap-0123/content --out frame.jpg\n"
+    "  opal-look output fetch /api/v1/artifact/art-abc/content --out clip.mjpeg\n"
+    "\n"
+    "The content_url comes from `output_ref` (captures), `artifact_ref`\n"
+    "(recordings) or `output_refs` (jobs) in show/list output."))
+
+
+@output.command("fetch")
+def _output_fetch(content_url: str,
+                  out: Path = typer.Option(Path("output.bin"), "--out")):
+    """Download output bytes from an output_ref content_url."""
+    if not (content_url.startswith("/api/v1/capture/")
+            or content_url.startswith("/api/v1/artifact/")) \
+            or not content_url.endswith("/content"):
+        raise SystemExit(
+            "expected a content_url like /api/v1/capture/<id>/content "
+            "or /api/v1/artifact/<id>/content")
+    resp = unwrap(_client().request("GET", content_url))
+    Path(out).write_bytes(resp)
+    typer.echo(str(out))
+
+
+app.add_typer(output, name="output")
+
 persona = typer.Typer(help="persona", epilog=(
     "Examples:\n"
     "  opal-look persona list\n"

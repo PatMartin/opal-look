@@ -177,3 +177,44 @@ def test_cli_unknown_exit_code(cli):
     r = cli.invoke(cli_app, ["models", "show", "ghost-model"])
     assert r.exit_code != 0
     assert "404" in r.output or "Unknown" in r.output
+
+
+def _upload_and_source(client):
+    buf = io.BytesIO()
+    Image.new("RGB", (8, 8), (1, 2, 3)).save(buf, format="JPEG")
+    mid = client.post("/api/v1/media/", files={
+        "file": ("x.jpg", buf.getvalue(), "image/jpeg")}).json()["id"]
+    client.post("/api/v1/source/",
+                json={"id": "ms", "name": "M", "kind": "media",
+                      "locator": mid}, headers={"If-Match": "*"})
+
+
+def test_cli_capture_output_ref_and_fetch(cli, tmp_path):
+    _upload_and_source(cli_mod._state["inner"])
+    r = cli.invoke(cli_app, ["--json", "sources", "capture", "ms"])
+    assert r.exit_code == 0, r.output
+    ref = json.loads(r.output)["output_ref"]
+    out = tmp_path / "frame.jpg"
+    r = cli.invoke(cli_app, ["output", "fetch", ref["content_url"],
+                             "--out", str(out)])
+    assert r.exit_code == 0, r.output
+    assert out.read_bytes()[:2] == b"\xff\xd8"  # JPEG magic
+
+
+def test_cli_output_fetch_recording_artifact_ref(cli, tmp_path):
+    inner = cli_mod._state["inner"]
+    store = inner.app.state.store
+    store.recordings.insert({"recording_id": "rec-9", "source_id": "ms",
+        "state": "finished", "created_at": "t", "started_at": "t",
+        "finished_at": "t", "media_id": "m1", "failure": None})
+    store.recordings.update("rec-9", {"artifact_id": "art-9"})
+    r = cli.invoke(cli_app, ["--json", "recordings", "show", "rec-9"])
+    assert r.exit_code == 0, r.output
+    assert json.loads(r.output)["artifact_ref"]["content_url"] \
+        == "/api/v1/artifact/art-9/content"
+
+
+def test_cli_output_fetch_rejects_bad_url(cli):
+    r = cli.invoke(cli_app, ["output", "fetch", "/api/v1/media/m1/content"])
+    assert r.exit_code != 0
+    assert "expected a content_url" in r.output

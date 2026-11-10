@@ -30,11 +30,7 @@ def app(tmp_path):
 # v1.7.1 migration baseline: the backup/* and service/* contract ops land in
 # steps 2-4 and the retired configuration/* + session observation routes come
 # down in steps 2/5. These sets shrink to empty at the certification step.
-EXPECTED_MISSING = {
-    ("POST", "/api/v1/service/start"),
-    ("POST", "/api/v1/service/stop"),
-    ("GET", "/api/v1/service/log"),
-}
+EXPECTED_MISSING: set[tuple[str, str]] = set()
 EXPECTED_LEGACY = {
     ("GET", "/api/v1/session/{session_id}/observation/"),
 }

@@ -63,11 +63,11 @@ opal-look
 By default, LOOK listens at **http://127.0.0.1:8000** on loopback. Keep that terminal open. Use a second terminal with the same virtual environment:
 
 ~~~bash
-opal-look-cli health live
-opal-look-cli health ready
-opal-look-cli engines list
-opal-look-cli models list
-opal-look-cli capabilities show
+opal-look-cli info live
+opal-look-cli info ready
+opal-look-cli engine list
+opal-look-cli config model list
+opal-look-cli info capabilities
 ~~~
 
 The built-in inference engine is `synthetic` and its seeded model is `synthetic-vision`. You can also open the browser console at **http://127.0.0.1:8000/app/**.
@@ -75,14 +75,14 @@ The built-in inference engine is `synthetic` and its seeded model is `synthetic-
 If port 8000 is already taken, use `OPAL_LOOK_PORT=8002 opal-look` and point the CLI to it:
 
 ~~~bash
-opal-look-cli --url http://127.0.0.1:8002 health show
+opal-look-cli --url http://127.0.0.1:8002 info health
 ~~~
 
 ### 3. Create your first processing pipeline
 
 ~~~bash
-opal-look-cli pipelines add --body '{"id":"demo","name":"First vision pipeline","model_id":"synthetic-vision","task":"detection"}'
-opal-look-cli pipelines show demo
+opal-look-cli config pipeline add --body '{"id":"demo","name":"First vision pipeline","model_id":"synthetic-vision","task":"detection"}'
+opal-look-cli config pipeline show demo
 ~~~
 
 ### 4. Analyze an image, without a camera
@@ -165,9 +165,9 @@ To make YOLO a first-class LOOK engine, the following engineering work is requir
 
 ~~~bash
 # FUTURE WORKFLOW — requires an installed YOLO engine adapter
-opal-look-cli engines list
-opal-look-cli models add --body '{"id":"yolo-small","engine_id":"yolo","resource_ref":"yolo26n.pt","tasks":["detection"]}'
-opal-look-cli pipelines add --body '{"id":"real-detect","name":"Real YOLO detection","model_id":"yolo-small","task":"detection"}'
+opal-look-cli engine list
+opal-look-cli config model add --body '{"id":"yolo-small","engine_id":"yolo","resource_ref":"yolo26n.pt","tasks":["detection"]}'
+opal-look-cli config pipeline add --body '{"id":"real-detect","name":"Real YOLO detection","model_id":"yolo-small","task":"detection"}'
 opal-look-cli analyze image sample.jpg --request '{"pipeline_id":"real-detect"}'
 ~~~
 
@@ -189,7 +189,7 @@ This is intentional separation of concerns: **YOLO owns inference; OPAL Look own
 | **Jobs** | Finite, queued background processing | Batch work without blocking a request |
 | **Recordings** | Explicit live recording lifecycle | Save a feed independently of monitoring |
 
-**Current contract (v1.6.0):** sessions, profiles, zones, rules, captures, artifacts and personas are first-class resources; collection paths are singular (`/api/v1/source/`, `/api/v1/session/` …); personas are named observer identities that may bind an OPAL Say `voice_id`.
+**Current contract (v1.7.1):** sessions, profiles, zones, rules, captures, artifacts and personas are first-class resources; collection paths are singular (`/api/v1/source/`, `/api/v1/session/` …); personas are named observer identities that may bind an OPAL Say `voice_id`.
 
 ---
 
@@ -206,9 +206,9 @@ Every command below is derived from the checked-in [Typer implementation](src/op
 
 ~~~bash
 opal-look-cli --help
-opal-look-cli --url http://127.0.0.1:8002 --json sources list
-opal-look-cli sources --help
-opal-look-cli monitors add --file monitor.json
+opal-look-cli --url http://127.0.0.1:8002 --json source list
+opal-look-cli source --help
+opal-look-cli config monitor add --file monitor.json
 ~~~
 
 | Flag | Usage |
@@ -228,142 +228,167 @@ Put global flags **before the command group**. Prefer `--file` for substantial J
 `!` = command currently exposed by a generic CLI builder, but without the corresponding supported REST operation. `*` = streaming command with the currently known HTTPX client defect.
 
 ~~~text
-opal-look-cli [--url URL] [--json]
-|
-+-- info
-+-- capabilities
-|   +-- show
-+-- health
-|   +-- show
-|   +-- live
-|   +-- ready
-+-- metrics
-|   +-- show
-+-- events
-|   +-- status
-|
-+-- engines
-|   +-- list
-|   +-- show ENGINE_ID
-|   +-- update ENGINE_ID [--body JSON | --file FILE]
-|   +-- add !                  no engine creation API
-|   +-- remove !               no engine deletion API
-|
-+-- models
-|   +-- list
-|   +-- show MODEL_ID
-|   +-- add [--body JSON | --file FILE]
-|   +-- update MODEL_ID [--body JSON | --file FILE]
-|   +-- remove MODEL_ID
-|
-+-- sources
-|   +-- list
-|   +-- show SOURCE_ID
-|   +-- add [--body JSON | --file FILE]
-|   +-- update SOURCE_ID [--body JSON | --file FILE]
-|   +-- remove SOURCE_ID
-|   +-- status SOURCE_ID
-|   +-- probe SOURCE_ID
-|   +-- frame SOURCE_ID [--out FILE]
-|   +-- view SOURCE_ID [--out FILE] [--max-bytes N] [--pipeline ID] *
-|   +-- observe SOURCE_ID *
-|   +-- capture SOURCE_ID [--pipeline ID] [--annotated]
-|
-+-- pipelines
-|   +-- list
-|   +-- show PIPELINE_ID
-|   +-- add [--body JSON | --file FILE]
-|   +-- update PIPELINE_ID [--body JSON | --file FILE]
-|   +-- remove PIPELINE_ID
-|   +-- validate [--body JSON | --file FILE]
-|
-+-- analyze
-|   +-- run [--body JSON | --file FILE]
-|   +-- image FILE [--request JSON]
-|
-+-- monitors
-|   +-- list
-|   +-- show MONITOR_ID
-|   +-- add [--body JSON | --file FILE]
-|   +-- update MONITOR_ID [--body JSON | --file FILE]
-|   +-- remove MONITOR_ID
-|   +-- stream MONITOR_ID *
-|
-+-- observations
-|   +-- list
-|   +-- show OBSERVATION_ID
-|   +-- add !                  observations are generated by analysis
-|   +-- update !               no observation PATCH API
-|   +-- remove !               no observation DELETE API
-|
-+-- media
-|   +-- list
-|   +-- show MEDIA_ID
-|   +-- upload FILE [--ttl SECONDS]
-|   +-- download MEDIA_ID [--out FILE]
-|   +-- remove MEDIA_ID
-|   +-- add !                  POST requires multipart upload
-|   +-- update !               no media PATCH API
-|
-+-- jobs
-|   +-- list
-|   +-- show JOB_ID
-|   +-- submit [--body JSON | --file FILE] [--idempotency-key KEY]
-|   +-- cancel JOB_ID
-|   +-- add !                  use submit
-|   +-- update !               no job PATCH API
-|   +-- remove !               no job DELETE API
-|
-+-- recordings
-|   +-- list
-|   +-- show RECORDING_ID
-|   +-- start --source SOURCE_ID [--pipeline ID] [--duration SECONDS]
-|   +-- stop RECORDING_ID
-|   +-- add !                  use start
-|   +-- update !               no recording PATCH API
-|   +-- remove !               no recording DELETE API
-|
-+-- settings
-|   +-- list
-|   +-- show KEY
-|   +-- set KEY JSON_VALUE
-|   +-- reset KEY
-|   +-- remove KEY             alternative to reset
-|   +-- add !                  no settings POST API
-|   +-- update !               no settings/key PATCH API
-|
-+-- configuration
-    +-- export
-    +-- validate --file FILE
-    +-- import --file FILE [--bindings FILE]
+opal look
+|-- analyze
+|   |-- image FILE [--request REQUEST]
+|   `-- run [--body BODY] [--file FILE]
+|-- backup
+|   |-- create
+|   |-- download FILENAME [--out OUT]
+|   |-- export
+|   |-- import [--file FILE] [--body BODY] [--bindings BINDINGS]
+|   |-- list
+|   |-- remove FILENAME
+|   |-- restore FILENAME
+|   `-- validate [--body BODY] [--file FILE]
+|-- config
+|   |-- model
+|   |   |-- add [--body BODY] [--file FILE]
+|   |   |-- list [--limit LIMIT]
+|   |   |-- remove RESOURCE_ID
+|   |   |-- show RESOURCE_ID
+|   |   `-- update RESOURCE_ID [--body BODY] [--file FILE]
+|   |-- monitor
+|   |   |-- add [--body BODY] [--file FILE]
+|   |   |-- list [--limit LIMIT]
+|   |   |-- remove RESOURCE_ID
+|   |   |-- show RESOURCE_ID
+|   |   `-- update RESOURCE_ID [--body BODY] [--file FILE]
+|   |-- persona
+|   |   |-- add [--body BODY] [--file FILE]
+|   |   |-- list [--enabled]
+|   |   |-- remove PERSONA_ID
+|   |   |-- show PERSONA_ID
+|   |   |-- update PERSONA_ID [--body BODY] [--file FILE]
+|   |   `-- validate PERSONA_ID
+|   |-- pipeline
+|   |   |-- add [--body BODY] [--file FILE]
+|   |   |-- list [--limit LIMIT]
+|   |   |-- remove RESOURCE_ID
+|   |   |-- show RESOURCE_ID
+|   |   |-- update RESOURCE_ID [--body BODY] [--file FILE]
+|   |   `-- validate [--body BODY] [--file FILE]
+|   |-- profile
+|   |   |-- activate PROFILE_ID
+|   |   |-- add [--body BODY] [--file FILE]
+|   |   |-- list [--limit LIMIT]
+|   |   |-- remove RESOURCE_ID
+|   |   |-- show RESOURCE_ID
+|   |   `-- update RESOURCE_ID [--body BODY] [--file FILE]
+|   |-- rule
+|   |   |-- add [--body BODY] [--file FILE]
+|   |   |-- list [--limit LIMIT]
+|   |   |-- remove RESOURCE_ID
+|   |   |-- show RESOURCE_ID
+|   |   `-- update RESOURCE_ID [--body BODY] [--file FILE]
+|   |-- setting
+|   |   |-- list
+|   |   |-- remove KEY
+|   |   |-- set KEY VALUE
+|   |   |-- show KEY
+|   |   `-- update [--body BODY] [--file FILE]
+|   `-- zone
+|       |-- add [--body BODY] [--file FILE]
+|       |-- list [--limit LIMIT]
+|       |-- remove RESOURCE_ID
+|       |-- show RESOURCE_ID
+|       `-- update RESOURCE_ID [--body BODY] [--file FILE]
+|-- data
+|   |-- artifact
+|   |   |-- download ARTIFACT_ID [--out OUT]
+|   |   |-- list [--kind KIND] [--source SOURCE_ID] [--job JOB_ID] [--limit LIMIT]
+|   |   |-- remove ARTIFACT_ID
+|   |   `-- show ARTIFACT_ID
+|   |-- capture
+|   |   |-- download CAPTURE_ID [--out OUT]
+|   |   |-- list [--source SOURCE_ID] [--limit LIMIT]
+|   |   |-- remove CAPTURE_ID
+|   |   `-- show CAPTURE_ID
+|   |-- job
+|   |   |-- cancel JOB_ID
+|   |   |-- list [--state STATE] [--kind KIND] [--limit LIMIT]
+|   |   |-- show JOB_ID
+|   |   `-- submit [--body BODY] [--file FILE] [--idempotency-key IDEMPOTENCY_KEY]
+|   |-- media
+|   |   |-- list [--kind KIND] [--source SOURCE_ID] [--limit LIMIT]
+|   |   |-- remove MEDIA_ID
+|   |   |-- show MEDIA_ID
+|   |   `-- upload FILE [--ttl TTL_SECONDS]
+|   |-- observation
+|   |   |-- list [--source SOURCE_ID] [--session SESSION_ID] [--job JOB_ID] [--task TASK] [--label LABEL] [--after AFTER] [--before BEFORE] [--limit LIMIT]
+|   |   `-- show OBSERVATION_ID
+|   `-- recording
+|       |-- list [--limit LIMIT]
+|       |-- show RECORDING_ID
+|       |-- start [--source SOURCE_ID] [--pipeline PIPELINE_ID] [--duration MAX_DURATION_SECONDS]
+|       `-- stop RECORDING_ID
+|-- engine
+|   |-- list
+|   |-- show ENGINE_ID
+|   `-- update ENGINE_ID [--body BODY] [--file FILE]
+|-- info
+|   |-- capabilities
+|   |-- events
+|   |-- health
+|   |-- live
+|   |-- metrics
+|   |-- ping
+|   |-- ready
+|   `-- version
+|-- output
+|   `-- fetch CONTENT_URL [--out OUT]
+|-- service
+|   |-- log [--lines LINES]
+|   |-- start [--append] [--port PORT] [--host HOST] [--data-dir DATA_DIR]
+|   `-- stop
+|-- session
+|   |-- list [--state STATE] [--source SOURCE_ID] [--limit LIMIT]
+|   |-- preview SESSION_ID [--out OUT] [--max-bytes MAX_BYTES]
+|   |-- show SESSION_ID
+|   |-- start [--body BODY] [--file FILE]
+|   |-- stop SESSION_ID
+|   `-- stream SESSION_ID
+|-- settings
+|   |-- patch [--body BODY] [--file FILE]
+|   `-- reset KEY
+|-- source
+|   |-- add [--body BODY] [--file FILE]
+|   |-- capture SOURCE_ID [--retain] [--annotate] [--session SESSION_ID] [--observation OBSERVATION_ID]
+|   |-- frame SOURCE_ID [--out OUT]
+|   |-- list [--limit LIMIT]
+|   |-- probe SOURCE_ID
+|   |-- remove RESOURCE_ID
+|   |-- show RESOURCE_ID
+|   |-- status SOURCE_ID
+|   |-- stream SOURCE_ID [--out OUT] [--max-bytes MAX_BYTES] [--pipeline PIPELINE_ID]
+|   `-- update RESOURCE_ID [--body BODY] [--file FILE]
+`-- tree
 ~~~
-
-**One important rule:** successful `--help` output is *not* proof a command exists in REST. The generic builder currently generates invalid aliases. The goal is CLI/REST parity; the table records the real current state until parity fixes land.
 
 ### Quick task lookup
 
 | Your goal | CLI command |
 |---|---|
-| Is LOOK running? | `health ready` |
-| What can my installation do? | `capabilities show` |
-| What inference engines are installed? | `engines list` |
-| What models can I select? | `models list` |
-| What cameras/sources are configured? | `sources list` |
-| Is this RTSP feed reachable? | `sources probe driveway` |
-| Fetch one fresh frame | `sources frame driveway --out frame.jpg` |
-| Create a pipeline | `pipelines add --file pipeline.json` |
-| Inspect a pipeline | `pipelines show PIPELINE_ID` |
+| Is LOOK running? | `info ready` |
+| What can my installation do? | `info capabilities` |
+| What inference engines are installed? | `engine list` |
+| What models can I select? | `config model list` |
+| What cameras/sources are configured? | `source list` |
+| Is this RTSP feed reachable? | `source probe driveway` |
+| Fetch one fresh frame | `source frame driveway --out frame.jpg` |
+| Create a pipeline | `config pipeline add --file pipeline.json` |
+| Inspect a pipeline | `config pipeline show PIPELINE_ID` |
 | Process a still image | `analyze image photo.jpg --request '{"pipeline_id":"demo"}'` |
 | Process an uploaded media item | `analyze run --file request.json` |
-| Arm a permanent lookout | `monitors add --file monitor.json` |
-| Read retained observations | `observations list` |
-| Upload a picture | `media upload picture.jpg` |
-| Save the latest frame | `sources capture driveway` |
-| Record camera video | `recordings start --source driveway --duration 30` |
-| Inspect a background job | `jobs show JOB_ID` |
-| Set one configuration value | `settings set max_preview_fps 2` |
-| Export configuration | `configuration export` |
-| Inspect metrics | `metrics show` |
+| Arm a permanent lookout | `config monitor add --file monitor.json` |
+| Read retained observations | `data observation list` |
+| Upload a picture | `data media upload picture.jpg` |
+| Save the latest frame | `source capture driveway` |
+| Record camera video | `data recording start --source driveway --duration 30` |
+| Inspect a background job | `data job show JOB_ID` |
+| Set one configuration value | `config setting set max_preview_fps 2` |
+| Export configuration | `backup export` |
+| Inspect metrics | `info metrics` |
 
 ---
 
@@ -374,23 +399,23 @@ The examples deliberately start with tools that work **without GPU or a trained 
 ### 1. A miniature vision laboratory
 
 ~~~bash
-opal-look-cli pipelines add --body '{"id":"lab","name":"Portable vision lab","model_id":"synthetic-vision","task":"detection","retention":{"persist_observations":true,"ttl_seconds":3600}}'
+opal-look-cli config pipeline add --body '{"id":"lab","name":"Portable vision lab","model_id":"synthetic-vision","task":"detection","retention":{"persist_observations":true,"ttl_seconds":3600}}'
 opal-look-cli analyze image sample.jpg --request '{"pipeline_id":"lab"}'
-opal-look-cli observations list
+opal-look-cli data observation list
 ~~~
 
-Use `observations show OBSERVATION_ID` to inspect a retained observation. Without retention opt-in, a result returned to the caller may not be stored.
+Use `data observation show OBSERVATION_ID` to inspect a retained observation. Without retention opt-in, a result returned to the caller may not be stored.
 
 ### 2. Upload once, analyze repeatedly
 
 ~~~bash
-opal-look-cli media upload sample.jpg --ttl 86400
-opal-look-cli media list
-opal-look-cli media show MEDIA_ID
+opal-look-cli data media upload sample.jpg --ttl 86400
+opal-look-cli data media list
+opal-look-cli data media show MEDIA_ID
 
 opal-look-cli analyze run --body '{"source":{"media_id":"MEDIA_ID"},"pipeline_id":"lab"}'
 
-opal-look-cli media download MEDIA_ID --out recovered.jpg
+opal-look-cli data capture download MEDIA_ID --out recovered.jpg
 ~~~
 
 `MEDIA_ID` is the returned upload ID. The upload route currently handles supported images; don't assume it can ingest arbitrary MP4 content.
@@ -398,9 +423,9 @@ opal-look-cli media download MEDIA_ID --out recovered.jpg
 ### 3. Name an input so your workflows can reuse it
 
 ~~~bash
-opal-look-cli sources add --body '{"id":"example-photo","kind":"media","name":"Lab sample","locator":"MEDIA_ID"}'
-opal-look-cli sources show example-photo
-opal-look-cli sources frame example-photo --out single-frame.jpg
+opal-look-cli source add --body '{"id":"example-photo","kind":"media","name":"Lab sample","locator":"MEDIA_ID"}'
+opal-look-cli source show example-photo
+opal-look-cli source frame example-photo --out single-frame.jpg
 opal-look-cli analyze run --body '{"source":{"source_id":"example-photo"},"pipeline_id":"lab"}'
 ~~~
 
@@ -432,9 +457,9 @@ For advanced processing, place the request in `pipeline.json`:
 ~~~
 
 ~~~bash
-opal-look-cli pipelines validate --file pipeline.json
-opal-look-cli pipelines add --file pipeline.json
-opal-look-cli pipelines show grayscale-lab
+opal-look-cli config pipeline validate --file pipeline.json
+opal-look-cli config pipeline add --file pipeline.json
+opal-look-cli config pipeline show grayscale-lab
 opal-look-cli analyze image sample.jpg --request '{"pipeline_id":"grayscale-lab"}'
 ~~~
 
@@ -445,11 +470,11 @@ The executor supports an ordered DAG of filters, inference, transforms, tracking
 Replace the documentation-only address with your own reachable RTSP URL:
 
 ~~~bash
-opal-look-cli sources add --body '{"id":"driveway","kind":"rtsp","name":"Driveway camera","locator":"rtsp://192.0.2.10:554/stream1"}'
+opal-look-cli source add --body '{"id":"driveway","kind":"rtsp","name":"Driveway camera","locator":"rtsp://192.0.2.10:554/stream1"}'
 
-opal-look-cli sources probe driveway
-opal-look-cli sources frame driveway --out driveway.jpg
-opal-look-cli sources status driveway
+opal-look-cli source probe driveway
+opal-look-cli source frame driveway --out driveway.jpg
+opal-look-cli source status driveway
 ~~~
 
 RTSP access is backed by PyAV. A source may be configured even while the network endpoint is offline; `probe` is a bounded connectivity check, while `frame` retrieves a still image.
@@ -457,7 +482,7 @@ RTSP access is backed by PyAV. A source may be configured even while the network
 **Do not embed camera credentials in URLs.** To reference a server-provisioned credential, use `secret_ref`:
 
 ~~~bash
-opal-look-cli sources add --body '{"id":"front-door","kind":"rtsp","name":"Front door","locator":"rtsp://192.0.2.20:554/stream1","secret_ref":"front_door"}'
+opal-look-cli source add --body '{"id":"front-door","kind":"rtsp","name":"Front door","locator":"rtsp://192.0.2.20:554/stream1","secret_ref":"front_door"}'
 ~~~
 
 Before starting the server, provision `OPAL_LOOK_CRED_FRONT_DOOR` as `username:password` in its environment. Avoid committing credentials or placing them in shell history.
@@ -479,7 +504,7 @@ curl --no-buffer 'http://127.0.0.1:8000/api/v1/sources/driveway/stream?pipeline_
 The CLI exposes:
 
 ~~~bash
-opal-look-cli sources view driveway --pipeline lab --out driveway.mjpeg --max-bytes 5000000
+opal-look-cli source stream driveway --pipeline lab --out driveway.mjpeg --max-bytes 5000000
 ~~~
 
 **Current defect:** the CLI streaming wrapper passes an unsupported `stream=True` parameter to HTTPX. The CLI command requires a fix; use the REST endpoint with a proper streaming client meanwhile. The REST response is multipart MJPEG, not a single JPEG image.
@@ -489,7 +514,7 @@ opal-look-cli sources view driveway --pipeline lab --out driveway.mjpeg --max-by
 Sources own zones, expressed as normalized coordinates in the range 0–1. This is an example polygon; adjust coordinates for your camera perspective:
 
 ~~~bash
-opal-look-cli sources update driveway --body '{"zones":[{"id":"driveway-area","name":"Driveway area","kind":"polygon","points":[{"x":0.12,"y":0.44},{"x":0.87,"y":0.43},{"x":0.94,"y":0.94},{"x":0.08,"y":0.95}]}]}'
+opal-look-cli source update driveway --body '{"zones":[{"id":"driveway-area","name":"Driveway area","kind":"polygon","points":[{"x":0.12,"y":0.44},{"x":0.87,"y":0.43},{"x":0.94,"y":0.94},{"x":0.08,"y":0.95}]}]}'
 ~~~
 
 Zones are source-local. Polygons require at least three points, lines exactly two.
@@ -499,11 +524,11 @@ Zones are source-local. Polygons require at least three points, lines exactly tw
 A monitor combines a source, pipeline, and conditions. It is durable desired state: it can restart without a client holding a session open.
 
 ~~~bash
-opal-look-cli monitors add --body '{"id":"driveway-watch","name":"Driveway lookout","source_id":"driveway","pipeline_id":"lab","enabled":true,"restart_policy":"on_failure","conditions":[{"id":"visitor","event":"object_appears","classes":["person"],"cooldown_ms":5000,"capture_on_match":true}]}'
+opal-look-cli config monitor add --body '{"id":"driveway-watch","name":"Driveway lookout","source_id":"driveway","pipeline_id":"lab","enabled":true,"restart_policy":"on_failure","conditions":[{"id":"visitor","event":"object_appears","classes":["person"],"cooldown_ms":5000,"capture_on_match":true}]}'
 
-opal-look-cli monitors list
-opal-look-cli monitors show driveway-watch
-opal-look-cli monitors update driveway-watch --body '{"enabled":false}'
+opal-look-cli config monitor list
+opal-look-cli config monitor show driveway-watch
+opal-look-cli config monitor update driveway-watch --body '{"enabled":false}'
 ~~~
 
 With the bundled `synthetic-vision` engine, person labels are **not actual camera detections**. Use a real detector before driving security alerts or physical actions. Supported condition types include `object_appears`, `object_disappears`, `enters_zone`, `exits_zone`, `line_crosses`, `count_threshold`, `dwell_time`, and `motion_detected`, subject to pipeline and tracking support.
@@ -515,7 +540,6 @@ With the bundled `synthetic-vision` engine, person labels are **not actual camer
 ~~~bash
 # These Typer commands exist, but currently need the HTTPX streaming fix:
 opal-look-cli sources observe driveway
-opal-look-cli monitors stream driveway-watch
 
 # Current REST/SSE alternative:
 curl -N 'http://127.0.0.1:8000/api/v1/sources/driveway/observations/stream?pipeline_id=lab'
@@ -527,10 +551,10 @@ Source observation SSE is connection-scoped and transient. Monitor SSE offers a 
 ### 10. Save a frame instead of a whole recording
 
 ~~~bash
-opal-look-cli sources capture driveway
-opal-look-cli sources capture driveway --pipeline lab --annotated
-opal-look-cli media list
-opal-look-cli media download MEDIA_ID --out snapshot.jpg
+opal-look-cli source capture driveway
+opal-look-cli source capture driveway --pipeline lab --annotated
+opal-look-cli data media list
+opal-look-cli data capture download MEDIA_ID --out snapshot.jpg
 ~~~
 
 Captures produce retained media and do not require a public session.
@@ -538,10 +562,10 @@ Captures produce retained media and do not require a public session.
 ### 11. Record a camera independently of monitoring
 
 ~~~bash
-opal-look-cli recordings start --source driveway --duration 30
-opal-look-cli recordings list
-opal-look-cli recordings show RECORDING_ID
-opal-look-cli recordings stop RECORDING_ID
+opal-look-cli data recording start --source driveway --duration 30
+opal-look-cli data recording list
+opal-look-cli data recording show RECORDING_ID
+opal-look-cli data recording stop RECORDING_ID
 ~~~
 
 The current recorder writes **MJPEG-like JPEG-frame output**; it does not supply general MP4/WebM encoding or audio capture. Find the returned media ID to retrieve the output.
@@ -549,10 +573,10 @@ The current recorder writes **MJPEG-like JPEG-frame output**; it does not supply
 ### 12. Submit a bounded background job
 
 ~~~bash
-opal-look-cli jobs submit --body '{"kind":"media_export","media_id":"MEDIA_ID","output":{"format":"png"}}' --idempotency-key image-export-001
-opal-look-cli jobs list
-opal-look-cli jobs show JOB_ID
-opal-look-cli jobs cancel JOB_ID
+opal-look-cli data job submit --body '{"kind":"media_export","media_id":"MEDIA_ID","output":{"format":"png"}}' --idempotency-key image-export-001
+opal-look-cli data job list
+opal-look-cli data job show JOB_ID
+opal-look-cli data job cancel JOB_ID
 ~~~
 
 `video_analysis` jobs are also defined but currently have image-oriented decoder limitations; they are not general-purpose MP4 analysis.
@@ -560,13 +584,13 @@ opal-look-cli jobs cancel JOB_ID
 ### 13. Change a single setting
 
 ~~~bash
-opal-look-cli settings list
-opal-look-cli settings show max_preview_fps
-opal-look-cli settings set max_preview_fps 2
-opal-look-cli settings reset max_preview_fps
+opal-look-cli config setting list
+opal-look-cli config setting show max_preview_fps
+opal-look-cli config setting set max_preview_fps 2
+opal-look-cli config setting remove max_preview_fps
 
 # Default pipeline for analysis requests that omit one:
-opal-look-cli settings set default_pipeline_id '"lab"'
+opal-look-cli config setting set default_pipeline_id '"lab"'
 opal-look-cli analyze image sample.jpg
 ~~~
 
@@ -575,23 +599,23 @@ opal-look-cli analyze image sample.jpg
 ### 14. Export and validate configuration
 
 ~~~bash
-opal-look-cli configuration export > look-config.json
-opal-look-cli configuration validate --file look-config.json
-opal-look-cli configuration import --file look-config.json
+opal-look-cli backup export > look-config.json
+opal-look-cli backup validate --file look-config.json
+opal-look-cli backup import --file look-config.json
 ~~~
 
-Sensitive source locators are redacted in exports. For portability, `configuration import --bindings bindings.json` can explicitly rebind environment-specific source details. Validate imports and avoid putting secrets in configuration files.
+Sensitive source locators are redacted in exports. For portability, `backup import --bindings bindings.json` can explicitly rebind environment-specific source details. Validate imports and avoid putting secrets in configuration files.
 
 ### 15. Find out what is running
 
 ~~~bash
-opal-look-cli info
-opal-look-cli health show
-opal-look-cli health live
-opal-look-cli health ready
-opal-look-cli metrics show
-opal-look-cli events status
-opal-look-cli capabilities show
+opal-look-cli info version
+opal-look-cli info health
+opal-look-cli info live
+opal-look-cli info ready
+opal-look-cli info metrics
+opal-look-cli info events
+opal-look-cli info capabilities
 ~~~
 
 Capability discovery exists, but several boolean fields currently remain hard-coded false even when supporting code is present. Treat those specific flags as work in progress until they are reconciled with actual installed adapters and runtime state.
@@ -600,7 +624,7 @@ Capability discovery exists, but several boolean fields currently remain hard-co
 
 ## REST, streams, and OPAL integrations
 
-The pinned [OpenAPI v1.6.0 specification](openapi/opal_look_v1.6.0.yaml) plus the shared [OPAL Suite Kernel](openapi/shared/opal_kernel.yaml) define **63 paths / 98 operations**. The old v1.4.0-era specification stays under `vendor/opal-api/` for comparison.
+The pinned [OpenAPI v1.7.1 specification](openapi/opal_look_v1.7.1.yaml) plus the shared [OPAL Suite Kernel](openapi/shared/opal_kernel.yaml) define **70 paths / 105 operations**. The old v1.4.0-era specification stays under `vendor/opal-api/` for comparison.
 
 ### The main REST surface
 
@@ -624,7 +648,7 @@ The pinned [OpenAPI v1.6.0 specification](openapi/opal_look_v1.6.0.yaml) plus th
 | Recordings | `POST /api/v1/recording/` |
 | Personas | `GET|POST /api/v1/persona/` |
 | Settings | `GET /api/v1/setting/` |
-| Export configuration | `GET /api/v1/configuration/export` |
+| Export configuration | `GET /api/v1/backup/export` |
 | Health | `GET /api/v1/health/` |
 | Service info | `GET /api/v1/info/` |
 
@@ -654,7 +678,7 @@ LOOK observes; OPAL-EVENT handles enabled actions and integrations. Publication 
 
 ### Live streams and the browser
 
-The SPA is available at **`/app/`**. It exposes sources, pipelines, analysis, viewing, monitors, media, jobs, recordings, configuration, and diagnostics through REST.
+The SPA is available at **`/app/`**. It exposes sources, pipelines, analysis, viewing, monitors, media, jobs, recordings, backup, and diagnostics through REST.
 
 The **REST MJPEG implementation** and **SPA viewer** are not equally mature: the current SPA assembles arbitrary network chunks into JPEG blobs rather than correctly parsing multipart frame boundaries, and its stream cancellation needs work. Until corrected, test live video with a proper MJPEG-aware viewer or client. The CLI stream path also needs the HTTPX fix documented above.
 
@@ -675,9 +699,9 @@ Start on loopback. For network access, add suitable authentication, TLS at a rev
 **A GPU is optional for the API and synthetic engine.** For small edge devices, reduce FPS, resolution, active viewers, and retention before trying a large model:
 
 ~~~bash
-opal-look-cli settings set max_preview_fps 2
-opal-look-cli settings set max_viewers 2
-opal-look-cli settings set max_monitors 1
+opal-look-cli config setting set max_preview_fps 2
+opal-look-cli config setting set max_viewers 2
+opal-look-cli config setting set max_monitors 1
 ~~~
 
 Be aware that viewing, recording, and monitoring can currently open independent capture connections to the same camera, which increases CPU and bandwidth use. Design for modest hardware first; scale up when actual measurement justifies it.
@@ -708,7 +732,7 @@ These are honest distinctions between an implemented REST surface and an end-to-
 | Clean CI | Latest verified main run was blocked by missing `PyYAML` dependency |
 | Full OpenAPI compliance | Route presence alone doesn't prove schema or runtime compliance |
 
-The pinned REST contract is **v1.6.0** (`openapi/opal_look_v1.6.0.yaml` + kernel 1.6.0); the service reports `contract_version: "1.6.0"`. The [v1.6 ledger](specs/OPAL_LOOK_V1_6_LEDGER.md) describes the current revision; the [v1.5 notes](specs/OPAL_LOOK_V1_5_MIGRATION.md) and [ledger](specs/OPAL_LOOK_V1_5_LEDGER.md) document the previous migration.
+The pinned REST contract is **v1.7.1** (`openapi/opal_look_v1.7.1.yaml` + kernel 1.7.1); the service reports `contract_version: "1.7.1"`. The [v1.7.1 ledger](specs/OPAL_LOOK_V1_7_LEDGER.md) describes the current revision.
 
 ---
 

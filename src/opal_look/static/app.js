@@ -192,11 +192,16 @@ const SCREENS = {
   async settings(el) {
     el.innerHTML = await _list("Settings", "/api/v1/setting/");
   },
-  async config(el) {
-    el.innerHTML = `<h3>Configuration</h3>
+  async backup(el) {
+    el.innerHTML = `<h3>Backup</h3>
       <button onclick="exportCfg()">export</button>
       <button onclick="validateCfg()">validate</button>
       <button onclick="importCfg()">import</button>
+      <button onclick="createBackup()">create</button>
+      <button onclick="listBackups()">list</button>
+      <button onclick="downloadBackup()">download</button>
+      <button onclick="restoreBackup()">restore</button>
+      <button onclick="deleteBackup()">remove</button>
       <pre id="cfg-out"></pre>`;
   },
   async ops(el) {
@@ -322,17 +327,38 @@ async function uploadMedia() {
   if (resp.ok) render("media"); else await _raise(resp);
 }
 async function exportCfg() {
-  $("#cfg-out").textContent = JSON.stringify(await api("GET", "/api/v1/configuration/export"), null, 2);
+  $("#cfg-out").textContent = JSON.stringify(await api("GET", "/api/v1/backup/export"), null, 2);
 }
 async function validateCfg() {
-  const j = prompt("PortableConfiguration JSON:");
+  const j = prompt("OpalConfigExport JSON:");
   if (j) $("#cfg-out").textContent = JSON.stringify(
-    await api("POST", "/api/v1/configuration/validate", { body: JSON.parse(j) }), null, 2);
+    await api("POST", "/api/v1/backup/validate", { body: JSON.parse(j) }), null, 2);
 }
 async function importCfg() {
-  const j = prompt("ConfigurationImport JSON:");
+  const j = prompt("OpalConfigExport JSON:");
   if (j) $("#cfg-out").textContent = JSON.stringify(
-    await mutate("POST", "/api/v1/configuration/import", JSON.parse(j)), null, 2);
+    await mutate("POST", "/api/v1/backup/import", JSON.parse(j)), null, 2);
+}
+async function createBackup() {
+  $("#cfg-out").textContent = JSON.stringify(
+    await api("POST", "/api/v1/backup/create"), null, 2);
+}
+async function listBackups() {
+  $("#cfg-out").textContent = JSON.stringify(
+    await api("GET", "/api/v1/backup/list"), null, 2);
+}
+async function downloadBackup() {
+  const name = prompt("Backup filename:");
+  if (name) window.open(`/api/v1/backup/download/${name}`, "_blank");
+}
+async function restoreBackup() {
+  const name = prompt("Backup filename to restore:");
+  if (name) $("#cfg-out").textContent = JSON.stringify(
+    await mutate("POST", `/api/v1/backup/restore/${name}`), null, 2);
+}
+async function deleteBackup() {
+  const name = prompt("Backup filename to remove:");
+  if (name) { await api("DELETE", `/api/v1/backup/${name}`); render("backup"); }
 }
 async function showCaps() {
   $("#ops-out").textContent = JSON.stringify(await api("GET", "/api/v1/capabilities/"), null, 2);
@@ -349,7 +375,7 @@ async function pingInfo() {
 const GROUPS = ["dashboard", "sources", "zones", "rules", "profiles",
                 "personas", "sessions", "pipelines", "analyze", "view",
                 "monitors", "observations", "media", "captures", "artifacts",
-                "jobs", "recordings", "settings", "config", "ops"];
+                "jobs", "recordings", "settings", "backup", "ops"];
 GROUPS.forEach(id => {
   const b = document.createElement("button");
   b.textContent = id; b.onclick = () => render(id);

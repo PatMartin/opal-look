@@ -106,7 +106,8 @@ under `vendor/opal-api/`.
 | jobs (submit/list/show/cancel, idempotency-key admission) | verified |
 | monitors (CRUD, durable workers, rule evaluation, SSE) | verified |
 | recordings (start/list/show/stop, artifact on finalize) | verified |
-| configuration (export/validate/import, personas section) | verified |
+| backup (export/validate/import + managed create/list/download/restore/delete, personas section) | verified |
+| service (pidfile-managed start/stop/log; restart via OPAL_LOOK_WAIT_PID) | verified |
 | metrics + events status | verified |
 | SSE session stream (heartbeat), MJPEG preview, source MJPEG view | verified |
 | event bus (pyzmq PUSH two-frame, allowlist+rate+drop counters) | verified |

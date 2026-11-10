@@ -105,7 +105,7 @@ def test_token_never_echoed(authed):
 
 
 def test_exports_and_diagnostics_contain_no_token(authed):
-    export = authed.get("/api/v1/configuration/export", headers=AUTH)
+    export = authed.get("/api/v1/backup/export", headers=AUTH)
     assert export.status_code == 200
     assert TOKEN not in export.text
     health = authed.get("/api/v1/health/", headers=AUTH)

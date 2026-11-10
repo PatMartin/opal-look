@@ -1,33 +1,39 @@
-"""opal-look: thin REST client mirroring the v1.6 contract.
+"""opal-look: thin REST client mirroring the v1.7.1 contract.
 
-Group/verb layout follows the contract's x-opal-cli metadata:
-add/remove/update/list/show plus operational verbs (view, observe,
-stream, capture, probe, validate, frame, run, image, submit, cancel,
-start, stop, download, export, import, status, live, ready, show).
-All logic lives server-side; this client only issues HTTP calls and
-honestly surfaces streaming/bearer limits.
+Group/verb layout follows the contract's x-opal-cli metadata: canonical
+`opal look [parent] [group] <command>` spellings — `config` parents the
+configuration resources (model/pipeline/profile/zone/rule/monitor/
+setting/persona), `data` parents the runtime data resources
+(job/observation/media/capture/artifact/recording), and `engine`,
+`source`, `session`, `analyze`, `backup`, `service`, `info` sit at top
+level. Contract aliases (`settings patch`, `settings reset`) dispatch to
+the canonical `config setting` verbs. All logic lives server-side; this
+client only issues HTTP calls and honestly surfaces streaming/bearer
+limits. `service` falls back to local pidfile control when the API is
+unreachable — a dead server cannot answer REST.
 """
 
 from __future__ import annotations
 
 import json
 import os
-import subprocess
-import sys
 from pathlib import Path
 from typing import Optional
 
+import httpx
 import typer
 
 from .client import ApiClient, unwrap
 
 app = typer.Typer(
-    help="OPAL Look v1.6 REST CLI (thin client; no business logic).",
+    help="OPAL Look v1.7.1 REST CLI (thin client; no business logic).",
     epilog=(
         "Examples:\n"
-        "  opal-look health show\n"
-        "  opal-look --json engines list\n"
-        "  opal-look --url http://host:8000 sources list\n"
+        "  opal-look info health\n"
+        "  opal-look --json engine list\n"
+        "  opal-look --url http://host:8000 source list\n"
+        "  opal-look config model list\n"
+        "  opal-look data job list\n"
         "  opal-look tree                    # print the full command tree"),
 )
 
@@ -65,12 +71,17 @@ def _body(json_body: Optional[str], file: Optional[Path]) -> dict | None:
     return None
 
 
+def _query(**params) -> str:
+    pairs = [(k, v) for k, v in params.items() if v is not None]
+    return ("?" + "&".join(f"{k}={v}" for k, v in pairs)) if pairs else ""
+
+
 def _crud(name: str, base: str, epilog: str | None = None) -> typer.Typer:
     sub = typer.Typer(help=name, epilog=epilog)
 
     @sub.command("list")
-    def _list():
-        _emit(unwrap(_client().get(base)))
+    def _list(limit: int = typer.Option(None, "--limit")):
+        _emit(unwrap(_client().get(base + _query(limit=limit))))
 
     @sub.command("show")
     def _show(resource_id: str):
@@ -122,47 +133,44 @@ def _post_action(path: str, json_data=None) -> None:
     _emit(unwrap(_client().request("POST", path, json=json_data)))
 
 
-# -- CRUD resources -------------------------------------------------------------
-app.add_typer(
-    _crud("engines", "/api/v1/engine/", epilog=(
-        "Examples:\n"
-        "  opal-look engines list\n"
-        "  opal-look engines show ENGINE_ID")),
-    name="engines")
-app.add_typer(
-    _crud("models", "/api/v1/model/", epilog=(
-        "Examples:\n"
-        "  opal-look models list\n"
-        "  opal-look models show synthetic-vision")),
-    name="models")
-_pipes = _crud("pipelines", "/api/v1/pipeline/", epilog=(
-    "Examples:\n"
-    "  opal-look pipelines list\n"
-    "  opal-look pipelines add --file pipeline.json\n"
-    "  opal-look pipelines validate --file pipeline.json\n"
-    "  opal-look pipelines update PIPELINE_ID --file changes.json"))
-_mons = _crud("monitors", "/api/v1/monitor/", epilog=(
-    "Examples:\n"
-    "  opal-look monitors add --file monitor.json\n"
-    "  opal-look monitors stream MONITOR_ID    # tail SSE observations"))
-app.add_typer(_pipes, name="pipelines")
-app.add_typer(_mons, name="monitors")
-app.add_typer(
-    _crud("observations", "/api/v1/observation/", epilog=(
-        "Examples:\n"
-        "  opal-look observations list\n"
-        "  opal-look observations show OBSERVATION_ID")),
-    name="observations")
+# -- engine (installed adapters: list/show/update only) ------------------------
 
-src = _crud("sources", "/api/v1/source/", epilog=(
+engine = typer.Typer(help="engine", epilog=(
     "Examples:\n"
-    "  opal-look sources add --file camera.json\n"
-    "  opal-look sources status SOURCE_ID\n"
-    "  opal-look sources probe SOURCE_ID\n"
-    "  opal-look sources frame SOURCE_ID --out frame.jpg\n"
-    "  opal-look sources view SOURCE_ID --out clip.mjpeg\n"
-    "  opal-look sources observe SOURCE_ID     # tail SSE observations\n"
-    "  opal-look sources capture SOURCE_ID --annotated"))
+    "  opal-look engine list\n"
+    "  opal-look engine show synthetic"))
+
+
+@engine.command("list")
+def _engine_list():
+    _emit(unwrap(_client().get("/api/v1/engine/")))
+
+
+@engine.command("show")
+def _engine_show(engine_id: str):
+    _emit(unwrap(_client().get(f"/api/v1/engine/{engine_id}")))
+
+
+@engine.command("update")
+def _engine_update(engine_id: str, body: str = typer.Option(None, "--body"),
+                   file: Path = typer.Option(None, "--file")):
+    _emit(unwrap(_client().mutate(
+        "PATCH", f"/api/v1/engine/{engine_id}",
+        etag_path=f"/api/v1/engine/{engine_id}", json=_body(body, file))))
+
+
+app.add_typer(engine, name="engine")
+
+# -- source ---------------------------------------------------------------------
+
+src = _crud("source", "/api/v1/source/", epilog=(
+    "Examples:\n"
+    "  opal-look source add --file camera.json\n"
+    "  opal-look source status SOURCE_ID\n"
+    "  opal-look source probe SOURCE_ID\n"
+    "  opal-look source frame SOURCE_ID --out frame.jpg\n"
+    "  opal-look source stream SOURCE_ID --out clip.mjpeg\n"
+    "  opal-look source capture SOURCE_ID --annotate"))
 
 
 @src.command("status")
@@ -182,10 +190,10 @@ def _src_frame(source_id: str, out: Path = typer.Option(Path("frame.jpg"), "--ou
     typer.echo(str(out))
 
 
-@src.command("view")
-def _src_view(source_id: str, out: Path = typer.Option(None, "--out"),
-              max_bytes: int = typer.Option(5_000_000, "--max-bytes"),
-              pipeline_id: str = typer.Option(None, "--pipeline")):
+@src.command("stream")
+def _src_stream(source_id: str, out: Path = typer.Option(None, "--out"),
+                max_bytes: int = typer.Option(5_000_000, "--max-bytes"),
+                pipeline_id: str = typer.Option(None, "--pipeline")):
     q = f"?pipeline_id={pipeline_id}" if pipeline_id else ""
     _stream_get(f"/api/v1/source/{source_id}/stream{q}", out, max_bytes)
 
@@ -207,14 +215,59 @@ def _src_capture(source_id: str,
         "POST", f"/api/v1/source/{source_id}/capture/", json=body)))
 
 
-app.add_typer(src, name="sources")
+app.add_typer(src, name="source")
 
-@_pipes.command("validate")
-def _pipe_validate(body: str = typer.Option(None, "--body"),
-                   file: Path = typer.Option(None, "--file")):
-    _emit(unwrap(_client().request("POST", "/api/v1/pipeline/validate",
-                                   json=_body(body, file))))
+# -- session --------------------------------------------------------------------
 
+session = typer.Typer(help="session", epilog=(
+    "Examples:\n"
+    "  opal-look session start --body "
+    "'{\"source_id\":\"cam\",\"pipeline_id\":\"p1\"}'\n"
+    "  opal-look session list\n"
+    "  opal-look session preview SESSION_ID --out view.mjpeg"))
+
+
+@session.command("start")
+def _sess_start(body: str = typer.Option(None, "--body"),
+                file: Path = typer.Option(None, "--file")):
+    _emit(unwrap(_client().mutate("POST", "/api/v1/session/",
+                                  json=_body(body, file))))
+
+
+@session.command("list")
+def _sess_list(state: str = typer.Option(None, "--state"),
+               source_id: str = typer.Option(None, "--source"),
+               limit: int = typer.Option(None, "--limit")):
+    _emit(unwrap(_client().get("/api/v1/session/" + _query(
+        state=state, source_id=source_id, limit=limit))))
+
+
+@session.command("show")
+def _sess_show(session_id: str):
+    _emit(unwrap(_client().get(f"/api/v1/session/{session_id}")))
+
+
+@session.command("stop")
+def _sess_stop(session_id: str):
+    _emit(unwrap(_client().request(
+        "POST", f"/api/v1/session/{session_id}/stop")))
+
+
+@session.command("stream")
+def _sess_stream(session_id: str):
+    _stream_get(f"/api/v1/session/{session_id}/stream", None, 0, sse=True)
+
+
+@session.command("preview")
+def _sess_preview(session_id: str,
+                  out: Path = typer.Option(None, "--out"),
+                  max_bytes: int = typer.Option(5_000_000, "--max-bytes")):
+    _stream_get(f"/api/v1/session/{session_id}/preview", out, max_bytes)
+
+
+app.add_typer(session, name="session")
+
+# -- analyze --------------------------------------------------------------------
 
 analyze = typer.Typer(help="analyze", epilog=(
     "Examples:\n"
@@ -243,339 +296,283 @@ def _analyze_image(file: Path,
 
 app.add_typer(analyze, name="analyze")
 
-jobs = _crud("jobs", "/api/v1/job/", epilog=(
+# -- info -----------------------------------------------------------------------
+
+info = typer.Typer(help="info", epilog=(
     "Examples:\n"
-    "  opal-look jobs submit --file job.json --idempotency-key run-001\n"
-    "  opal-look jobs list\n"
-    "  opal-look jobs cancel JOB_ID"))
+    "  opal-look info health\n"
+    "  opal-look info version\n"
+    "  opal-look info ping\n"
+    "  opal-look info metrics"))
 
+info.command("health")(lambda: _emit(unwrap(_client().get("/api/v1/health/"))))
+info.command("live")(lambda: _emit(unwrap(_client().get("/api/v1/health/live"))))
+info.command("ready")(lambda: _emit(unwrap(_client().get("/api/v1/health/ready"))))
+info.command("version")(lambda: _emit(unwrap(_client().get("/api/v1/info/"))))
+info.command("ping")(lambda: _emit(unwrap(_client().get("/api/v1/info/ping"))))
+info.command("capabilities")(
+    lambda: _emit(unwrap(_client().get("/api/v1/capabilities/"))))
+info.command("metrics")(lambda: _emit(unwrap(_client().get("/api/v1/metrics/"))))
+info.command("events")(
+    lambda: _emit(unwrap(_client().get("/api/v1/events/status"))))
+app.add_typer(info, name="info")
 
-@jobs.command("submit")
-def _job_submit(body: str = typer.Option(None, "--body"),
-                file: Path = typer.Option(None, "--file"),
-                idempotency_key: str = typer.Option(None, "--idempotency-key")):
-    headers = {"Idempotency-Key": idempotency_key} if idempotency_key else None
-    _emit(unwrap(_client().request("POST", "/api/v1/job/",
-                                   json=_body(body, file), headers=headers)))
+# -- backup ---------------------------------------------------------------------
 
-
-@jobs.command("cancel")
-def _job_cancel(job_id: str):
-    _post_action(f"/api/v1/job/{job_id}/cancel")
-
-
-app.add_typer(jobs, name="jobs")
-
-med = _crud("media", "/api/v1/media/", epilog=(
+backup = typer.Typer(help="backup", epilog=(
     "Examples:\n"
-    "  opal-look media upload frame.jpg --ttl 3600\n"
-    "  opal-look media list\n"
-    "  opal-look media download MEDIA_ID --out frame.jpg"))
+    "  opal-look backup export\n"
+    "  opal-look backup validate --file bundle.json\n"
+    "  opal-look backup import --file bundle.json\n"
+    "  opal-look backup create\n"
+    "  opal-look backup download opal-look-20260101T000000Z.json\n"
+    "  opal-look backup restore opal-look-20260101T000000Z.json"))
 
 
-@med.command("upload")
-def _media_upload(file: Path, ttl_seconds: int = typer.Option(None, "--ttl")):
-    data = {"ttl_seconds": ttl_seconds} if ttl_seconds else None
-    with open(file, "rb") as fh:
-        _emit(unwrap(_client().request("POST", "/api/v1/media/",
-                                       files={"file": (file.name, fh)},
-                                       data=data)))
+@backup.command("list")
+def _backup_list():
+    _emit(unwrap(_client().get("/api/v1/backup/list")))
 
 
-app.add_typer(med, name="media")
-
-rec = _crud("recordings", "/api/v1/recording/", epilog=(
-    "Examples:\n"
-    "  opal-look recordings start --source SOURCE_ID --duration 30\n"
-    "  opal-look recordings stop RECORDING_ID\n"
-    "  opal-look recordings list"))
+@backup.command("create")
+def _backup_create():
+    _emit(unwrap(_client().request("POST", "/api/v1/backup/create")))
 
 
-@rec.command("start")
-def _rec_start(source_id: str = typer.Option(..., "--source"),
-               pipeline_id: str = typer.Option(None, "--pipeline"),
-               max_duration_seconds: int = typer.Option(None, "--duration")):
-    body = {"source_id": source_id}
-    if pipeline_id:
-        body["pipeline_id"] = pipeline_id
-    if max_duration_seconds:
-        body["max_duration_seconds"] = max_duration_seconds
-    _emit(unwrap(_client().mutate("POST", "/api/v1/recording/", json=body)))
+@backup.command("download")
+def _backup_download(
+        filename: str,
+        out: Path = typer.Option(None, "--out")):
+    data = unwrap(_client().get(f"/api/v1/backup/download/{filename}"))
+    target = Path(out or filename)
+    target.write_bytes(data)
+    typer.echo(str(target))
 
 
-@rec.command("stop")
-def _rec_stop(recording_id: str):
+@backup.command("restore")
+def _backup_restore(filename: str):
+    _emit(unwrap(_client().mutate(
+        "POST", f"/api/v1/backup/restore/{filename}")))
+
+
+@backup.command("remove")
+def _backup_remove(filename: str):
     _emit(unwrap(_client().request(
-        "POST", f"/api/v1/recording/{recording_id}/stop")))
+        "DELETE", f"/api/v1/backup/{filename}")))
 
 
-app.add_typer(rec, name="recordings")
-
-settings = _crud("settings", "/api/v1/setting/", epilog=(
-    "Examples:\n"
-    "  opal-look settings list\n"
-    "  opal-look settings show max_upload_bytes\n"
-    "  opal-look settings set max_viewers 4\n"
-    "  opal-look settings reset max_viewers"))
-
-
-@settings.command("set")
-def _settings_set(key: str, value: str):
-    _emit(unwrap(_client().mutate("PUT", f"/api/v1/setting/{key}",
-                                  json={"value": json.loads(value)})))
-
-
-@settings.command("reset")
-def _settings_reset(key: str):
-    _emit(unwrap(_client().mutate("DELETE", f"/api/v1/setting/{key}")))
-
-
-app.add_typer(settings, name="settings")
-
-config = typer.Typer(help="configuration", epilog=(
-    "Examples:\n"
-    "  opal-look configuration export\n"
-    "  opal-look configuration validate --file config.json\n"
-    "  opal-look configuration import --file config.json "
-    "--bindings bindings.json"))
-
-
-@config.command("export")
-def _cfg_export():
+@backup.command("export")
+def _backup_export():
     _emit(unwrap(_client().get("/api/v1/backup/export")))
 
 
-@config.command("validate")
-def _cfg_validate(file: Path = typer.Option(..., "--file")):
-    _emit(unwrap(_client().request("POST", "/api/v1/backup/validate",
-                                   json=json.loads(Path(file).read_text()))))
-
-
-@config.command("import")
-def _cfg_import(file: Path = typer.Option(..., "--file"),
-                bindings: Path = typer.Option(None, "--bindings")):
-    body = {"configuration": json.loads(Path(file).read_text())}
-    if bindings:
-        body["source_bindings"] = json.loads(Path(bindings).read_text())
+@backup.command("import")
+def _backup_import(file: Path = typer.Option(None, "--file"),
+                   body: str = typer.Option(None, "--body"),
+                   bindings: Path = typer.Option(None, "--bindings")):
+    """--file/--body supply the OpalConfigExport bundle; omitting both sends
+    a null body (import the provisioned ./config/ file set)."""
+    payload = _body(body, file)
+    if payload is not None or bindings:
+        payload = {"configuration": payload or {}}
+        if bindings:
+            payload["source_bindings"] = json.loads(
+                Path(bindings).read_text())
     _emit(unwrap(_client().mutate("POST", "/api/v1/backup/import",
-                                  json=body)))
+                                  json=payload)))
 
 
-app.add_typer(config, name="configuration")
+@backup.command("validate")
+def _backup_validate(body: str = typer.Option(None, "--body"),
+                     file: Path = typer.Option(None, "--file")):
+    _emit(unwrap(_client().request("POST", "/api/v1/backup/validate",
+                                   json=_body(body, file))))
 
-health = typer.Typer(help="health", epilog=(
+
+app.add_typer(backup, name="backup")
+
+# -- service (REST first; local pidfile fallback when unreachable) --------------
+
+service = typer.Typer(help="service", epilog=(
     "Examples:\n"
-    "  opal-look info health show\n"
-    "  opal-look info health live\n"
-    "  opal-look info health ready"))
-health.command("show")(lambda: _emit(unwrap(_client().get("/api/v1/health/"))))
-health.command("live")(lambda: _emit(unwrap(_client().get("/api/v1/health/live"))))
-health.command("ready")(lambda: _emit(unwrap(_client().get("/api/v1/health/ready"))))
+    "  opal-look service start\n"
+    "  opal-look service stop\n"
+    "  opal-look service log --lines 20\n"
+    "\n"
+    "Calls the REST /service/ ops when the API answers; falls back to the\n"
+    "local pidfile/logs when the server is unreachable (e.g. cold start)."))
 
-metrics = typer.Typer(help="metrics", epilog=(
+
+def _try_rest(fn):
+    """REST call; None when the server cannot be reached at all."""
+    try:
+        return fn()
+    except (httpx.ConnectError, httpx.ConnectTimeout):
+        return None
+
+
+def _service_control():
+    from opal_look import service_control
+    return service_control
+
+
+@service.command("start")
+def _svc_start(
+        append: bool = typer.Option(False, "--append",
+                                    help="Append to the service log."),
+        port: int = typer.Option(None, "--port"),
+        host: str = typer.Option(None, "--host"),
+        data_dir: str = typer.Option(None, "--data-dir")):
+    """Start the managed server (restart when one is already running)."""
+    resp = _try_rest(lambda: _client().request(
+        "POST", "/api/v1/service/start", json={"append": append}))
+    if resp is not None:
+        _emit(unwrap(resp))
+        return
+    # Local fallback: the server is down — spawn it directly.
+    sc = _service_control()
+    env_extra = {}
+    if port is not None:
+        env_extra["OPAL_LOOK_PORT"] = str(port)
+    if host is not None:
+        env_extra["OPAL_LOOK_HOST"] = host
+    if data_dir is not None:
+        env_extra["OPAL_LOOK_DATA_DIR"] = data_dir
+    managed = sc.read_pid()
+    if managed is not None and sc.pid_alive(managed):
+        sc.kill_pid(managed)
+        typer.echo(f"killed running server (pid {managed})")
+    sc.pid_path().unlink(missing_ok=True)
+    pid = sc.spawn_server(append=append, wait_pid=managed,
+                          env_extra=env_extra or None)
+    typer.echo(f"started opal-look (pid {pid}); output -> {sc.log_path()}")
+
+
+@service.command("stop")
+def _svc_stop():
+    """Stop the managed server; not an error when none is running."""
+    resp = _try_rest(lambda: _client().request("POST", "/api/v1/service/stop"))
+    if resp is not None:
+        _emit(unwrap(resp))
+        return
+    sc = _service_control()
+    pid = sc.read_pid()
+    if pid is None or not sc.pid_alive(pid):
+        sc.pid_path().unlink(missing_ok=True)
+        typer.echo("no server running")
+        return
+    sc.kill_pid(pid)
+    sc.pid_path().unlink(missing_ok=True)
+    typer.echo(f"stopped opal-look (pid {pid})")
+
+
+@service.command("log")
+def _svc_log(lines: int = typer.Option(10, "--lines")):
+    """Tail the service log (default 10 lines)."""
+    resp = _try_rest(lambda: _client().get(
+        "/api/v1/service/log", params={"lines": lines}))
+    if resp is not None:
+        data = unwrap(resp)
+        if _state["json_out"]:
+            _emit(data)
+        else:
+            for line in data.get("lines", []):
+                typer.echo(line)
+        return
+    sc = _service_control()
+    tail = sc.tail_log(lines)
+    if tail is None:
+        raise SystemExit(f"no log file at {sc.log_path()}")
+    for line in tail:
+        typer.echo(line)
+
+
+app.add_typer(service, name="service")
+
+# -- config parent group --------------------------------------------------------
+
+config = typer.Typer(help="config", epilog=(
     "Examples:\n"
-    "  opal-look metrics show"))
-metrics.command("show")(lambda: _emit(unwrap(_client().get("/api/v1/metrics/"))))
-app.add_typer(metrics, name="metrics")
+    "  opal-look config model list\n"
+    "  opal-look config pipeline add --file pipeline.json\n"
+    "  opal-look config setting list\n"
+    "  opal-look config persona add --body '{\"persona_id\":\"amy\",\"name\":\"Amy\"}'"))
 
-events = typer.Typer(help="events", epilog=(
+config.add_typer(_crud("model", "/api/v1/model/"), name="model")
+
+_pipes = _crud("pipeline", "/api/v1/pipeline/", epilog=(
     "Examples:\n"
-    "  opal-look events status"))
-events.command("status")(lambda: _emit(unwrap(_client().get("/api/v1/events/status"))))
-app.add_typer(events, name="events")
-
-caps = typer.Typer(help="capabilities", epilog=(
-    "Examples:\n"
-    "  opal-look capabilities show"))
-caps.command("show")(lambda: _emit(unwrap(_client().get("/api/v1/capabilities/"))))
-app.add_typer(caps, name="capabilities")
+    "  opal-look config pipeline validate --file pipeline.json"))
 
 
-# -- v1.5 upstream resources ------------------------------------------------
-
-sessions = typer.Typer(help="sessions", epilog=(
-    "Examples:\n"
-    "  opal-look sessions start --body "
-    "'{\"source_id\":\"cam\",\"pipeline_id\":\"p1\"}'\n"
-    "  opal-look sessions list\n"
-    "  opal-look sessions show SESSION_ID\n"
-    "  opal-look sessions preview SESSION_ID --out view.mjpeg"))
+@_pipes.command("validate")
+def _pipe_validate(body: str = typer.Option(None, "--body"),
+                   file: Path = typer.Option(None, "--file")):
+    _emit(unwrap(_client().request("POST", "/api/v1/pipeline/validate",
+                                   json=_body(body, file))))
 
 
-@sessions.command("start")
-def _sess_start(body: str = typer.Option(None, "--body"),
-                file: Path = typer.Option(None, "--file")):
-    _emit(unwrap(_client().mutate("POST", "/api/v1/session/",
-                                  json=_body(body, file))))
+config.add_typer(_pipes, name="pipeline")
+
+_profs = _crud("profile", "/api/v1/profile/")
 
 
-@sessions.command("list")
-def _sess_list():
-    _emit(unwrap(_client().get("/api/v1/session/")))
-
-
-@sessions.command("show")
-def _sess_show(session_id: str):
-    _emit(unwrap(_client().get(f"/api/v1/session/{session_id}")))
-
-
-@sessions.command("stop")
-def _sess_stop(session_id: str):
-    _emit(unwrap(_client().request(
-        "POST", f"/api/v1/session/{session_id}/stop")))
-
-
-@sessions.command("stream")
-def _sess_stream(session_id: str):
-    _stream_get(f"/api/v1/session/{session_id}/stream", None, 0, sse=True)
-
-
-@sessions.command("preview")
-def _sess_preview(session_id: str,
-                  out: Path = typer.Option(None, "--out"),
-                  max_bytes: int = typer.Option(5_000_000, "--max-bytes")):
-    _stream_get(f"/api/v1/session/{session_id}/preview", out, max_bytes)
-
-
-app.add_typer(sessions, name="sessions")
-
-profiles = _crud("profiles", "/api/v1/profile/", epilog=(
-    "Examples:\n"
-    "  opal-look profiles add --body '{\"name\":\"night\",\"pipeline_id\":\"p1\"}'\n"
-    "  opal-look profiles activate PROFILE_ID\n"
-    "  opal-look profiles list"))
-
-
-@profiles.command("activate")
+@_profs.command("activate")
 def _prof_activate(profile_id: str):
     _emit(unwrap(_client().mutate(
         "POST", f"/api/v1/profile/{profile_id}/activate")))
 
 
-app.add_typer(profiles, name="profiles")
+config.add_typer(_profs, name="profile")
+config.add_typer(_crud("zone", "/api/v1/zone/"), name="zone")
+config.add_typer(_crud("rule", "/api/v1/rule/"), name="rule")
+config.add_typer(_crud("monitor", "/api/v1/monitor/"), name="monitor")
 
-app.add_typer(
-    _crud("rules", "/api/v1/rule/", epilog=(
-        "Examples:\n"
-        "  opal-look rules add --body "
-        "'{\"id\":\"r1\",\"name\":\"R\",\"source_id\":\"cam\",\"kind\":\"enters_zone\",\"zone_id\":\"z1\"}'\n"
-        "  opal-look rules list\n"
-        "  opal-look rules show r1")),
-    name="rules")
-
-app.add_typer(
-    _crud("zones", "/api/v1/zone/", epilog=(
-        "Examples:\n"
-        "  opal-look zones add --body "
-        "'{\"id\":\"z1\",\"source_id\":\"cam\",\"name\":\"Z\",\"kind\":\"polygon\",\"points\":[{\"x\":0,\"y\":0},{\"x\":1,\"y\":0},{\"x\":1,\"y\":1}]}'\n"
-        "  opal-look zones list\n"
-        "  opal-look zones show z1")),
-    name="zones")
-
-captures = typer.Typer(help="captures", epilog=(
+setting = typer.Typer(help="setting", epilog=(
     "Examples:\n"
-    "  opal-look captures list\n"
-    "  opal-look captures show CAPTURE_ID\n"
-    "  opal-look captures download CAPTURE_ID --out cap.jpg"))
+    "  opal-look config setting list\n"
+    "  opal-look config setting update --body '{\"max_viewers\": 4}'\n"
+    "  opal-look config setting set max_viewers 4\n"
+    "  opal-look config setting remove max_viewers"))
 
 
-@captures.command("list")
-def _cap_list(source_id: str = typer.Option(None, "--source")):
-    q = f"?source_id={source_id}" if source_id else ""
-    _emit(unwrap(_client().get(f"/api/v1/capture/{q}")))
+@setting.command("list")
+def _setting_list():
+    _emit(unwrap(_client().get("/api/v1/setting/")))
 
 
-@captures.command("show")
-def _cap_show(capture_id: str):
-    _emit(unwrap(_client().get(f"/api/v1/capture/{capture_id}")))
+@setting.command("show")
+def _setting_show(key: str):
+    _emit(unwrap(_client().get(f"/api/v1/setting/{key}")))
 
 
-@captures.command("remove")
-def _cap_remove(capture_id: str):
-    _emit(unwrap(_client().mutate(
-        "DELETE", f"/api/v1/capture/{capture_id}")))
+@setting.command("update")
+def _setting_update(body: str = typer.Option(None, "--body"),
+                    file: Path = typer.Option(None, "--file")):
+    """Atomic whole-map PATCH of the settings map."""
+    _emit(unwrap(_client().mutate("PATCH", "/api/v1/setting/",
+                                  json=_body(body, file))))
 
 
-@captures.command("download")
-def _cap_download(capture_id: str,
-                  out: Path = typer.Option(Path("capture.jpg"), "--out")):
-    resp = unwrap(_client().request(
-        "GET", f"/api/v1/capture/{capture_id}/content"))
-    Path(out).write_bytes(resp)
-    typer.echo(str(out))
+@setting.command("set")
+def _setting_set(key: str, value: str):
+    _emit(unwrap(_client().mutate("PUT", f"/api/v1/setting/{key}",
+                                  json={"value": json.loads(value)})))
 
 
-app.add_typer(captures, name="captures")
-
-artifacts = typer.Typer(help="artifacts", epilog=(
-    "Examples:\n"
-    "  opal-look artifacts list\n"
-    "  opal-look artifacts show ARTIFACT_ID\n"
-    "  opal-look artifacts download ARTIFACT_ID --out video.mjpeg"))
+@setting.command("remove")
+def _setting_remove(key: str):
+    _emit(unwrap(_client().mutate("DELETE", f"/api/v1/setting/{key}")))
 
 
-@artifacts.command("list")
-def _art_list(kind: str = typer.Option(None, "--kind"),
-              job_id: str = typer.Option(None, "--job")):
-    q = "&".join(f"{k}={v}" for k, v in
-                 (("kind", kind), ("job_id", job_id)) if v)
-    _emit(unwrap(_client().get(f"/api/v1/artifact/{'?' + q if q else ''}")))
-
-
-@artifacts.command("show")
-def _art_show(artifact_id: str):
-    _emit(unwrap(_client().get(f"/api/v1/artifact/{artifact_id}")))
-
-
-@artifacts.command("remove")
-def _art_remove(artifact_id: str):
-    _emit(unwrap(_client().request(
-        "DELETE", f"/api/v1/artifact/{artifact_id}")))
-
-
-@artifacts.command("download")
-def _art_download(artifact_id: str,
-                  out: Path = typer.Option(Path("artifact.bin"), "--out")):
-    resp = unwrap(_client().request(
-        "GET", f"/api/v1/artifact/{artifact_id}/content"))
-    Path(out).write_bytes(resp)
-    typer.echo(str(out))
-
-
-app.add_typer(artifacts, name="artifacts")
-
-output = typer.Typer(help="common output retrieval", epilog=(
-    "Examples:\n"
-    "  opal-look output fetch /api/v1/capture/cap-0123/content --out frame.jpg\n"
-    "  opal-look output fetch /api/v1/artifact/art-abc/content --out clip.mjpeg\n"
-    "\n"
-    "The content_url comes from `output_ref` (captures), `artifact_ref`\n"
-    "(recordings) or `output_refs` (jobs) in show/list output."))
-
-
-@output.command("fetch")
-def _output_fetch(content_url: str,
-                  out: Path = typer.Option(Path("output.bin"), "--out")):
-    """Download output bytes from an output_ref content_url."""
-    if not (content_url.startswith("/api/v1/capture/")
-            or content_url.startswith("/api/v1/artifact/")) \
-            or not content_url.endswith("/content"):
-        raise SystemExit(
-            "expected a content_url like /api/v1/capture/<id>/content "
-            "or /api/v1/artifact/<id>/content")
-    resp = unwrap(_client().request("GET", content_url))
-    Path(out).write_bytes(resp)
-    typer.echo(str(out))
-
-
-app.add_typer(output, name="output")
+config.add_typer(setting, name="setting")
 
 persona = typer.Typer(help="persona", epilog=(
     "Examples:\n"
-    "  opal-look persona list\n"
-    "  opal-look persona add --body '{\"persona_id\":\"amy\",\"name\":\"Amy\"}'\n"
-    "  opal-look persona update amy --body '{\"voice_id\":\"en-gb-alan-low\"}'\n"
-    "  opal-look persona validate amy"))
+    "  opal-look config persona list\n"
+    "  opal-look config persona add --body '{\"persona_id\":\"amy\",\"name\":\"Amy\"}'\n"
+    "  opal-look config persona update amy --body '{\"voice_id\":\"en-gb-alan-low\"}'\n"
+    "  opal-look config persona validate amy"))
 
 
 @persona.command("list")
@@ -618,139 +615,268 @@ def _per_validate(persona_id: str):
         "POST", f"/api/v1/persona/{persona_id}/validate")))
 
 
-app.add_typer(persona, name="persona")
+config.add_typer(persona, name="persona")
+app.add_typer(config, name="config")
 
-info = typer.Typer(help="info", epilog=(
+# -- data parent group ----------------------------------------------------------
+
+data = typer.Typer(help="data", epilog=(
     "Examples:\n"
-    "  opal-look info version\n"
-    "  opal-look info ping\n"
-    "  opal-look info health live"))
-info.command("version")(lambda: _emit(unwrap(_client().get("/api/v1/info/"))))
-info.command("ping")(lambda: _emit(unwrap(_client().get("/api/v1/info/ping"))))
-info.add_typer(health, name="health")
-app.add_typer(info, name="info")
+    "  opal-look data job submit --file job.json --idempotency-key run-001\n"
+    "  opal-look data observation list --source cam\n"
+    "  opal-look data capture download CAPTURE_ID --out cap.jpg"))
+
+job = typer.Typer(help="job")
 
 
-# -- local service process control -------------------------------------------
+@job.command("submit")
+def _job_submit(body: str = typer.Option(None, "--body"),
+                file: Path = typer.Option(None, "--file"),
+                idempotency_key: str = typer.Option(None, "--idempotency-key")):
+    headers = {"Idempotency-Key": idempotency_key} if idempotency_key else None
+    _emit(unwrap(_client().request("POST", "/api/v1/job/",
+                                   json=_body(body, file), headers=headers)))
 
-service = typer.Typer(help="service", epilog=(
+
+@job.command("list")
+def _job_list(state: str = typer.Option(None, "--state"),
+              kind: str = typer.Option(None, "--kind"),
+              limit: int = typer.Option(None, "--limit")):
+    _emit(unwrap(_client().get("/api/v1/job/" + _query(
+        state=state, kind=kind, limit=limit))))
+
+
+@job.command("show")
+def _job_show(job_id: str):
+    _emit(unwrap(_client().get(f"/api/v1/job/{job_id}")))
+
+
+@job.command("cancel")
+def _job_cancel(job_id: str):
+    _post_action(f"/api/v1/job/{job_id}/cancel")
+
+
+data.add_typer(job, name="job")
+
+observation = typer.Typer(help="observation")
+
+
+@observation.command("list")
+def _obs_list(source_id: str = typer.Option(None, "--source"),
+              session_id: str = typer.Option(None, "--session"),
+              job_id: str = typer.Option(None, "--job"),
+              task: str = typer.Option(None, "--task"),
+              label: str = typer.Option(None, "--label"),
+              after: str = typer.Option(None, "--after"),
+              before: str = typer.Option(None, "--before"),
+              limit: int = typer.Option(None, "--limit")):
+    _emit(unwrap(_client().get("/api/v1/observation/" + _query(
+        source_id=source_id, session_id=session_id, job_id=job_id,
+        task=task, label=label, after=after, before=before, limit=limit))))
+
+
+@observation.command("show")
+def _obs_show(observation_id: str):
+    _emit(unwrap(_client().get(f"/api/v1/observation/{observation_id}")))
+
+
+data.add_typer(observation, name="observation")
+
+med = typer.Typer(help="media", epilog=(
     "Examples:\n"
-    "  opal-look service start\n"
-    "  opal-look service start --port 9000\n"
-    "  opal-look service stop\n"
-    "  opal-look service log"))
-
-_LOG_DIR = Path("logs")
-_LOG_FILE = "opal_listen.log"
-_PID_FILE = "opal_look.pid"
+    "  opal-look data media upload frame.jpg --ttl 3600\n"
+    "  opal-look data media list"))
 
 
-def _log_dir() -> Path:
-    return _LOG_DIR
+@med.command("upload")
+def _media_upload(file: Path, ttl_seconds: int = typer.Option(None, "--ttl")):
+    payload = {"ttl_seconds": ttl_seconds} if ttl_seconds else None
+    with open(file, "rb") as fh:
+        _emit(unwrap(_client().request("POST", "/api/v1/media/",
+                                       files={"file": (file.name, fh)},
+                                       data=payload)))
 
 
-def _log_path() -> Path:
-    return _log_dir() / _LOG_FILE
+@med.command("list")
+def _media_list(kind: str = typer.Option(None, "--kind"),
+                source_id: str = typer.Option(None, "--source"),
+                limit: int = typer.Option(None, "--limit")):
+    _emit(unwrap(_client().get("/api/v1/media/" + _query(
+        kind=kind, source_id=source_id, limit=limit))))
 
 
-def _pid_path() -> Path:
-    return _log_dir() / _PID_FILE
+@med.command("show")
+def _media_show(media_id: str):
+    _emit(unwrap(_client().get(f"/api/v1/media/{media_id}")))
 
 
-def _pid_alive(pid: int) -> bool:
-    if pid <= 0:
-        return False
-    if sys.platform == "win32":
-        out = subprocess.run(
-            ["tasklist", "/FI", f"PID eq {pid}", "/FO", "CSV", "/NH"],
-            capture_output=True, text=True).stdout
-        return f'"{pid}"' in out
-    try:
-        os.kill(pid, 0)
-    except OSError:
-        return False
-    return True
+@med.command("remove")
+def _media_remove(media_id: str):
+    _emit(unwrap(_client().mutate("DELETE", f"/api/v1/media/{media_id}")))
 
 
-def _read_pid() -> int | None:
-    try:
-        return int(_pid_path().read_text().strip())
-    except (OSError, ValueError):
-        return None
+data.add_typer(med, name="media")
+
+capture = typer.Typer(help="capture", epilog=(
+    "Examples:\n"
+    "  opal-look data capture list\n"
+    "  opal-look data capture download CAPTURE_ID --out cap.jpg"))
 
 
-def _kill_pid(pid: int) -> None:
-    if sys.platform == "win32":
-        subprocess.run(["taskkill", "/PID", str(pid), "/T", "/F"],
-                       capture_output=True)
-    else:
-        try:
-            os.kill(pid, 15)
-        except OSError:
-            pass
+@capture.command("list")
+def _cap_list(source_id: str = typer.Option(None, "--source"),
+              limit: int = typer.Option(None, "--limit")):
+    _emit(unwrap(_client().get("/api/v1/capture/" + _query(
+        source_id=source_id, limit=limit))))
 
 
-@service.command("start")
-def _svc_start(
-        port: int = typer.Option(None, "--port"),
-        host: str = typer.Option(None, "--host"),
-        data_dir: str = typer.Option(None, "--data-dir"),
-        append: bool = typer.Option(False, "--append",
-                                    help="Append to the log instead of overwriting it.")):
-    """Start the server in the background (kills a running instance first)."""
-    _log_dir().mkdir(parents=True, exist_ok=True)
-    existing = _read_pid()
-    if existing is not None and _pid_alive(existing):
-        _kill_pid(existing)
-        typer.echo(f"killed running server (pid {existing})")
-    _pid_path().unlink(missing_ok=True)
-
-    env = dict(os.environ)
-    if port is not None:
-        env["OPAL_LOOK_PORT"] = str(port)
-    if host is not None:
-        env["OPAL_LOOK_HOST"] = host
-    if data_dir is not None:
-        env["OPAL_LOOK_DATA_DIR"] = data_dir
-
-    log = _log_path().open("a" if append else "w")
-    kwargs: dict = {"stdout": log, "stderr": subprocess.STDOUT, "env": env}
-    if sys.platform == "win32":
-        kwargs["creationflags"] = (subprocess.DETACHED_PROCESS
-                                   | subprocess.CREATE_NEW_PROCESS_GROUP)
-    else:
-        kwargs["start_new_session"] = True
-    proc = subprocess.Popen([sys.executable, "-m", "opal_look.main"], **kwargs)
-    log.close()
-    _pid_path().write_text(f"{proc.pid}\n")
-    typer.echo(f"started opal-look (pid {proc.pid}); output -> {_log_path()}")
+@capture.command("show")
+def _cap_show(capture_id: str):
+    _emit(unwrap(_client().get(f"/api/v1/capture/{capture_id}")))
 
 
-@service.command("stop")
-def _svc_stop():
-    """Stop the background server if it is running."""
-    pid = _read_pid()
-    if pid is None or not _pid_alive(pid):
-        _pid_path().unlink(missing_ok=True)
-        typer.echo("no server running")
-        return
-    _kill_pid(pid)
-    _pid_path().unlink(missing_ok=True)
-    typer.echo(f"stopped opal-look (pid {pid})")
+@capture.command("remove")
+def _cap_remove(capture_id: str):
+    _emit(unwrap(_client().mutate(
+        "DELETE", f"/api/v1/capture/{capture_id}")))
 
 
-@service.command("log")
-def _svc_log(lines: int = typer.Option(10, "--lines")):
-    """Show the last N lines of the service log (default 10)."""
-    path = _log_path()
-    if not path.is_file():
-        raise SystemExit(f"no log file at {path}")
-    tail = path.read_text(errors="replace").splitlines()[-lines:]
-    for line in tail:
-        typer.echo(line)
+@capture.command("download")
+def _cap_download(capture_id: str,
+                  out: Path = typer.Option(Path("capture.jpg"), "--out")):
+    resp = unwrap(_client().request(
+        "GET", f"/api/v1/capture/{capture_id}/content"))
+    Path(out).write_bytes(resp)
+    typer.echo(str(out))
 
 
-app.add_typer(service, name="service")
+data.add_typer(capture, name="capture")
+
+artifact = typer.Typer(help="artifact", epilog=(
+    "Examples:\n"
+    "  opal-look data artifact list\n"
+    "  opal-look data artifact download ARTIFACT_ID --out video.mjpeg"))
+
+
+@artifact.command("list")
+def _art_list(kind: str = typer.Option(None, "--kind"),
+              source_id: str = typer.Option(None, "--source"),
+              job_id: str = typer.Option(None, "--job"),
+              limit: int = typer.Option(None, "--limit")):
+    _emit(unwrap(_client().get("/api/v1/artifact/" + _query(
+        kind=kind, source_id=source_id, job_id=job_id, limit=limit))))
+
+
+@artifact.command("show")
+def _art_show(artifact_id: str):
+    _emit(unwrap(_client().get(f"/api/v1/artifact/{artifact_id}")))
+
+
+@artifact.command("remove")
+def _art_remove(artifact_id: str):
+    _emit(unwrap(_client().request(
+        "DELETE", f"/api/v1/artifact/{artifact_id}")))
+
+
+@artifact.command("download")
+def _art_download(artifact_id: str,
+                  out: Path = typer.Option(Path("artifact.bin"), "--out")):
+    resp = unwrap(_client().request(
+        "GET", f"/api/v1/artifact/{artifact_id}/content"))
+    Path(out).write_bytes(resp)
+    typer.echo(str(out))
+
+
+data.add_typer(artifact, name="artifact")
+
+rec = typer.Typer(help="recording", epilog=(
+    "Examples:\n"
+    "  opal-look data recording start --source SOURCE_ID --duration 30\n"
+    "  opal-look data recording stop RECORDING_ID\n"
+    "  opal-look data recording list"))
+
+
+@rec.command("start")
+def _rec_start(source_id: str = typer.Option(..., "--source"),
+               pipeline_id: str = typer.Option(None, "--pipeline"),
+               max_duration_seconds: int = typer.Option(None, "--duration")):
+    body = {"source_id": source_id}
+    if pipeline_id:
+        body["pipeline_id"] = pipeline_id
+    if max_duration_seconds:
+        body["max_duration_seconds"] = max_duration_seconds
+    _emit(unwrap(_client().mutate("POST", "/api/v1/recording/", json=body)))
+
+
+@rec.command("list")
+def _rec_list(limit: int = typer.Option(None, "--limit")):
+    _emit(unwrap(_client().get("/api/v1/recording/" + _query(limit=limit))))
+
+
+@rec.command("show")
+def _rec_show(recording_id: str):
+    _emit(unwrap(_client().get(f"/api/v1/recording/{recording_id}")))
+
+
+@rec.command("stop")
+def _rec_stop(recording_id: str):
+    _emit(unwrap(_client().request(
+        "POST", f"/api/v1/recording/{recording_id}/stop")))
+
+
+data.add_typer(rec, name="recording")
+app.add_typer(data, name="data")
+
+# -- contract aliases -------------------------------------------------------------
+# x-opal-cli aliases are alternate complete spellings for canonical ops.
+
+settings = typer.Typer(help="settings", epilog=(
+    "Alias spellings kept per contract x-opal-cli metadata; canonical "
+    "verbs live under 'config setting'."))
+
+
+@settings.command("patch", deprecated="use 'config setting update'")
+def _settings_patch_alias(body: str = typer.Option(None, "--body"),
+                          file: Path = typer.Option(None, "--file")):
+    """Alias for 'config setting update' (PATCH the settings map)."""
+    _setting_update(body, file)
+
+
+@settings.command("reset", deprecated="use 'config setting remove'")
+def _settings_reset_alias(key: str):
+    """Alias for 'config setting remove' (DELETE one setting key)."""
+    _setting_remove(key)
+
+
+app.add_typer(settings, name="settings")
+
+# -- extras (non-contract conveniences) -------------------------------------------
+
+output = typer.Typer(help="common output retrieval", epilog=(
+    "Examples:\n"
+    "  opal-look output fetch /api/v1/capture/cap-0123/content --out frame.jpg\n"
+    "  opal-look output fetch /api/v1/artifact/art-abc/content --out clip.mjpeg\n"
+    "\n"
+    "The content_url comes from `output_ref` (captures), `artifact_ref`\n"
+    "(recordings) or `output_refs` (jobs) in show/list output."))
+
+
+@output.command("fetch")
+def _output_fetch(content_url: str,
+                  out: Path = typer.Option(Path("output.bin"), "--out")):
+    """Download output bytes from an output_ref content_url."""
+    if not (content_url.startswith("/api/v1/capture/")
+            or content_url.startswith("/api/v1/artifact/")) \
+            or not content_url.endswith("/content"):
+        raise SystemExit(
+            "expected a content_url like /api/v1/capture/<id>/content "
+            "or /api/v1/artifact/<id>/content")
+    resp = unwrap(_client().request("GET", content_url))
+    Path(out).write_bytes(resp)
+    typer.echo(str(out))
+
+
+app.add_typer(output, name="output")
 
 
 @app.command("tree", epilog=(

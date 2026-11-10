@@ -90,9 +90,9 @@ def test_missing_name_422(client):
 def test_profiles_export_import_roundtrip(client):
     pid = _mk(client, "exp").json()["id"]
     client.post(f"/api/v1/profile/{pid}/activate", headers={"If-Match": "*"})
-    cfg = client.get("/api/v1/configuration/export").json()
+    cfg = client.get("/api/v1/backup/export").json()
     assert any(p.get("name") == "exp" for p in cfg["profiles"])
-    resp = client.post("/api/v1/configuration/import", json=cfg,
+    resp = client.post("/api/v1/backup/import", json=cfg,
                        headers={"If-Match": "*"})
     assert resp.status_code == 200
     names = {p["name"] for p in client.get("/api/v1/profile/").json()}

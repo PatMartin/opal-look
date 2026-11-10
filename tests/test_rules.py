@@ -72,9 +72,9 @@ def test_duplicate_id_409_and_if_match(client):
 def test_rules_export_import_roundtrip(client):
     _mk(client)
     client.post("/api/v1/rule/", json=R, headers={"If-Match": "*"})
-    cfg = client.get("/api/v1/configuration/export").json()
+    cfg = client.get("/api/v1/backup/export").json()
     assert any(r["id"] == "r1" for r in cfg["rules"])
-    resp = client.post("/api/v1/configuration/import", json=cfg,
+    resp = client.post("/api/v1/backup/import", json=cfg,
                        headers={"If-Match": "*"})
     assert resp.status_code == 200
     assert client.get("/api/v1/rule/r1").status_code == 200

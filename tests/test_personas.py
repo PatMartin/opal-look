@@ -92,14 +92,14 @@ def test_validate(client):
 
 def test_export_import_roundtrip(client):
     client.post("/api/v1/persona/", json=P, headers={"If-Match": "*"})
-    exp = client.get("/api/v1/configuration/export").json()
+    exp = client.get("/api/v1/backup/export").json()
     personas = exp.get("personas") or exp.get("configuration", {}).get("personas")
     assert personas and personas[0]["persona_id"] == "amy"
 
     client.delete("/api/v1/persona/amy", headers={"If-Match": "*"})
     assert client.get("/api/v1/persona/").json() == []
 
-    r = client.post("/api/v1/configuration/import", json=exp,
+    r = client.post("/api/v1/backup/import", json=exp,
                     headers={"If-Match": "*"})
     assert r.status_code == 200, r.text
     got = client.get("/api/v1/persona/").json()
@@ -108,8 +108,8 @@ def test_export_import_roundtrip(client):
 
 
 def test_validate_import_bad_persona(client):
-    exp = client.get("/api/v1/configuration/export").json()
+    exp = client.get("/api/v1/backup/export").json()
     exp["personas"] = [{"persona_id": "bad id!", "name": "X"}]
-    r = client.post("/api/v1/configuration/validate", json=exp)
+    r = client.post("/api/v1/backup/validate", json=exp)
     assert r.status_code == 200
     assert r.json()["valid"] is False

@@ -176,14 +176,14 @@ def test_outer_failure_rolls_back_everything(tmp_path):
 
 
 def test_import_with_stale_etag_fails_atomically(client):
-    payload = client.get("/api/v1/configuration/export").json()
+    payload = client.get("/api/v1/backup/export").json()
     stale = _etag(client)
     client.patch(
         "/api/v1/setting/", json={"max_upload_bytes": 555},
         headers={"If-Match": "*"},
     )
     resp = client.post(
-        "/api/v1/configuration/import", json=payload, headers={"If-Match": stale}
+        "/api/v1/backup/import", json=payload, headers={"If-Match": stale}
     )
     assert resp.status_code == 412
     # No partial import occurred.
@@ -191,10 +191,10 @@ def test_import_with_stale_etag_fails_atomically(client):
 
 
 def test_import_advances_revision(client):
-    payload = client.get("/api/v1/configuration/export").json()
+    payload = client.get("/api/v1/backup/export").json()
     before = _etag(client)
     resp = client.post(
-        "/api/v1/configuration/import", json=payload, headers={"If-Match": "*"}
+        "/api/v1/backup/import", json=payload, headers={"If-Match": "*"}
     )
     assert resp.status_code == 200
     assert resp.headers["etag"] != before

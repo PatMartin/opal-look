@@ -88,9 +88,9 @@ def test_embedded_zones_harvested(client):
 def test_zones_export_import_roundtrip(client):
     _mk_source(client)
     client.post("/api/v1/zone/", json=Z, headers={"If-Match": "*"})
-    cfg = client.get("/api/v1/configuration/export").json()
+    cfg = client.get("/api/v1/backup/export").json()
     assert any(z["id"] == "z1" for z in cfg["zones"])
-    resp = client.post("/api/v1/configuration/import", json=cfg,
+    resp = client.post("/api/v1/backup/import", json=cfg,
                        headers={"If-Match": "*"})
     assert resp.status_code == 200
     assert client.get("/api/v1/zone/z1").status_code == 200

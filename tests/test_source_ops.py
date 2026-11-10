@@ -214,7 +214,7 @@ def test_frame_does_not_persist(client):
     assert resp.status_code == 200
     # no implicit retention: config revision untouched, no new media/results
     assert client.get("/api/v1/source/").headers["etag"] == etag_before
-    assert len(client.get("/api/v1/media/").json()["items"]) == 1
+    assert len(client.get("/api/v1/media/").json()) == 1
 
 
 # -- raw MJPEG view (step 13) ---------------------------------------------------
@@ -385,7 +385,7 @@ def test_stream_no_implicit_retention(client, fake_rtsp):
         for ch in r.iter_bytes(4096):
             break
     # viewers never persist observations even if the pipeline asks for it
-    assert client.get("/api/v1/observation/").json()["items"] == []
+    assert client.get("/api/v1/observation/").json() == []
 
 
 # -- transient observation SSE (step 15) ----------------------------------------
@@ -438,9 +438,9 @@ def test_media_ttl_seconds_form_field(client):
 def test_media_kind_filter(client):
     _up_media(client)
     page = client.get("/api/v1/media/", params={"kind": "upload_video"}).json()
-    assert page["items"] == []
+    assert page == []
     page = client.get("/api/v1/media/", params={"kind": "upload_image"}).json()
-    assert len(page["items"]) == 1
+    assert len(page) == 1
 
 
 def test_media_delete_pinned_by_media_source(client):
@@ -455,7 +455,7 @@ def test_media_delete_pinned_by_media_source(client):
 def test_media_upload_shape_keys(client):
     mid = _up_media(client)
     page = client.get("/api/v1/media/").json()
-    assert set(page) >= {"items", "next_cursor", "has_more"}
+    assert isinstance(page, list)
 
 
 # -- exact-frame capture (step 17) ----------------------------------------------

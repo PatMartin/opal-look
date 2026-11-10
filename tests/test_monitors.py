@@ -170,7 +170,7 @@ def test_monitor_no_implicit_retention(client, fake_rtsp):
     time.sleep(0.15)
     client.delete("/api/v1/monitor/m1", headers={"If-Match": "*"})
     # no observations persisted without retention opt-in
-    assert client.get("/api/v1/observation/").json()["items"] == []
+    assert client.get("/api/v1/observation/").json() == []
 
 
 

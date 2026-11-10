@@ -10,7 +10,7 @@ from typing import Any, Protocol
 class ObservationRepository(Protocol):
     def insert(self, obs: dict[str, Any], expires_at: str | None) -> None: ...
     def get(self, observation_id: str) -> sqlite3.Row | None: ...
-    def page(self, now: str, filters: dict, after: list | None,
+    def page(self, now: str, filters: dict,
              limit: int) -> list[sqlite3.Row]: ...
 
 
@@ -38,7 +38,7 @@ class SqliteObservationRepository:
             "SELECT * FROM observations WHERE observation_id = ?", (observation_id,)
         ).fetchone()
 
-    def page(self, now: str, filters: dict, after: list | None,
+    def page(self, now: str, filters: dict,
              limit: int) -> list[sqlite3.Row]:
         query = "SELECT * FROM observations WHERE (expires_at IS NULL OR expires_at > ?)"
         params: list = [now]
@@ -66,10 +66,6 @@ class SqliteObservationRepository:
         if filters.get("before") is not None:
             query += " AND observed_at <= ?"
             params.append(filters["before"])
-        if after is not None:
-            query += (" AND (created_at < ? OR (created_at = ? "
-                      "AND observation_id < ?))")
-            params += [after[0], after[0], after[1]]
         query += " ORDER BY created_at DESC, observation_id DESC LIMIT ?"
-        params.append(limit + 1)
+        params.append(limit)
         return self._conn.execute(query, params).fetchall()

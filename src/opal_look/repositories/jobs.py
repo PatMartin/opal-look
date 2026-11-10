@@ -8,7 +8,7 @@ from typing import Any, Protocol
 
 class JobRepository(Protocol):
     def get(self, job_id: str) -> sqlite3.Row | None: ...
-    def list(self, limit: int, cursor: str | None, kind: str | None,
+    def list(self, limit: int, kind: str | None,
              state: str | None) -> list[sqlite3.Row]: ...
     def insert(self, fields: dict[str, Any]) -> None: ...
     def update(self, job_id: str, fields: dict[str, Any]) -> None: ...
@@ -24,7 +24,7 @@ class SqliteJobRepository:
         return self._conn.execute(
             "SELECT * FROM jobs WHERE job_id = ?", (job_id,)).fetchone()
 
-    def list(self, limit=50, cursor=None, kind=None, state=None):
+    def list(self, limit=50, kind=None, state=None):
         q = "SELECT * FROM jobs WHERE 1=1"
         params: list = []
         if kind:
@@ -33,12 +33,8 @@ class SqliteJobRepository:
         if state:
             q += " AND state = ?"
             params.append(state)
-        if cursor:
-            q += " AND (created_at < ? OR (created_at = ? AND job_id < ?))"
-            parts = cursor.split("|")
-            params.extend([parts[0], parts[0], parts[1]])
         q += " ORDER BY created_at DESC, job_id DESC LIMIT ?"
-        params.append(limit + 1)
+        params.append(limit)
         return self._conn.execute(q, params).fetchall()
 
     def insert(self, fields: dict[str, Any]) -> None:

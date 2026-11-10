@@ -127,7 +127,7 @@ def test_recording_viewing_independence(client, fake_rtsp):
     _setup(client, fake_rtsp)
     with client.stream("GET", "/api/v1/source/cam/stream") as r:
         next(r.iter_bytes(), b"")
-    assert client.get("/api/v1/recording/").json()["items"] == []
+    assert client.get("/api/v1/recording/").json() == []
 
 
 def test_recording_interrupted_on_restart(tmp_path):

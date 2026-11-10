@@ -1,4 +1,4 @@
-"""Uploaded media endpoints: upload, list (cursor), get, delete, download."""
+"""Uploaded media endpoints: upload, list, get, delete, download."""
 
 from __future__ import annotations
 
@@ -18,14 +18,11 @@ from ..media import (
     media_read,
     sanitize_filename,
 )
-from ..pagination import decode_cursor, encode_cursor, filter_key
 from ..refs import nonterminal_sessions_referencing
 from ..settings import effective_settings
 from ..timeutil import iso, now_iso, plus_hours
 
 router = APIRouter()
-
-_FKEY = filter_key({})
 
 
 @router.post("/api/v1/media/", status_code=201)
@@ -68,24 +65,11 @@ def get_api_v1_media(
     request: Request,
     store: StoreDep,
     limit: int = Query(default=100, ge=1, le=500),
-    cursor: str | None = Query(default=None, min_length=1),
     kind: str | None = Query(default=None),
     source_id: str | None = Query(default=None),
-) -> dict:
-    after, _, _ = decode_cursor(cursor, _FKEY)
-    rows = store.media.page(now_iso(), after, limit, kind, source_id)
-    items = rows[:limit]
-    has_more = len(rows) > limit
-    next_cursor = (
-        encode_cursor(_FKEY, [items[-1]["created_at"], items[-1]["media_id"]])
-        if has_more
-        else None
-    )
-    return {
-        "items": [media_read(row) for row in items],
-        "next_cursor": next_cursor,
-        "has_more": has_more,
-    }
+) -> list[dict]:
+    rows = store.media.page(now_iso(), limit, kind, source_id)
+    return [media_read(row) for row in rows[:limit]]
 
 
 def _get_media_or_404(store: StoreDep, media_id: str):

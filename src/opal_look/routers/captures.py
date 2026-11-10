@@ -7,7 +7,7 @@ import secrets
 from datetime import timedelta
 from pathlib import Path
 
-from fastapi import APIRouter, Request, Response
+from fastapi import APIRouter, Query, Request, Response
 from fastapi.responses import FileResponse, JSONResponse
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -137,10 +137,11 @@ def post_api_v1_sources_source_id_captures(
 
 @router.get("/api/v1/capture/")
 def get_api_v1_captures(
-    store: StoreDep, source_id: str | None = None
+    store: StoreDep, source_id: str | None = None,
+    limit: int = Query(default=1000, ge=1)
 ) -> JSONResponse:
     rows = store.snapshots.list_live(now_iso(), source_id)
-    return JSONResponse([capture_read(r) for r in rows],
+    return JSONResponse([capture_read(r) for r in rows[:limit]],
                         headers={"ETag": store.config_revision()})
 
 

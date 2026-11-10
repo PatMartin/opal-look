@@ -27,25 +27,14 @@ def get_api_v1_observations(
     before: str | None = Query(default=None),
     task: str | None = Query(default=None),
     label: str | None = Query(default=None),
-    cursor: str | None = Query(default=None),
     limit: int = Query(default=100, ge=1, le=1000),
-) -> dict:
-    after_key = cursor.split("|", 1) if cursor else None
+) -> list[dict]:
     rows = store.observations.page(
         now_iso(),
         {"source_id": source_id, "monitor_id": monitor_id, "job_id": job_id,
          "after": after, "before": before, "task": task, "label": label},
-        after_key, limit)
-    has_more = len(rows) > limit
-    page = rows[:limit]
-    next_cursor = (
-        f"{page[-1]['created_at']}|{page[-1]['observation_id']}"
-        if has_more and page else None)
-    return {
-        "items": [_body(r) for r in page],
-        "next_cursor": next_cursor,
-        "has_more": has_more,
-    }
+        limit)
+    return [_body(r) for r in rows[:limit]]
 
 
 @router.get("/api/v1/observation/{observation_id}")

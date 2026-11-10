@@ -162,11 +162,11 @@ def test_oversize_413(client, monkeypatch):
 
 def test_no_media_side_effect(client):
     _pipeline(client)
-    before = len(client.get("/api/v1/media/").json()["items"])
+    before = len(client.get("/api/v1/media/").json())
     client.post("/api/v1/analyze/image",
                 files={"image": ("a.jpg", _bytes("JPEG"), "image/jpeg")},
                 data={"request": json.dumps({"pipeline_id": "p"})})
-    assert len(client.get("/api/v1/media/").json()["items"]) == before
+    assert len(client.get("/api/v1/media/").json()) == before
 
 
 def test_correlation_headers(client):

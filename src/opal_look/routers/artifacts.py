@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Query
 from fastapi.responses import FileResponse, JSONResponse
 
 from ..dependencies import StoreDep
@@ -29,11 +29,12 @@ def _artifact_or_404(store: Store, artifact_id: str):
 def get_api_v1_artifacts(
     store: StoreDep, kind: str | None = None, source_id: str | None = None,
     job_id: str | None = None,
+    limit: int = Query(default=1000, ge=1),
 ) -> JSONResponse:
     rows = store.artifacts.list(
         {"kind": kind, "source_id": source_id, "job_id": job_id})
     live = [r for r in rows if r["expires_at"] > now_iso()]
-    return JSONResponse([artifact_read(r) for r in live],
+    return JSONResponse([artifact_read(r) for r in live[:limit]],
                         headers={"ETag": store.config_revision()})
 
 

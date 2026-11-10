@@ -81,23 +81,14 @@ def test_filename_sanitized_v15(client):
     assert "/" not in resp.json()["id"]
 
 
-def test_list_media_cursor(client):
+def test_list_media_bounded(client):
     _upload(client)
     _upload(client)
     first = client.get("/api/v1/media/", params={"limit": 1}).json()
-    assert len(first["items"]) == 1
-    assert first["has_more"] is True
-    assert first["next_cursor"]
-    second = client.get(
-        "/api/v1/media/", params={"limit": 1, "cursor": first["next_cursor"]}
-    ).json()
-    assert len(second["items"]) == 1
-    assert second["items"][0]["id"] != first["items"][0]["id"]
-
-
-def test_list_media_bad_cursor_422(client):
-    resp = client.get("/api/v1/media/", params={"cursor": "garbage"})
-    assert resp.status_code == 422
+    assert isinstance(first, list) and len(first) == 1
+    second = client.get("/api/v1/media/", params={"limit": 10}).json()
+    assert len(second) == 2
+    assert second[0]["id"] != first[0]["id"] or second[1]["id"] != first[0]["id"]
 
 
 def test_get_media(client):
@@ -131,7 +122,7 @@ def test_expired_media_410(client):
     )
     assert client.get(f"/api/v1/media/{mid}").status_code == 410
     # Expired rows are excluded from listings too.
-    assert client.get("/api/v1/media/").json()["items"] == []
+    assert client.get("/api/v1/media/").json() == []
 
 
 def test_media_backed_source_lifecycle(client):

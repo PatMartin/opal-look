@@ -6,7 +6,7 @@ import asyncio
 import json
 import secrets
 
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, Query, Request
 from fastapi.responses import JSONResponse, StreamingResponse
 
 from ..dependencies import StoreDep
@@ -139,10 +139,11 @@ async def post_api_v1_sessions(request: Request, store: StoreDep, body: SessionC
 
 
 @router.get("/api/v1/session/")
-def get_api_v1_sessions(request: Request, store: StoreDep) -> JSONResponse:
+def get_api_v1_sessions(request: Request, store: StoreDep,
+                        limit: int = Query(default=1000, ge=1)) -> JSONResponse:
     rows = store.sessions.page(now_iso(),
                                effective_settings(store).result_retention_hours,
-                               {}, None, 1000)
+                               {}, None, min(limit, 1000))
     return JSONResponse([session_read(r) for r in rows],
                         headers={"ETag": store.config_revision()})
 

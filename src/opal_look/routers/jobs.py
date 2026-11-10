@@ -32,17 +32,11 @@ def _get_job_or_404(store: StoreDep, job_id: str):
 @router.get("/api/v1/job/")
 def get_api_v1_jobs(
     store: StoreDep, kind: str | None = None, state: str | None = None,
-    limit: int = 50, cursor: str | None = None
-) -> dict:
+    limit: int = 50
+) -> list[dict]:
     limit = min(max(1, limit), 1000)
-    rows = store.jobs.list(limit, cursor, kind, state)
-    items = [job_read(r) for r in rows[:limit]]
-    has_more = len(rows) > limit
-    next_cursor = None
-    if has_more and items:
-        last = rows[limit - 1]
-        next_cursor = f"{last['created_at']}|{last['job_id']}"
-    return {"items": items, "next_cursor": next_cursor, "has_more": has_more}
+    rows = store.jobs.list(limit, kind, state)
+    return [job_read(r) for r in rows[:limit]]
 
 
 @router.post("/api/v1/job/", status_code=202)

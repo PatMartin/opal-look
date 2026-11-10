@@ -8,7 +8,7 @@ from typing import Any, Protocol
 
 class RecordingRepository(Protocol):
     def get(self, recording_id: str) -> sqlite3.Row | None: ...
-    def list(self, limit: int, cursor: str | None) -> list[sqlite3.Row]: ...
+    def list(self, limit: int) -> list[sqlite3.Row]: ...
     def insert(self, fields: dict[str, Any]) -> None: ...
     def update(self, recording_id: str, fields: dict[str, Any]) -> None: ...
     def count_active(self) -> int: ...
@@ -25,15 +25,11 @@ class SqliteRecordingRepository:
             "SELECT * FROM recordings WHERE recording_id = ?",
             (recording_id,)).fetchone()
 
-    def list(self, limit=50, cursor=None):
+    def list(self, limit=50):
         q = "SELECT * FROM recordings"
         params: list = []
-        if cursor:
-            q += " WHERE created_at < ? OR (created_at = ? AND recording_id < ?)"
-            parts = cursor.split("|")
-            params.extend([parts[0], parts[0], parts[1]])
         q += " ORDER BY created_at DESC, recording_id DESC LIMIT ?"
-        params.append(limit + 1)
+        params.append(limit)
         return self._conn.execute(q, params).fetchall()
 
     def insert(self, fields: dict[str, Any]) -> None:

@@ -81,7 +81,7 @@ def test_analyze_persisted_result(client, media_id):
     body = _analyze(
         client, media_id,
         retention={"persist_results": True}).json()
-    obs = client.get("/api/v1/observation/").json()["items"]
+    obs = client.get("/api/v1/observation/").json()
     assert obs, "persist_results should store observations"
 
 

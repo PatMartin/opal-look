@@ -153,13 +153,13 @@ def test_no_default_retention(client):
     """One-shot analyze persists nothing by default."""
     _pipeline(client)
     mid = _media(client)
-    before_media = len(client.get("/api/v1/media/").json()["items"])
+    before_media = len(client.get("/api/v1/media/").json())
     resp = client.post("/api/v1/analyze/", json={
         "pipeline_id": "p", "source": {"media_id": mid}})
     assert resp.status_code == 200
     assert resp.json()["media_id"] is None
     # nothing retained: no new media rows, no public session
-    assert len(client.get("/api/v1/media/").json()["items"]) == before_media
+    assert len(client.get("/api/v1/media/").json()) == before_media
 
 
 def test_retention_save_raw_frames(client):

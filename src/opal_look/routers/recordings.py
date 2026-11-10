@@ -34,17 +34,11 @@ def _get_recording_or_404(store: StoreDep, recording_id: str):
 
 @router.get("/api/v1/recording/")
 def get_api_v1_recordings(
-    store: StoreDep, limit: int = 50, cursor: str | None = None
-) -> dict:
+    store: StoreDep, limit: int = 50
+) -> list[dict]:
     limit = min(max(1, limit), 1000)
-    rows = store.recordings.list(limit, cursor)
-    items = [recording_read(r) for r in rows[:limit]]
-    has_more = len(rows) > limit
-    next_cursor = None
-    if has_more and items:
-        last = rows[limit - 1]
-        next_cursor = f"{last['created_at']}|{last['recording_id']}"
-    return {"items": items, "next_cursor": next_cursor, "has_more": has_more}
+    rows = store.recordings.list(limit)
+    return [recording_read(r) for r in rows[:limit]]
 
 
 @router.post("/api/v1/recording/", status_code=202)

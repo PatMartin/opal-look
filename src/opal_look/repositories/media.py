@@ -10,7 +10,7 @@ class MediaRepository(Protocol):
     def get(self, media_id: str) -> sqlite3.Row | None: ...
     def insert(self, fields: dict[str, Any]) -> None: ...
     def delete(self, media_id: str) -> None: ...
-    def page(self, now: str, after: list | None, limit: int) -> list[sqlite3.Row]: ...
+    def page(self, now: str, limit: int) -> list[sqlite3.Row]: ...
 
 
 class SqliteMediaRepository:
@@ -52,7 +52,7 @@ class SqliteMediaRepository:
     def delete(self, media_id: str) -> None:
         self._conn.execute("DELETE FROM media WHERE media_id = ?", (media_id,))
 
-    def page(self, now: str, after: list | None, limit: int,
+    def page(self, now: str, limit: int,
              kind: str | None = None, source_id: str | None = None
              ) -> list[sqlite3.Row]:
         """Unexpired media, newest-first with media_id tiebreak."""
@@ -64,9 +64,6 @@ class SqliteMediaRepository:
         if source_id is not None:
             query += " AND source_id = ?"
             params.append(source_id)
-        if after is not None:
-            query += " AND (created_at < ? OR (created_at = ? AND media_id < ?))"
-            params += [after[0], after[0], after[1]]
         query += " ORDER BY created_at DESC, media_id DESC LIMIT ?"
-        params.append(limit + 1)
+        params.append(limit)
         return self._conn.execute(query, params).fetchall()

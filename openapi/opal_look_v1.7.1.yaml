@@ -2,7 +2,7 @@ openapi: 3.1.0
 jsonSchemaDialect: https://json-schema.org/draft/2020-12/schema
 info:
   title: OPAL Look — Visual Observation API
-  version: 1.6.0
+  version: 1.7.1
   description: 'Clean-sheet, implementation-neutral visual perception API for OPAL 1.4.0. OpenAPI is normative for
     REST, generated CLI, and SPA clients. A source provides frames; a pipeline is an ordered acyclic graph of inference
     and processing stages; a stage produces immutable observations; sessions run live pipelines; jobs run finite
@@ -30,8 +30,8 @@ info:
 
 
     Collection paths end with /. Creates return 201 with Location; async admissions return 202 with Location; delete
-    returns 204. Cursor collections are newest-first then ID tie-breaker, filter-bound and expiry-limited; bounded
-    catalogs are full arrays with documented caps. Settings allow atomic whole-map PATCH and individual leaf GET/PUT/DELETE,
+    returns 204. List collections are bounded arrays, newest first then ID tie-breaker; `limit` caps the
+    returned items and service-side maxima apply; bounded catalogs are full arrays with documented caps. Settings allow atomic whole-map PATCH and individual leaf GET/PUT/DELETE,
     where DELETE resets the default. Runtime admissions can use Idempotency-Key; exact replay reuses original admission,
     differing payload returns 409, reservation lifetime 24 hours. Unsupported controls, source tasks, media types,
     schemas and pipeline topologies fail explicitly with 422. GET never starts inference.
@@ -62,7 +62,10 @@ info:
     and event publication. P2/P3 features are capability-advertised extensions and may be absent.
 
 
-    CLI METADATA (normative): Every operation has x-opal-cli.group and x-opal-cli.command.
+    CLI METADATA (normative): Every operation carries an x-opal-cli descriptor in the canonical
+    format documented at kernel extension x-opal-cli-format — required `command`, optional
+    `group`, optional `parent` super-group, optional `aliases`. Kernel-mounted paths carry a
+    per-method map `x-opal-cli: {<method>: <descriptor>}`.
 
     Resource management uses add, remove, update, list, show as its five canonical verbs.
 
@@ -141,6 +144,8 @@ tags:
   description: Manage named persona identities adopting the shared OPAL persona identifiers introduced by OPAL Say v1.6.0.
 - name: info
   description: Service identity, version and liveness probes.
+- name: service
+  description: Service process lifecycle (start, stop, log tail).
 components:
   schemas:
     CapabilityDescriptor:
@@ -989,7 +994,10 @@ components:
           - type: 'null'
           description: >-
             Byte references for produced artifacts (kind=artifact), one per
-            artifact_ids entry once the job finishes; null while pending.
+            artifact_ids entry once the job finishes; null while the job is
+            `queued`/`running` and permanently absent after `failed`,
+            `cancelled` or `timed_out`. Field absent entirely = older server;
+            fall back to `artifact_ids` on `/artifact/{id}/content`.
         failure:
           oneOf:
           - $ref: ./shared/opal_kernel.yaml#/components/schemas/OpalErrorBody
@@ -1094,7 +1102,10 @@ components:
           oneOf:
           - $ref: '#/components/schemas/OutputRef'
           - type: 'null'
-          description: This capture's byte reference (kind=capture).
+          description: >-
+            This capture's byte reference (kind=capture); GET
+            `output_ref.content_url` for the frame bytes. Absent on servers
+            predating this field — `GET /capture/{id}/content` directly.
       additionalProperties: false
       required:
       - id
@@ -1596,7 +1607,10 @@ components:
           - type: 'null'
           description: >-
             The finalized recording's artifact byte reference (kind=artifact);
-            null until finalize produces the artifact.
+            null while `state` is `starting`/`recording`/`stopping` and
+            permanently absent after `failed`. Absent entirely = older
+            server; `artifact_id` still names the artifact for
+            `/artifact/{id}/content` once `state` is `completed`.
       additionalProperties: false
       required:
       - id
@@ -1729,124 +1743,14 @@ components:
       description: Portable stage controls. Stage kind determines which keys are valid; the generic options object
         on PipelineStage remains for existing engine-specific options.
     PersonaCreate:
-      type: object
-      additionalProperties: false
-      required:
-      - persona_id
-      - name
-      properties:
-        persona_id:
-          type: string
-          minLength: 1
-          maxLength: 200
-          pattern: ^[A-Za-z0-9][A-Za-z0-9._-]*
-          description: Globally unique OPAL persona identifier.
-          example: amy
-        name:
-          type: string
-          minLength: 1
-          maxLength: 200
-          description: Human-readable persona name.
-          example: Amy
-        description:
-          anyOf:
-          - type: string
-            maxLength: 1000
-          - type: 'null'
-          description: Optional human-readable description or character notes.
-        voice_id:
-          anyOf:
-          - type: string
-            minLength: 1
-          - type: 'null'
-          description: Optional OPAL Say voice identifier associated with this persona.
-          example: en-gb-alan-low
-        enabled:
-          type: boolean
-          default: true
-          description: Whether this persona may be selected.
-      example:
-        persona_id: amy
-        name: Amy
-        voice_id: en-gb-alan-low
-        enabled: true
+      $ref: './shared/opal_kernel.yaml#/components/schemas/OpalPersonaCreate'
     PersonaUpdate:
-      type: object
-      minProperties: 1
-      additionalProperties: false
-      description: Partial update to a persona.
-      properties:
-        name:
-          type: string
-          minLength: 1
-          maxLength: 200
-        description:
-          anyOf:
-          - type: string
-            maxLength: 1000
-          - type: 'null'
-        voice_id:
-          anyOf:
-          - type: string
-            minLength: 1
-          - type: 'null'
-          description: Rebind the persona to a different OPAL Say voice identifier.
-        enabled:
-          type: boolean
+      $ref: './shared/opal_kernel.yaml#/components/schemas/OpalPersonaUpdate'
     PersonaRead:
-      type: object
-      required:
-      - persona_id
-      - name
-      - enabled
-      - created_at
-      - updated_at
-      properties:
-        persona_id:
-          type: string
-          description: Globally unique OPAL persona identifier.
-          example: amy
-        name:
-          type: string
-          example: Amy
-        description:
-          anyOf:
-          - type: string
-          - type: 'null'
-        voice_id:
-          anyOf:
-          - type: string
-          - type: 'null'
-          description: Optional OPAL Say voice identifier associated with this persona.
-        enabled:
-          type: boolean
-        created_at:
-          type: string
-          format: date-time
-        updated_at:
-          type: string
-          format: date-time
+      $ref: './shared/opal_kernel.yaml#/components/schemas/OpalPersonaRead'
   parameters:
     PersonaId:
-      name: persona_id
-      in: path
-      required: true
-      description: Globally unique OPAL persona identifier.
-      schema:
-        type: string
-        minLength: 1
-        maxLength: 200
-        pattern: ^[A-Za-z0-9][A-Za-z0-9._-]*$
-      example: amy
-    IdempotencyKey:
-      name: Idempotency-Key
-      in: header
-      required: false
-      description: 1–128 characters; persist key/fingerprint for 24 hours. Retry with changed body yields 409.
-      schema:
-        type: string
-        minLength: 1
-        maxLength: 128
+      $ref: './shared/opal_kernel.yaml#/components/parameters/OpalPersonaIdParameter'
   responses:
     RangeNotSatisfiable:
       description: RangeNotSatisfiable
@@ -1921,22 +1825,22 @@ paths:
         '409':
           $ref: ./shared/opal_kernel.yaml#/components/responses/Conflict
       x-opal-cli:
-        group: capabilities
-        command: show
+        group: info
+        command: capabilities
   /api/v1/engine/:
     $ref: ./shared/opal_kernel.yaml#/components/pathItems/engines_collection
     x-opal-cli:
       get:
-        group: engines
+        group: engine
         command: list
   /api/v1/engine/{engine_id}:
     $ref: ./shared/opal_kernel.yaml#/components/pathItems/engine_item
     x-opal-cli:
       get:
-        group: engines
+        group: engine
         command: show
       patch:
-        group: engines
+        group: engine
         command: update
   /api/v1/model/:
     get:
@@ -1981,7 +1885,8 @@ paths:
         '409':
           $ref: ./shared/opal_kernel.yaml#/components/responses/Conflict
       x-opal-cli:
-        group: models
+        parent: config
+        group: model
         command: list
     post:
       tags:
@@ -2036,7 +1941,8 @@ paths:
             schema:
               $ref: '#/components/schemas/ModelCreate'
       x-opal-cli:
-        group: models
+        parent: config
+        group: model
         command: add
   /api/v1/model/{model_id}:
     get:
@@ -2079,7 +1985,8 @@ paths:
         '409':
           $ref: ./shared/opal_kernel.yaml#/components/responses/Conflict
       x-opal-cli:
-        group: models
+        parent: config
+        group: model
         command: show
     patch:
       tags:
@@ -2132,7 +2039,8 @@ paths:
             schema:
               $ref: '#/components/schemas/ModelPatch'
       x-opal-cli:
-        group: models
+        parent: config
+        group: model
         command: update
     delete:
       tags:
@@ -2175,7 +2083,8 @@ paths:
         '412':
           $ref: ./shared/opal_kernel.yaml#/components/responses/PreconditionFailed
       x-opal-cli:
-        group: models
+        parent: config
+        group: model
         command: remove
     parameters:
     - name: model_id
@@ -2228,7 +2137,7 @@ paths:
         '409':
           $ref: ./shared/opal_kernel.yaml#/components/responses/Conflict
       x-opal-cli:
-        group: sources
+        group: source
         command: list
     post:
       tags:
@@ -2283,7 +2192,7 @@ paths:
             schema:
               $ref: '#/components/schemas/SourceCreate'
       x-opal-cli:
-        group: sources
+        group: source
         command: add
   /api/v1/source/{source_id}:
     get:
@@ -2326,7 +2235,7 @@ paths:
         '409':
           $ref: ./shared/opal_kernel.yaml#/components/responses/Conflict
       x-opal-cli:
-        group: sources
+        group: source
         command: show
     patch:
       tags:
@@ -2379,7 +2288,7 @@ paths:
             schema:
               $ref: '#/components/schemas/SourcePatch'
       x-opal-cli:
-        group: sources
+        group: source
         command: update
     delete:
       tags:
@@ -2422,7 +2331,7 @@ paths:
         '412':
           $ref: ./shared/opal_kernel.yaml#/components/responses/PreconditionFailed
       x-opal-cli:
-        group: sources
+        group: source
         command: remove
     parameters:
     - name: source_id
@@ -2475,7 +2384,8 @@ paths:
         '409':
           $ref: ./shared/opal_kernel.yaml#/components/responses/Conflict
       x-opal-cli:
-        group: pipelines
+        parent: config
+        group: pipeline
         command: list
     post:
       tags:
@@ -2530,7 +2440,8 @@ paths:
             schema:
               $ref: '#/components/schemas/PipelineCreate'
       x-opal-cli:
-        group: pipelines
+        parent: config
+        group: pipeline
         command: add
   /api/v1/pipeline/{pipeline_id}:
     get:
@@ -2573,7 +2484,8 @@ paths:
         '409':
           $ref: ./shared/opal_kernel.yaml#/components/responses/Conflict
       x-opal-cli:
-        group: pipelines
+        parent: config
+        group: pipeline
         command: show
     patch:
       tags:
@@ -2626,7 +2538,8 @@ paths:
             schema:
               $ref: '#/components/schemas/PipelinePatch'
       x-opal-cli:
-        group: pipelines
+        parent: config
+        group: pipeline
         command: update
     delete:
       tags:
@@ -2669,7 +2582,8 @@ paths:
         '412':
           $ref: ./shared/opal_kernel.yaml#/components/responses/PreconditionFailed
       x-opal-cli:
-        group: pipelines
+        parent: config
+        group: pipeline
         command: remove
     parameters:
     - name: pipeline_id
@@ -2683,22 +2597,27 @@ paths:
     $ref: ./shared/opal_kernel.yaml#/components/pathItems/profiles_collection
     x-opal-cli:
       get:
-        group: profiles
+        parent: config
+        group: profile
         command: list
       post:
-        group: profiles
+        parent: config
+        group: profile
         command: add
   /api/v1/profile/{profile_id}:
     $ref: ./shared/opal_kernel.yaml#/components/pathItems/profile_item
     x-opal-cli:
       get:
-        group: profiles
+        parent: config
+        group: profile
         command: show
       patch:
-        group: profiles
+        parent: config
+        group: profile
         command: update
       delete:
-        group: profiles
+        parent: config
+        group: profile
         command: remove
   /api/v1/zone/:
     get:
@@ -2743,7 +2662,8 @@ paths:
         '409':
           $ref: ./shared/opal_kernel.yaml#/components/responses/Conflict
       x-opal-cli:
-        group: zones
+        parent: config
+        group: zone
         command: list
     post:
       tags:
@@ -2798,7 +2718,8 @@ paths:
             schema:
               $ref: '#/components/schemas/ZoneCreate'
       x-opal-cli:
-        group: zones
+        parent: config
+        group: zone
         command: add
   /api/v1/zone/{zone_id}:
     get:
@@ -2841,7 +2762,8 @@ paths:
         '409':
           $ref: ./shared/opal_kernel.yaml#/components/responses/Conflict
       x-opal-cli:
-        group: zones
+        parent: config
+        group: zone
         command: show
     patch:
       tags:
@@ -2894,7 +2816,8 @@ paths:
             schema:
               $ref: '#/components/schemas/ZonePatch'
       x-opal-cli:
-        group: zones
+        parent: config
+        group: zone
         command: update
     delete:
       tags:
@@ -2937,7 +2860,8 @@ paths:
         '412':
           $ref: ./shared/opal_kernel.yaml#/components/responses/PreconditionFailed
       x-opal-cli:
-        group: zones
+        parent: config
+        group: zone
         command: remove
     parameters:
     - name: zone_id
@@ -2990,7 +2914,8 @@ paths:
         '409':
           $ref: ./shared/opal_kernel.yaml#/components/responses/Conflict
       x-opal-cli:
-        group: rules
+        parent: config
+        group: rule
         command: list
     post:
       tags:
@@ -3045,7 +2970,8 @@ paths:
             schema:
               $ref: '#/components/schemas/RuleCreate'
       x-opal-cli:
-        group: rules
+        parent: config
+        group: rule
         command: add
   /api/v1/rule/{rule_id}:
     get:
@@ -3088,7 +3014,8 @@ paths:
         '409':
           $ref: ./shared/opal_kernel.yaml#/components/responses/Conflict
       x-opal-cli:
-        group: rules
+        parent: config
+        group: rule
         command: show
     patch:
       tags:
@@ -3141,7 +3068,8 @@ paths:
             schema:
               $ref: '#/components/schemas/RulePatch'
       x-opal-cli:
-        group: rules
+        parent: config
+        group: rule
         command: update
     delete:
       tags:
@@ -3184,7 +3112,8 @@ paths:
         '412':
           $ref: ./shared/opal_kernel.yaml#/components/responses/PreconditionFailed
       x-opal-cli:
-        group: rules
+        parent: config
+        group: rule
         command: remove
     parameters:
     - name: rule_id
@@ -3237,7 +3166,8 @@ paths:
         '409':
           $ref: ./shared/opal_kernel.yaml#/components/responses/Conflict
       x-opal-cli:
-        group: monitors
+        parent: config
+        group: monitor
         command: list
     post:
       tags:
@@ -3292,7 +3222,8 @@ paths:
             schema:
               $ref: '#/components/schemas/MonitorCreate'
       x-opal-cli:
-        group: monitors
+        parent: config
+        group: monitor
         command: add
   /api/v1/monitor/{monitor_id}:
     get:
@@ -3335,7 +3266,8 @@ paths:
         '409':
           $ref: ./shared/opal_kernel.yaml#/components/responses/Conflict
       x-opal-cli:
-        group: monitors
+        parent: config
+        group: monitor
         command: show
     patch:
       tags:
@@ -3388,7 +3320,8 @@ paths:
             schema:
               $ref: '#/components/schemas/MonitorPatch'
       x-opal-cli:
-        group: monitors
+        parent: config
+        group: monitor
         command: update
     delete:
       tags:
@@ -3431,7 +3364,8 @@ paths:
         '412':
           $ref: ./shared/opal_kernel.yaml#/components/responses/PreconditionFailed
       x-opal-cli:
-        group: monitors
+        parent: config
+        group: monitor
         command: remove
     parameters:
     - name: monitor_id
@@ -3486,13 +3420,15 @@ paths:
             schema:
               $ref: '#/components/schemas/PipelineCreate'
       x-opal-cli:
-        group: pipelines
+        parent: config
+        group: pipeline
         command: validate
   /api/v1/profile/{profile_id}/activate:
     $ref: ./shared/opal_kernel.yaml#/components/pathItems/profile_activate
     x-opal-cli:
       post:
-        group: profiles
+        parent: config
+        group: profile
         command: activate
   /api/v1/source/{source_id}/status:
     get:
@@ -3533,7 +3469,7 @@ paths:
         '409':
           $ref: ./shared/opal_kernel.yaml#/components/responses/Conflict
       x-opal-cli:
-        group: sources
+        group: source
         command: status
     parameters:
     - name: source_id
@@ -3582,7 +3518,7 @@ paths:
         '409':
           $ref: ./shared/opal_kernel.yaml#/components/responses/Conflict
       x-opal-cli:
-        group: sources
+        group: source
         command: probe
     parameters:
     - name: source_id
@@ -3740,7 +3676,7 @@ paths:
       - *id032
       - *id033
       - *id034
-      - $ref: '#/components/parameters/IdempotencyKey'
+      - $ref: './shared/opal_kernel.yaml#/components/parameters/IdempotencyKey'
       responses:
         '401':
           $ref: ./shared/opal_kernel.yaml#/components/responses/Unauthorized
@@ -3776,7 +3712,7 @@ paths:
             schema:
               $ref: '#/components/schemas/SessionCreate'
       x-opal-cli:
-        group: sessions
+        group: session
         command: start
     get:
       tags:
@@ -3829,7 +3765,7 @@ paths:
         '409':
           $ref: ./shared/opal_kernel.yaml#/components/responses/Conflict
       x-opal-cli:
-        group: sessions
+        group: session
         command: list
   /api/v1/session/{session_id}:
     get:
@@ -3870,7 +3806,7 @@ paths:
         '409':
           $ref: ./shared/opal_kernel.yaml#/components/responses/Conflict
       x-opal-cli:
-        group: sessions
+        group: session
         command: show
     parameters:
     - name: session_id
@@ -3919,58 +3855,8 @@ paths:
         '409':
           $ref: ./shared/opal_kernel.yaml#/components/responses/Conflict
       x-opal-cli:
-        group: sessions
+        group: session
         command: stop
-    parameters:
-    - name: session_id
-      in: path
-      required: true
-      schema:
-        type: string
-        minLength: 1
-        maxLength: 128
-  /api/v1/session/{session_id}/observation/:
-    get:
-      tags:
-      - sessions
-      summary: List observations produced by session
-      operationId: observations_sessions
-      description: ''
-      parameters:
-      - *id031
-      - *id032
-      - *id033
-      - *id034
-      - $ref: ./shared/opal_kernel.yaml#/components/parameters/Limit
-      responses:
-        '401':
-          $ref: ./shared/opal_kernel.yaml#/components/responses/Unauthorized
-        '403':
-          $ref: ./shared/opal_kernel.yaml#/components/responses/Forbidden
-        '200':
-          description: OK
-          headers:
-            X-Opal-Session-Id: *id027
-            X-Opal-Transaction-Id: *id028
-            X-Opal-Request-Id: *id029
-            X-Opal-Causation-Id: *id030
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ObservationList'
-        '422':
-          $ref: ./shared/opal_kernel.yaml#/components/responses/UnprocessableEntity
-        '429':
-          $ref: '#/components/responses/CapacityExceeded'
-        '404':
-          $ref: ./shared/opal_kernel.yaml#/components/responses/NotFound
-        '503':
-          $ref: ./shared/opal_kernel.yaml#/components/responses/ServiceUnavailable
-        '409':
-          $ref: ./shared/opal_kernel.yaml#/components/responses/Conflict
-      x-opal-cli:
-        group: sessions
-        command: observations
     parameters:
     - name: session_id
       in: path
@@ -4023,7 +3909,7 @@ paths:
         '409':
           $ref: ./shared/opal_kernel.yaml#/components/responses/Conflict
       x-opal-cli:
-        group: sessions
+        group: session
         command: stream
     parameters:
     - name: session_id
@@ -4127,7 +4013,7 @@ paths:
         '409':
           $ref: ./shared/opal_kernel.yaml#/components/responses/Conflict
       x-opal-cli:
-        group: sessions
+        group: session
         command: preview
     parameters:
     - name: session_id
@@ -4149,7 +4035,7 @@ paths:
       - *id032
       - *id033
       - *id034
-      - $ref: '#/components/parameters/IdempotencyKey'
+      - $ref: './shared/opal_kernel.yaml#/components/parameters/IdempotencyKey'
       responses:
         '401':
           $ref: ./shared/opal_kernel.yaml#/components/responses/Unauthorized
@@ -4185,7 +4071,8 @@ paths:
             schema:
               $ref: '#/components/schemas/JobCreate'
       x-opal-cli:
-        group: jobs
+        parent: data
+        group: job
         command: submit
     get:
       tags:
@@ -4236,7 +4123,8 @@ paths:
         '409':
           $ref: ./shared/opal_kernel.yaml#/components/responses/Conflict
       x-opal-cli:
-        group: jobs
+        parent: data
+        group: job
         command: list
   /api/v1/job/{job_id}:
     get:
@@ -4277,7 +4165,8 @@ paths:
         '409':
           $ref: ./shared/opal_kernel.yaml#/components/responses/Conflict
       x-opal-cli:
-        group: jobs
+        parent: data
+        group: job
         command: show
     parameters:
     - name: job_id
@@ -4326,7 +4215,8 @@ paths:
         '409':
           $ref: ./shared/opal_kernel.yaml#/components/responses/Conflict
       x-opal-cli:
-        group: jobs
+        parent: data
+        group: job
         command: cancel
     parameters:
     - name: job_id
@@ -4419,7 +4309,8 @@ paths:
         '409':
           $ref: ./shared/opal_kernel.yaml#/components/responses/Conflict
       x-opal-cli:
-        group: observations
+        parent: data
+        group: observation
         command: list
   /api/v1/observation/{observation_id}:
     get:
@@ -4460,7 +4351,8 @@ paths:
         '409':
           $ref: ./shared/opal_kernel.yaml#/components/responses/Conflict
       x-opal-cli:
-        group: observations
+        parent: data
+        group: observation
         command: show
     parameters:
     - name: observation_id
@@ -4532,6 +4424,7 @@ paths:
               type: string
               format: binary
       x-opal-cli:
+        parent: data
         group: media
         command: upload
     get:
@@ -4573,6 +4466,7 @@ paths:
         '409':
           $ref: ./shared/opal_kernel.yaml#/components/responses/Conflict
       x-opal-cli:
+        parent: data
         group: media
         command: list
   /api/v1/media/{media_id}:
@@ -4614,6 +4508,7 @@ paths:
         '409':
           $ref: ./shared/opal_kernel.yaml#/components/responses/Conflict
       x-opal-cli:
+        parent: data
         group: media
         command: show
     delete:
@@ -4650,6 +4545,7 @@ paths:
         '409':
           $ref: ./shared/opal_kernel.yaml#/components/responses/Conflict
       x-opal-cli:
+        parent: data
         group: media
         command: remove
     parameters:
@@ -4733,7 +4629,7 @@ paths:
         '409':
           $ref: ./shared/opal_kernel.yaml#/components/responses/Conflict
       x-opal-cli:
-        group: sources
+        group: source
         command: frame
     parameters:
     - name: source_id
@@ -4803,7 +4699,7 @@ paths:
             schema:
               $ref: '#/components/schemas/CaptureCreate'
       x-opal-cli:
-        group: sources
+        group: source
         command: capture
     parameters:
     - name: source_id
@@ -4853,7 +4749,8 @@ paths:
         '409':
           $ref: ./shared/opal_kernel.yaml#/components/responses/Conflict
       x-opal-cli:
-        group: captures
+        parent: data
+        group: capture
         command: list
   /api/v1/capture/{capture_id}:
     get:
@@ -4894,7 +4791,8 @@ paths:
         '409':
           $ref: ./shared/opal_kernel.yaml#/components/responses/Conflict
       x-opal-cli:
-        group: captures
+        parent: data
+        group: capture
         command: show
     delete:
       tags:
@@ -4930,7 +4828,8 @@ paths:
         '409':
           $ref: ./shared/opal_kernel.yaml#/components/responses/Conflict
       x-opal-cli:
-        group: captures
+        parent: data
+        group: capture
         command: remove
     parameters:
     - name: capture_id
@@ -4980,7 +4879,8 @@ paths:
         '409':
           $ref: ./shared/opal_kernel.yaml#/components/responses/Conflict
       x-opal-cli:
-        group: captures
+        parent: data
+        group: capture
         command: download
     parameters:
     - name: capture_id
@@ -5030,7 +4930,8 @@ paths:
         '409':
           $ref: ./shared/opal_kernel.yaml#/components/responses/Conflict
       x-opal-cli:
-        group: artifacts
+        parent: data
+        group: artifact
         command: list
   /api/v1/artifact/{artifact_id}:
     get:
@@ -5071,7 +4972,8 @@ paths:
         '409':
           $ref: ./shared/opal_kernel.yaml#/components/responses/Conflict
       x-opal-cli:
-        group: artifacts
+        parent: data
+        group: artifact
         command: show
     delete:
       tags:
@@ -5107,7 +5009,8 @@ paths:
         '409':
           $ref: ./shared/opal_kernel.yaml#/components/responses/Conflict
       x-opal-cli:
-        group: artifacts
+        parent: data
+        group: artifact
         command: remove
     parameters:
     - name: artifact_id
@@ -5177,7 +5080,8 @@ paths:
                 type: string
                 format: binary
       x-opal-cli:
-        group: artifacts
+        parent: data
+        group: artifact
         command: download
     parameters:
     - name: artifact_id
@@ -5191,53 +5095,92 @@ paths:
     $ref: ./shared/opal_kernel.yaml#/components/pathItems/settings_collection
     x-opal-cli:
       get:
-        group: settings
+        parent: config
+        group: setting
         command: list
       patch:
-        group: settings
-        command: patch
+        parent: config
+        group: setting
+        command: update
+        aliases:
+        - settings patch
   /api/v1/setting/{key}:
     $ref: ./shared/opal_kernel.yaml#/components/pathItems/settings_key
     x-opal-cli:
       get:
-        group: settings
+        parent: config
+        group: setting
         command: show
       put:
-        group: settings
-        command: update
+        parent: config
+        group: setting
+        command: set
       delete:
-        group: settings
-        command: reset
-  /api/v1/configuration/export:
+        parent: config
+        group: setting
+        command: remove
+        aliases:
+        - settings reset
+  /api/v1/backup/list:
+    $ref: ./shared/opal_kernel.yaml#/components/pathItems/backup_list
+    x-opal-cli:
+      get:
+        group: backup
+        command: list
+  /api/v1/backup/create:
+    $ref: ./shared/opal_kernel.yaml#/components/pathItems/backup_create
+    x-opal-cli:
+      post:
+        group: backup
+        command: create
+  /api/v1/backup/download/{filename}:
+    $ref: ./shared/opal_kernel.yaml#/components/pathItems/backup_download
+    x-opal-cli:
+      get:
+        group: backup
+        command: download
+  /api/v1/backup/restore/{filename}:
+    $ref: ./shared/opal_kernel.yaml#/components/pathItems/backup_restore
+    x-opal-cli:
+      post:
+        group: backup
+        command: restore
+  /api/v1/backup/{filename}:
+    $ref: ./shared/opal_kernel.yaml#/components/pathItems/backup_delete
+    x-opal-cli:
+      delete:
+        group: backup
+        command: remove
+  /api/v1/backup/export:
     $ref: ./shared/opal_kernel.yaml#/components/pathItems/backup_export
     x-opal-cli:
       get:
-        group: configuration
+        group: backup
         command: export
-  /api/v1/configuration/validate:
-    $ref: ./shared/opal_kernel.yaml#/components/pathItems/backup_validate_post
-    x-opal-cli:
-      post:
-        group: configuration
-        command: validate
-  /api/v1/configuration/import:
+  /api/v1/backup/import:
     $ref: ./shared/opal_kernel.yaml#/components/pathItems/backup_import
     x-opal-cli:
       post:
-        group: configuration
+        group: backup
         command: import
+  /api/v1/backup/validate:
+    $ref: ./shared/opal_kernel.yaml#/components/pathItems/backup_validate_post
+    x-opal-cli:
+      post:
+        group: backup
+        command: validate
   /api/v1/health/:
     $ref: ./shared/opal_kernel.yaml#/components/pathItems/health
     x-opal-cli:
       get:
-        group: health
-        command: show
+        group: info
+        command: health
   /api/v1/info/:
     $ref: './shared/opal_kernel.yaml#/components/pathItems/info'
     x-opal-cli:
       get:
         group: info
-        command: show
+        command: version
   /api/v1/info/ping:
     $ref: './shared/opal_kernel.yaml#/components/pathItems/info_ping'
     x-opal-cli:
@@ -5248,14 +5191,32 @@ paths:
     $ref: ./shared/opal_kernel.yaml#/components/pathItems/health_live
     x-opal-cli:
       get:
-        group: health
+        group: info
         command: live
   /api/v1/health/ready:
     $ref: ./shared/opal_kernel.yaml#/components/pathItems/health_ready
     x-opal-cli:
       get:
-        group: health
+        group: info
         command: ready
+  /api/v1/service/start:
+    $ref: ./shared/opal_kernel.yaml#/components/pathItems/service_start
+    x-opal-cli:
+      post:
+        group: service
+        command: start
+  /api/v1/service/stop:
+    $ref: ./shared/opal_kernel.yaml#/components/pathItems/service_stop
+    x-opal-cli:
+      post:
+        group: service
+        command: stop
+  /api/v1/service/log:
+    $ref: ./shared/opal_kernel.yaml#/components/pathItems/service_log
+    x-opal-cli:
+      get:
+        group: service
+        command: log
   /api/v1/metrics/:
     get:
       tags:
@@ -5295,8 +5256,8 @@ paths:
         '409':
           $ref: ./shared/opal_kernel.yaml#/components/responses/Conflict
       x-opal-cli:
-        group: metrics
-        command: show
+        group: info
+        command: metrics
   /api/v1/events/status:
     get:
       tags:
@@ -5336,8 +5297,8 @@ paths:
         '409':
           $ref: ./shared/opal_kernel.yaml#/components/responses/Conflict
       x-opal-cli:
-        group: events
-        command: status
+        group: info
+        command: events
   /api/v1/recording/:
     post:
       tags:
@@ -5350,7 +5311,7 @@ paths:
       - *id032
       - *id033
       - *id034
-      - $ref: '#/components/parameters/IdempotencyKey'
+      - $ref: './shared/opal_kernel.yaml#/components/parameters/IdempotencyKey'
       responses:
         '401':
           $ref: ./shared/opal_kernel.yaml#/components/responses/Unauthorized
@@ -5386,7 +5347,8 @@ paths:
             schema:
               $ref: '#/components/schemas/RecordingCreate'
       x-opal-cli:
-        group: recordings
+        parent: data
+        group: recording
         command: start
     get:
       tags:
@@ -5427,7 +5389,8 @@ paths:
         '409':
           $ref: ./shared/opal_kernel.yaml#/components/responses/Conflict
       x-opal-cli:
-        group: recordings
+        parent: data
+        group: recording
         command: list
   /api/v1/recording/{recording_id}:
     get:
@@ -5468,7 +5431,8 @@ paths:
         '409':
           $ref: ./shared/opal_kernel.yaml#/components/responses/Conflict
       x-opal-cli:
-        group: recordings
+        parent: data
+        group: recording
         command: show
     parameters:
     - name: recording_id
@@ -5517,7 +5481,8 @@ paths:
         '409':
           $ref: ./shared/opal_kernel.yaml#/components/responses/Conflict
       x-opal-cli:
-        group: recordings
+        parent: data
+        group: recording
         command: stop
     parameters:
     - name: recording_id
@@ -5542,7 +5507,7 @@ paths:
       summary: View live source feed without requiring a model or analysis session
       operationId: stream_sources
       x-opal-cli:
-        group: sources
+        group: source
         command: stream
       description: GET opens an ephemeral MJPEG viewer connection. In absence of pipeline_id, streams decoded source
         frames only. When pipeline_id is provided, evaluates the configured pipeline for this connection, subject
@@ -5696,6 +5661,7 @@ paths:
         '422':
           $ref: './shared/opal_kernel.yaml#/components/responses/UnprocessableEntity'
       x-opal-cli:
+        parent: config
         group: persona
         command: list
 
@@ -5760,6 +5726,7 @@ paths:
       parameters:
       - $ref: './shared/opal_kernel.yaml#/components/parameters/IfMatch'
       x-opal-cli:
+        parent: config
         group: persona
         command: add
     parameters:
@@ -5801,6 +5768,7 @@ paths:
         '422':
           $ref: './shared/opal_kernel.yaml#/components/responses/UnprocessableEntity'
       x-opal-cli:
+        parent: config
         group: persona
         command: validate
     parameters:
@@ -5853,6 +5821,7 @@ paths:
         '422':
           $ref: './shared/opal_kernel.yaml#/components/responses/UnprocessableEntity'
       x-opal-cli:
+        parent: config
         group: persona
         command: show
 
@@ -5900,6 +5869,7 @@ paths:
       parameters:
       - $ref: './shared/opal_kernel.yaml#/components/parameters/IfMatch'
       x-opal-cli:
+        parent: config
         group: persona
         command: update
 
@@ -5937,6 +5907,7 @@ paths:
       parameters:
       - $ref: './shared/opal_kernel.yaml#/components/parameters/IfMatch'
       x-opal-cli:
+        parent: config
         group: persona
         command: remove
 
@@ -5990,3 +5961,88 @@ x-opal-context-standard:
     metadata_schema_version: '1.0'
 x-opal-authorization:
   $ref: ./shared/opal_kernel.yaml#/x-opal-authorization
+
+x-opal-workflow-examples:
+  - workflow: frame-capture
+    description: >-
+      Create an exact-frame capture, read `output_ref` from the Capture record,
+      then GET `output_ref.content_url` for the image bytes.
+    create:
+      method: POST
+      path: /api/v1/capture/
+      body:
+        source_id: src-front-door
+        retain: true
+    response:
+      status: 201
+      body:
+        id: cap-8f2d41a0
+        source_id: src-front-door
+        created_at: '2026-01-15T10:23:41Z'
+        expires_at: '2026-01-22T10:23:41Z'
+        mime_type: image/jpeg
+        annotated: false
+        frame_time: '2026-01-15T10:23:40Z'
+        output_ref:
+          kind: capture
+          id: cap-8f2d41a0
+          content_url: /api/v1/capture/cap-8f2d41a0/content
+    retrieve:
+      method: GET
+      path: /api/v1/capture/cap-8f2d41a0/content
+      returns: image/jpeg bytes (200); 404 once the capture is swept after expires_at
+  - workflow: recording
+    description: >-
+      Stop a recording; when `artifact_ref` is non-null the recording is
+      finalized and GET `artifact_ref.content_url` serves the clip bytes.
+      While `state` is `starting`/`recording`/`stopping` the field is null
+      (poll show again); after `failed` it stays null permanently (no bytes).
+      404 on the content route means swept/deleted, not pending.
+    create:
+      method: POST
+      path: /api/v1/recording/rec-51c2/stop
+    response:
+      status: 200
+      body:
+        id: rec-51c2
+        source_id: src-front-door
+        state: completed
+        created_at: '2026-01-15T10:20:00Z'
+        artifact_ref:
+          kind: artifact
+          id: art-rec-51c2
+          content_url: /api/v1/artifact/art-rec-51c2/content
+    retrieve:
+      method: GET
+      path: /api/v1/artifact/art-rec-51c2/content
+      returns: recording bytes (200); 404 if the artifact is deleted or swept
+  - workflow: clip-export
+    description: >-
+      Submit an export job; when it completes `output_refs` lists one ref per
+      produced artifact (null while `queued`/`running`; permanently absent
+      after `failed`/`cancelled`/`timed_out`). GET each `content_url` for
+      bytes; 404 means swept/deleted, not pending.
+    create:
+      method: POST
+      path: /api/v1/job/
+      body:
+        kind: clip_export
+        source_id: src-front-door
+    response:
+      status: 200
+      body:
+        id: job-9a3f
+        kind: clip_export
+        state: completed
+        created_at: '2026-01-15T10:25:12Z'
+        progress: 1
+        artifact_ids:
+        - art-job-9a3f-clip
+        output_refs:
+        - kind: artifact
+          id: art-job-9a3f-clip
+          content_url: /api/v1/artifact/art-job-9a3f-clip/content
+    retrieve:
+      method: GET
+      path: /api/v1/artifact/art-job-9a3f-clip/content
+      returns: export bytes (200); 404 if the artifact is deleted or swept

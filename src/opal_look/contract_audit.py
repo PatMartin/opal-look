@@ -1,4 +1,4 @@
-"""Offline contract audit: pinned openapi/opal_look_v1.6.0.yaml (+ shared kernel) vs implemented routes.
+"""Offline contract audit: pinned openapi/opal_look_v1.7.1.yaml (+ shared kernel) vs implemented routes.
 
 Reads the pinned YAML contract and the live FastAPI application, then reports:
 
@@ -33,7 +33,7 @@ HTTP_METHODS = frozenset(
 API_PREFIX = "/api/v1"
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-DEFAULT_CONTRACT = REPO_ROOT / "openapi" / "opal_look_v1.6.0.yaml"
+DEFAULT_CONTRACT = REPO_ROOT / "openapi" / "opal_look_v1.7.1.yaml"
 
 
 @dataclass(frozen=True)
@@ -44,6 +44,7 @@ class ContractOperation:
     summary: str
     cli_group: str | None
     cli_command: str | None
+    cli_parent: str | None = None
 
 
 @dataclass
@@ -185,9 +186,11 @@ def load_contract(path: Path) -> ContractInventory:
             op_id = op.get("operationId")
             if not op_id:
                 problems.append(f"{method.upper()} {api_path}: missing operationId")
-            if not cli.get("group") or not cli.get("command"):
+            # Kernel x-opal-cli-format: `command` is required; `group`,
+            # `parent` and `aliases` are optional.
+            if not cli.get("command"):
                 problems.append(
-                    f"{method.upper()} {api_path}: missing x-opal-cli group/command"
+                    f"{method.upper()} {api_path}: missing x-opal-cli command"
                 )
             operations.append(
                 ContractOperation(
@@ -197,6 +200,7 @@ def load_contract(path: Path) -> ContractInventory:
                     summary=str(op.get("summary", "")),
                     cli_group=cli.get("group"),
                     cli_command=cli.get("command"),
+                    cli_parent=cli.get("parent"),
                 )
             )
 
@@ -349,7 +353,7 @@ def format_text(report: AuditReport) -> str:
     if report.legacy_only:
         lines.append(
             f"LEGACY-ONLY ({len(report.legacy_only)}) -- implemented /api/v1 ops "
-            "absent from v1.6.0:"
+            "absent from the pinned contract:"
         )
         for m, p in report.legacy_only:
             lines.append(f"  {m:6} {p}")
@@ -384,10 +388,10 @@ def _build_app(data_dir: Path | None) -> Any:
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         prog="opal-look-audit",
-        description="Audit implemented routes against the pinned v1.6.0 contract.",
+        description="Audit implemented routes against the pinned v1.7.1 contract.",
     )
     parser.add_argument("--contract", type=Path, default=DEFAULT_CONTRACT,
-                        help="pinned OpenAPI YAML (default: openapi/opal_look_v1.6.0.yaml)")
+                        help="pinned OpenAPI YAML (default: openapi/opal_look_v1.7.1.yaml)")
     parser.add_argument("--strict", action="store_true",
                         help="exit 1 on missing/legacy routes or contract problems")
     parser.add_argument("--json", action="store_true", dest="as_json",

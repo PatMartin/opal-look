@@ -1,18 +1,18 @@
 # OPAL Look
 
-Implementation of `openapi/opal_look_v1.6.0.yaml` + `openapi/shared/
-opal_kernel.yaml` (OPAL Suite Kernel 1.6.0) as the authoritative contract
+Implementation of `openapi/opal_look_v1.7.1.yaml` + `openapi/shared/
+opal_kernel.yaml` (OPAL Suite Kernel 1.7.1) as the authoritative contract
 (do not serve a generated spec; do not edit the contract files — amendments
 go upstream first). Python 3.12+ / FastAPI / SQLite.
 
-v1.6.0 highlights vs v1.5.0: all resource collection paths are singular
-(`/api/v1/source/`, `/api/v1/session/`, `/api/v1/setting/` …); personas
-(named observer identities with optional OPAL Say `voice_id`) are a new
-config resource; `/api/v1/info/` + `/api/v1/info/ping` serve the kernel
-ServiceInfo/LivenessRead. Migration record:
-`specs/OPAL_LOOK_V1_6_LEDGER.md`; the v1.5 migration history is in
-`specs/OPAL_LOOK_V1_5_LEDGER.md` and v1.4.0-era upstream copies live under
-`vendor/opal-api/`.
+v1.7.1 highlights vs v1.6.0: server-managed backup archives under
+`/api/v1/backup/*` replace `/api/v1/configuration/*`; `/api/v1/service/*`
+exposes pidfile-managed process lifecycle (start/stop/log tail);
+`/api/v1/session/{id}/observation/` is retired; x-opal-cli gains `parent`
+super-groups (`config`, `data`), singular group names, `info` absorbs
+health/metrics/events/capabilities, and `aliases`. Migration record:
+`specs/OPAL_LOOK_V1_7_LEDGER.md`; v1.4.0-era upstream contract copies live
+under `vendor/opal-api/`.
 
 ## Commands
 

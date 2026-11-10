@@ -140,7 +140,6 @@ const SCREENS = {
     el.innerHTML = await _list("Sessions", "/api/v1/session/") +
       `<button onclick="startSession()">start</button>` +
       `<button onclick="stopSession()">stop</button>` +
-      `<button onclick="sessionObservations()">observations</button>` +
       `<button onclick="sessionStream()">stream</button>` +
       `<pre id="sess-out"></pre>`;
   },
@@ -263,11 +262,6 @@ async function startSession() {
 async function stopSession() {
   const id = prompt("Session id to stop:");
   if (id) { await api("POST", `/api/v1/session/${id}/stop`); render("sessions"); }
-}
-async function sessionObservations() {
-  const id = prompt("Session id:");
-  if (id) $("#sess-out").textContent =
-    JSON.stringify(await api("GET", `/api/v1/session/${id}/observation/`), null, 2);
 }
 async function sessionStream() {
   const id = prompt("Session id:");

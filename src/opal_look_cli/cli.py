@@ -398,7 +398,7 @@ sessions = typer.Typer(help="sessions", epilog=(
     "  opal-look sessions start --body "
     "'{\"source_id\":\"cam\",\"pipeline_id\":\"p1\"}'\n"
     "  opal-look sessions list\n"
-    "  opal-look sessions observations SESSION_ID\n"
+    "  opal-look sessions show SESSION_ID\n"
     "  opal-look sessions preview SESSION_ID --out view.mjpeg"))
 
 
@@ -423,12 +423,6 @@ def _sess_show(session_id: str):
 def _sess_stop(session_id: str):
     _emit(unwrap(_client().request(
         "POST", f"/api/v1/session/{session_id}/stop")))
-
-
-@sessions.command("observations")
-def _sess_observations(session_id: str):
-    _emit(unwrap(_client().get(
-        f"/api/v1/session/{session_id}/observation/")))
 
 
 @sessions.command("stream")

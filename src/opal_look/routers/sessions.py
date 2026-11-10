@@ -175,17 +175,6 @@ def post_api_v1_sessions_session_id_stop(
                         headers={"ETag": store.config_revision()})
 
 
-@router.get("/api/v1/session/{session_id}/observation/")
-def get_api_v1_sessions_observations(
-    store: StoreDep, session_id: str, limit: int = 100
-) -> JSONResponse:
-    _session_or_404(store, session_id)
-    rows = store.observations.page(now_iso(), {"session_id": session_id},
-                                   min(limit, 500))
-    return JSONResponse([json.loads(r["body"]) for r in rows],
-                        headers={"ETag": store.config_revision()})
-
-
 @router.get("/api/v1/session/{session_id}/stream")
 async def get_api_v1_sessions_session_id_stream(
     request: Request, store: StoreDep, session_id: str

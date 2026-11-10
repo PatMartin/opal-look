@@ -40,8 +40,9 @@ def test_start_and_terminal_state(client, tmp_path):
         time.sleep(0.1)
     assert row["state"] == "completed", row
     assert row["ended_at"]
-    # observations endpoint returns persisted + runtime obs list shape
-    obs = client.get(f"/api/v1/session/{body['id']}/observation/")
+    # v1.7.1: the session-scoped observations route was retired;
+    # observations stay queryable via /api/v1/observation/
+    obs = client.get("/api/v1/observation/")
     assert obs.status_code == 200
 
 

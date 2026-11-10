@@ -27,13 +27,10 @@ def app(tmp_path):
     app.state.store.close()
 
 
-# v1.7.1 migration baseline: the backup/* and service/* contract ops land in
-# steps 2-4 and the retired configuration/* + session observation routes come
-# down in steps 2/5. These sets shrink to empty at the certification step.
+# v1.7.1 migration: these sets tracked the in-flight gaps; both are empty
+# now that the REST surface is conformant.
 EXPECTED_MISSING: set[tuple[str, str]] = set()
-EXPECTED_LEGACY = {
-    ("GET", "/api/v1/session/{session_id}/observation/"),
-}
+EXPECTED_LEGACY: set[tuple[str, str]] = set()
 
 
 def test_pinned_contract_exists_and_is_v1_7():
@@ -95,11 +92,11 @@ def test_main_is_nonblocking_by_default_and_strict_on_gaps(app, capsys):
                      or report.contract.problems) else 0
     assert contract_audit.main(["--contract", str(CONTRACT)]) == 0
     rc_strict = contract_audit.main(["--contract", str(CONTRACT), "--strict"])
-    assert rc_strict == expected == 1, (
-        "strict reports the known v1.7.1 gaps until they are closed"
+    assert rc_strict == expected == 0, (
+        "strict must pass now that v1.7.1 is conformant"
     )
     out = capsys.readouterr().out
-    assert "GAPS PRESENT" in out
+    assert "CONFORMANT" in out
 
 
 def test_main_json_output_is_machine_readable(capsys):
@@ -109,7 +106,7 @@ def test_main_json_output_is_machine_readable(capsys):
     assert payload["contract"]["operations"] == 105
     assert payload["contract"]["paths"] == 70
     assert payload["coverage"]["implemented"] + payload["coverage"]["missing"] == 105
-    assert payload["ok"] is False
+    assert payload["ok"] is True
 
 
 def test_main_missing_contract_returns_2(tmp_path, capsys):

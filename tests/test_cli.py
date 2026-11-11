@@ -288,3 +288,58 @@ def test_cli_output_fetch_rejects_bad_url(cli):
     r = cli.invoke(cli_app, ["output", "fetch", "/api/v1/media/m1/content"])
     assert r.exit_code != 0
     assert "expected a content_url" in r.output
+
+
+def test_cli_tree_renders_live_command_tree(cli):
+    result = cli.invoke(cli_app, ["tree"])
+    assert result.exit_code == 0, result.output
+    out = result.output
+    assert out.splitlines()[0].startswith("opal-look")
+    # groups and leaf commands are present with Unicode box-drawing guides
+    assert "├── config" in out and "── model" in out and "└── " in out
+    # piped output carries no ANSI escapes; styles only appear on a terminal
+    assert "\x1b[" not in out
+    # notation: required options bare, optional bracketed, positionals bare names
+    assert "cancel job_id" in out
+    assert "list [--limit]" in out
+    # the tree's own --ascii flag shows as an optional parameter
+    assert "tree [--ascii]" in out
+    # built-in help and shell-completion plumbing are skipped
+    assert "--help" not in out and "--install-completion" not in out
+
+
+def test_cli_tree_styles_when_on_a_terminal(cli):
+    """render_tree produces a styled rich Tree: ANSI escapes only when the
+    console is a terminal."""
+    import io
+    import re
+
+    from rich.console import Console
+    from typer.main import get_command
+
+    from opal_look_cli.tree_cmds import render_tree
+
+    def render(force_terminal: bool) -> str:
+        con = Console(file=io.StringIO(), force_terminal=force_terminal,
+                      width=120)
+        con.print(render_tree(get_command(cli_app), "opal-look"))
+        return con.file.getvalue()
+
+    styled, plain = render(True), render(False)
+    assert "\x1b[" in styled and "\x1b[" not in plain
+    # stripping ANSI leaves the same Unicode box-drawing tree either way
+    assert re.sub(r"\x1b\[[0-9;]*m", "", styled) == plain
+    assert "├── config" in plain and "└── " in plain
+
+
+def test_cli_tree_ascii(cli):
+    result = cli.invoke(cli_app, ["tree", "--ascii"])
+    assert result.exit_code == 0, result.output
+    out = result.output
+    assert out.splitlines()[0].startswith("opal-look")
+    # ASCII guides only — no Unicode box-drawing, no ANSI escapes
+    assert "|-- config" in out and "`-- " in out
+    assert "├──" not in out and "└──" not in out and "│" not in out \
+        and "\x1b[" not in out
+    out.encode("ascii")
+    assert "tree [--ascii]" in out and "cancel job_id" in out

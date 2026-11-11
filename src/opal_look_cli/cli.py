@@ -879,46 +879,9 @@ def _output_fetch(content_url: str,
 app.add_typer(output, name="output")
 
 
-@app.command("tree", epilog=(
-    "Examples:\n"
-    "  opal-look tree"))
-def _tree():
-    """Print the full CLI command tree (options in [])."""
-    import click
-    import typer.main
+from .tree_cmds import register as _register_tree
 
-    root = typer.main.get_command(app)
-
-    def _usage_params(cmd):
-        parts = []
-        for p in cmd.params:
-            if p.name == "help":
-                continue
-            opts = getattr(p, "opts", None) or []
-            is_option = any(o.startswith("-") for o in opts) or \
-                "Option" in type(p).__name__
-            if is_option:
-                name = next((o for o in opts if o.startswith("--")), p.name)
-                meta = p.metavar or p.name.upper().replace("-", "_")
-                val = "" if getattr(p, "is_flag", False) and not getattr(p, "flag_value", None) else f" {meta}"
-                parts.append(f"[{name}{val}]")
-            else:  # positional argument
-                u = p.name.upper()
-                parts.append(u if p.required else f"[{u}]")
-        return (" " + " ".join(parts)) if parts else ""
-
-    def _walk(cmd, prefix):
-        if not hasattr(cmd, "commands"):
-            return
-        items = sorted(cmd.commands.items())
-        for i, (name, sub) in enumerate(items):
-            last = i == len(items) - 1
-            branch = "`-- " if last else "|-- "
-            typer.echo(f"{prefix}{branch}{name}{_usage_params(sub)}")
-            _walk(sub, prefix + ("    " if last else "|   "))
-
-    typer.echo("opal look")
-    _walk(root, "")
+_register_tree(app)
 
 
 def main() -> None:

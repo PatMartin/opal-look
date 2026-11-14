@@ -583,6 +583,14 @@ def _setting_update(body: str = typer.Option(None, "--body"),
                                   json=_body(body, file))))
 
 
+@setting.command("patch")
+def _setting_patch(body: str = typer.Option(None, "--body"),
+                   file: Path = typer.Option(None, "--file")):
+    """Contract alias for `config setting update`."""
+    _emit(unwrap(_client().mutate("PATCH", "/api/v1/setting/",
+                                  json=_body(body, file))))
+
+
 @setting.command("set")
 def _setting_set(key: str, value: str):
     _emit(unwrap(_client().mutate("PUT", f"/api/v1/setting/{key}",
@@ -596,6 +604,25 @@ def _setting_remove(key: str):
 
 config.add_typer(setting, name="setting")
 app.add_typer(config, name="config")
+
+# -- top-level `setting` aliases (contract: 'setting get', 'setting delete') ------
+
+setting_alias = typer.Typer(help="setting (alias spellings for config setting)")
+
+
+@setting_alias.command("get")
+def _setting_alias_get(key: str):
+    """Alias for `config setting show`."""
+    _emit(unwrap(_client().get(f"/api/v1/setting/{key}")))
+
+
+@setting_alias.command("delete")
+def _setting_alias_delete(key: str):
+    """Alias for `config setting remove`."""
+    _emit(unwrap(_client().mutate("DELETE", f"/api/v1/setting/{key}")))
+
+
+app.add_typer(setting_alias, name="setting")
 
 from . import tree_cmds as _tree_cmds  # noqa: E402
 _tree_cmds.register(app, "opal-look")

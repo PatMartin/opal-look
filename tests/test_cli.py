@@ -193,7 +193,7 @@ def test_cli_tree_renders_live_command_tree(cli):
     out = result.output
     assert out.splitlines()[0].startswith("opal-look")
     # groups and leaf commands are present with Unicode box-drawing guides
-    assert "├── stream" in out and "└── config" in out
+    assert "├── stream" in out and "└── setting" in out
     # piped output carries no ANSI escapes; styles only appear on a terminal
     assert "\x1b[" not in out
     # notation: required args bare, optional bracketed
@@ -226,7 +226,7 @@ def test_cli_tree_styles_when_on_a_terminal(cli):
     assert "\x1b[" in styled and "\x1b[" not in plain
     # stripping ANSI leaves the same Unicode box-drawing tree either way
     assert re.sub(r"\x1b\[[0-9;]*m", "", styled) == plain
-    assert "├── stream" in plain and "└── config" in plain
+    assert "├── stream" in plain and "└── setting" in plain
 
 
 def test_cli_tree_ascii(cli):
@@ -235,7 +235,7 @@ def test_cli_tree_ascii(cli):
     out = result.output
     assert out.splitlines()[0].startswith("opal-look")
     # ASCII guides only — no Unicode box-drawing, no ANSI escapes
-    assert "|-- stream" in out and "`-- config" in out
+    assert "|-- stream" in out and "`-- setting" in out
     assert "├──" not in out and "└──" not in out and "│" not in out \
         and "\x1b[" not in out
     out.encode("ascii")
@@ -297,3 +297,19 @@ def test_cli_model_predict_stream(cli, tmp_path, monkeypatch):
     assert cli.invoke(cli_app, ["stream", "stop", sid]).exit_code == 0
     assert cli.invoke(cli_app, ["model", "unload",
                                 "synthetic-det"]).exit_code == 0
+
+
+def test_cli_setting_aliases(cli):
+    """Contract alias spellings: 'setting get'/'setting delete' (top-level)
+    and 'config setting patch'."""
+    r = cli.invoke(cli_app, ["setting", "get", "max_viewers"])
+    assert r.exit_code == 0 and "max_viewers" in r.output
+    r = cli.invoke(cli_app, ["config", "setting", "patch",
+                             "--body", '{"max_viewers": 6}'])
+    assert r.exit_code == 0, r.output
+    r = cli.invoke(cli_app, ["--json", "setting", "get", "max_viewers"])
+    assert json.loads(r.output)["value"] == 6
+    assert cli.invoke(cli_app, ["setting", "delete",
+                                "max_viewers"]).exit_code == 0
+    r = cli.invoke(cli_app, ["--json", "setting", "get", "max_viewers"])
+    assert json.loads(r.output)["value"] == 8  # default restored

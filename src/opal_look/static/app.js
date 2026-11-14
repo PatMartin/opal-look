@@ -122,6 +122,7 @@ const SCREENS = {
        <input id="st-eng" placeholder="engine_id (optional)">
        <input id="st-mod" placeholder="model_id (with engine)">
        <button onclick="startStream()">start</button>
+       <button onclick="showStream()">show</button>
        <button onclick="stopStream()">stop</button>
        <button onclick="streamEvents()">watch</button>
        <button onclick="streamVideo()">video</button>
@@ -140,26 +141,35 @@ const SCREENS = {
   },
   async models(el) {
     el.innerHTML = await _list("Models", "/api/v1/model/") +
+      `<button onclick="showModel()">show</button>` +
       `<button onclick="loadModel()">load</button>` +
       `<button onclick="unloadModel()">unload</button>`;
   },
   async engines(el) {
     el.innerHTML = await _list("Engines", "/api/v1/engine/") +
+      `<button onclick="showEngine()">show</button>` +
       `<button onclick="discoverEngines()">discover</button>` +
       `<button onclick="engineCaps()">capabilities</button>` +
       `<button onclick="updateEngine()">update</button>`;
   },
   async hardware(el) {
-    el.innerHTML = await _list("Hardware", "/api/v1/hardware/");
+    el.innerHTML = await _list("Hardware", "/api/v1/hardware/") +
+      `<button onclick="showHardware()">show</button>`;
   },
   async profiles(el) {
     el.innerHTML = await _list("Profiles", "/api/v1/profile/") +
+      `<button onclick="showProfile()">show</button>` +
       `<button onclick="createProfile()">add</button>` +
+      `<button onclick="updateProfile()">update</button>` +
+      `<button onclick="removeProfile()">remove</button>` +
       `<button onclick="activateProfile()">activate</button>`;
   },
   async settings(el) {
     el.innerHTML = await _list("Settings", "/api/v1/setting/") +
-      `<button onclick="updateSettings()">update</button>`;
+      `<button onclick="updateSettings()">update</button>` +
+      `<button onclick="showSetting()">show</button>` +
+      `<button onclick="setSetting()">set</button>` +
+      `<button onclick="removeSetting()">remove</button>`;
   },
   async backup(el) {
     el.innerHTML = `<h3>Backup</h3>
@@ -177,6 +187,10 @@ const SCREENS = {
     el.innerHTML = `<h3>Operations</h3>
       <button onclick="showInfo()">info</button>
       <button onclick="pingInfo()">ping</button>
+      <button onclick="liveInfo()">live</button>
+      <button onclick="readyInfo()">ready</button>
+      <button onclick="svcStart()">service start</button>
+      <button onclick="svcStop()">service stop</button>
       <button onclick="svcLog()">service log</button>
       <pre id="ops-out"></pre>`;
   },
@@ -238,6 +252,11 @@ async function startStream() {
   if ($("#st-mod").value) body.model_id = $("#st-mod").value;
   const r = await api("POST", "/api/v1/stream/", { body });
   $("#st-out").textContent = JSON.stringify(r, null, 2);
+}
+async function showStream() {
+  const id = prompt("Stream id:"); if (!id) return;
+  $("#st-out").textContent = JSON.stringify(
+    await api("GET", `/api/v1/stream/${id}`), null, 2);
 }
 async function stopStream() {
   const id = prompt("Stream id to stop:");
@@ -355,6 +374,60 @@ async function showInfo() {
 }
 async function pingInfo() {
   $("#ops-out").textContent = JSON.stringify(await api("GET", "/api/v1/info/ping"), null, 2);
+}
+async function liveInfo() {
+  $("#ops-out").textContent = JSON.stringify(await api("GET", "/api/v1/health/live"), null, 2);
+}
+async function readyInfo() {
+  $("#ops-out").textContent = JSON.stringify(await api("GET", "/api/v1/health/ready"), null, 2);
+}
+async function svcStart() {
+  $("#ops-out").textContent = JSON.stringify(await api("POST", "/api/v1/service/start"), null, 2);
+}
+async function svcStop() {
+  $("#ops-out").textContent = JSON.stringify(await api("POST", "/api/v1/service/stop"), null, 2);
+}
+async function showEngine() {
+  const id = prompt("Engine id:"); if (!id) return;
+  toast(JSON.stringify(await api("GET", `/api/v1/engine/${id}`)));
+}
+async function showModel() {
+  const id = prompt("Model id:"); if (!id) return;
+  const eng = prompt("Engine id (optional):");
+  const q = eng ? `?engine_id=${encodeURIComponent(eng)}` : "";
+  toast(JSON.stringify(await api("GET", `/api/v1/model/${id}${q}`)));
+}
+async function showHardware() {
+  const id = prompt("Device id:"); if (!id) return;
+  const eng = prompt("Engine id (optional):");
+  const q = eng ? `?engine_id=${encodeURIComponent(eng)}` : "";
+  toast(JSON.stringify(await api("GET", `/api/v1/hardware/${id}${q}`)));
+}
+async function showProfile() {
+  const id = prompt("Profile id:"); if (!id) return;
+  toast(JSON.stringify(await api("GET", `/api/v1/profile/${id}`)));
+}
+async function updateProfile() {
+  const id = prompt("Profile id:"); if (!id) return;
+  const j = prompt("ProfilePatch JSON:");
+  if (j) { await mutate("PATCH", `/api/v1/profile/${id}`, JSON.parse(j)); render("profiles"); }
+}
+async function removeProfile() {
+  const id = prompt("Profile id to remove:"); if (!id) return;
+  await mutate("DELETE", `/api/v1/profile/${id}`); render("profiles");
+}
+async function showSetting() {
+  const k = prompt("Setting key:"); if (!k) return;
+  toast(JSON.stringify(await api("GET", `/api/v1/setting/${k}`)));
+}
+async function setSetting() {
+  const k = prompt("Setting key:"); if (!k) return;
+  const v = prompt("Value (JSON):");
+  if (v !== null) { await mutate("PUT", `/api/v1/setting/${k}`, { value: JSON.parse(v) }); render("settings"); }
+}
+async function removeSetting() {
+  const k = prompt("Setting key to remove:"); if (!k) return;
+  await mutate("DELETE", `/api/v1/setting/${k}`); render("settings");
 }
 async function svcLog() {
   $("#ops-out").textContent = JSON.stringify(await api("GET", "/api/v1/service/log"), null, 2);

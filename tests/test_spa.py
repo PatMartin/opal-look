@@ -18,12 +18,23 @@ def test_spa_js_only_v17_paths(client):
                    "/api/v1/capabilities",
                    "sessionObservations"):
         assert legacy not in js, legacy
-    # v1.7.1 MVP ops are referenced
-    for path in ("/api/v1/stream/", "/api/v1/predict", "/api/v1/model/",
-                 "/api/v1/engine/", "/api/v1/hardware/", "/api/v1/info/",
-                 "/api/v1/backup/export", "/api/v1/backup/list",
-                 "/api/v1/backup/create", "/api/v1/backup/restore/",
-                 "/api/v1/service/log"):
+    # every v1.7.1 MVP path family is referenced (all 47 ops reachable)
+    for path in (
+        "/api/v1/stream/",            # start, list, show, stop, events, video, snapshot, metrics
+        "/api/v1/predict",
+        "/api/v1/model/",             # list, show, load, unload
+        "/api/v1/engine/",            # list, show, update, capabilities
+        "/api/v1/engine/discover",
+        "/api/v1/hardware/",          # list, show
+        "/api/v1/profile/",           # list, add, show, update, remove, activate
+        "/api/v1/setting/",           # map list/patch + key show/set/remove
+        "/api/v1/info/", "/api/v1/info/ping",
+        "/api/v1/health/", "/api/v1/health/live", "/api/v1/health/ready",
+        "/api/v1/backup/export", "/api/v1/backup/list", "/api/v1/backup/create",
+        "/api/v1/backup/restore/", "/api/v1/backup/download/",
+        "/api/v1/backup/import", "/api/v1/backup/validate",
+        "/api/v1/service/log", "/api/v1/service/start", "/api/v1/service/stop",
+    ):
         assert path in js, path
 
 

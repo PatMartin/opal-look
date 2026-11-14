@@ -72,7 +72,8 @@ def test_av_options_mapping():
 
 def test_av_options_defaults():
     opts = _av_options({})
-    assert "rtsp_transport" not in opts
+    # TCP is the default transport (works on cameras without UDP support)
+    assert opts["rtsp_transport"] == "tcp"
     assert opts["stimeout"] == "5000000"
 
 

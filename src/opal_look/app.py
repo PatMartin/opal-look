@@ -32,6 +32,12 @@ def create_app(
     store: Store | None = None,
     auth_token: str | None = None,
 ) -> FastAPI:
+    from dotenv import load_dotenv
+
+    # .env supplies OPAL_LOOK_* env vars (token, data dir, credentials);
+    # never overrides variables already present in the environment.
+    load_dotenv()
+
     @asynccontextmanager
     async def lifespan(app: FastAPI):
         yield

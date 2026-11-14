@@ -69,8 +69,11 @@ contract copies live under `vendor/opal-api/`.
   `idempotency.request_idempotency_key` (contract bounds 1..128) backed by
   the durable `idempotency_keys` table (fingerprint replay -> same
   admission; mismatched body -> 409; 24h TTL).
-- Bearer auth: `OPAL_LOOK_TOKEN` (env, opaque). Set -> all `/api/v1`
-  requests need `Authorization: Bearer <token>` (401 +
+- Environment: `python-dotenv` loads a repo-root `.env` at `main()` and
+  `create_app()` (never overrides real env vars; `.env` is gitignored).
+  Covers `OPAL_LOOK_HOST/PORT/DATA_DIR/TOKEN` + `OPAL_LOOK_CRED_*`.
+- Bearer auth: `OPAL_LOOK_TOKEN` (env or `.env`, opaque). Set -> all
+  `/api/v1` requests need `Authorization: Bearer <token>` (401 +
   `WWW-Authenticate: Bearer`, enforced by `BearerAuthMiddleware` inside
   Correlation so 401s keep X-Opal headers). Unset -> loopback dev mode;
   `main.py` refuses non-loopback binds without it. Never log/export/echo

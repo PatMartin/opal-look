@@ -7,6 +7,10 @@ import os
 
 def main() -> None:
     import uvicorn
+    from dotenv import load_dotenv
+
+    # .env supplies OPAL_LOOK_* env vars (never overrides real env).
+    load_dotenv()
 
     from . import service_control
     from .auth import assert_bind_allowed, env_token

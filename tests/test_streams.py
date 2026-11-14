@@ -296,3 +296,97 @@ def test_video_after_stop_409(client, rtsp_frames):
     assert client.get(f"/api/v1/stream/{sid}/video").status_code == 409
     assert client.get(f"/api/v1/stream/{sid}/snapshot").status_code == 409
     assert client.get(f"/api/v1/stream/{sid}/metrics").status_code == 200
+
+
+# -- inference mode ----------------------------------------------------------
+
+
+@pytest.fixture()
+def loaded(client):
+    client.post("/api/v1/model/synthetic-det/load")
+    yield client
+    client.post("/api/v1/model/synthetic-det/unload")
+
+
+def _start_inference(client, **extra):
+    return client.post("/api/v1/stream/", json={
+        "source": "rtsp://cam/x", "engine_id": "synthetic",
+        "model_id": "synthetic-det", **extra})
+
+
+def test_start_inference_stream(loaded, rtsp_frames):
+    resp = _start_inference(loaded)
+    assert resp.status_code == 202, resp.text
+    body = resp.json()
+    assert body["mode"] == "inference"
+    assert body["engine_id"] == "synthetic"
+    assert body["model_id"] == "synthetic-det"
+    assert "detections" in body["capabilities"]
+
+
+def test_inference_requires_loaded_model(client, rtsp_frames):
+    client.post("/api/v1/model/synthetic-det/unload")
+    assert _start_inference(client).status_code == 409
+
+
+def test_inference_unknown_engine_model(client, rtsp_frames):
+    assert client.post("/api/v1/stream/", json={
+        "source": "rtsp://cam/x", "engine_id": "ghost",
+        "model_id": "m"}).status_code == 404
+    assert client.post("/api/v1/stream/", json={
+        "source": "rtsp://cam/x", "engine_id": "synthetic",
+        "model_id": "ghost"}).status_code == 404
+
+
+def test_inference_engine_unavailable_503(loaded, rtsp_frames):
+    loaded.patch("/api/v1/engine/synthetic",
+                 json={"options": {"force_unavailable": True}},
+                 headers={"If-Match": "*"})
+    assert _start_inference(loaded).status_code == 503
+
+
+def test_inference_bad_options_device(loaded, rtsp_frames):
+    assert _start_inference(
+        loaded, engine_options={"bogus": 1}).status_code == 422
+    assert _start_inference(loaded, device_id="gpu-9").status_code == 422
+
+
+def test_inference_emits_detection_events(loaded, rtsp_frames):
+    sid = _start_inference(loaded).json()["stream_id"]
+    _wait(loaded, sid, lambda b: (b["frames_processed"] or 0) > 0)
+    saw_detection = False
+    with loaded.stream("GET", f"/api/v1/stream/{sid}/events") as r:
+        for line in r.iter_lines():
+            if line.startswith("event: detection"):
+                saw_detection = True
+                break
+    assert saw_detection
+
+
+def test_inference_metrics_has_latency(loaded, rtsp_frames):
+    sid = _start_inference(loaded).json()["stream_id"]
+    _wait(loaded, sid, lambda b: (b["frames_processed"] or 0) > 0)
+    m = loaded.get(f"/api/v1/stream/{sid}/metrics").json()
+    assert m["mode"] == "inference"
+    assert m["inference_latency_ms"] is not None
+
+
+def test_annotated_inference_snapshot(loaded, rtsp_frames):
+    sid = _start_inference(loaded, annotate=True).json()["stream_id"]
+    _wait(loaded, sid, lambda b: (b["frames_processed"] or 0) > 0)
+    resp = loaded.get(f"/api/v1/stream/{sid}/snapshot",
+                      params={"annotated": "true"})
+    assert resp.status_code == 200
+    assert resp.headers["content-type"] == "image/jpeg"
+    # without annotate at admission, annotated view is rejected
+    sid2 = _start_inference(loaded).json()["stream_id"]
+    assert loaded.get(f"/api/v1/stream/{sid2}/snapshot",
+                      params={"annotated": "true"}).status_code == 422
+
+
+def test_unload_model_in_use_409(loaded, rtsp_frames):
+    sid = _start_inference(loaded).json()["stream_id"]
+    assert loaded.post("/api/v1/model/synthetic-det/unload").status_code == 409
+    loaded.post(f"/api/v1/stream/{sid}/stop")
+    assert loaded.post(
+        "/api/v1/model/synthetic-det/unload").status_code == 200

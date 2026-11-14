@@ -261,6 +261,20 @@ def ensure_engines(store: Store, registry: EngineRegistry = ENGINE_REGISTRY) -> 
             store.engines.seed(adapter.engine_id, adapter.name, adapter.execution)
 
 
+def engine_gate(store: Store, adapter: EngineAdapter) -> None:
+    """Disabled/unavailable engines cannot serve inference (503)."""
+    from .errors import ApiError
+
+    row = store.engines.get(adapter.engine_id)
+    if row is None:
+        raise ApiError(503, f"Engine {adapter.engine_id!r} is not installed.")
+    enabled = bool(row["enabled"])
+    available, message = adapter.probe(json.loads(row["config"]), enabled)
+    if not available:
+        raise ApiError(503, f"Engine {adapter.engine_id!r} is unavailable: "
+                            f"{message or 'disabled'}.")
+
+
 def engine_runtime(store: Store, row: sqlite3.Row) -> dict[str, Any]:
     """Internal rich engine view (probe, config, capabilities) for services."""
     adapter = ENGINE_REGISTRY.get(row["engine_id"])

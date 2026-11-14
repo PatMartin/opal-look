@@ -36,7 +36,6 @@ EXPECTED_MISSING: set[tuple[str, str]] = {
     ("GET", "/api/v1/stream/{stream_id}/metrics"),
     ("GET", "/api/v1/stream/{stream_id}/snapshot"),
     ("GET", "/api/v1/stream/{stream_id}/video"),
-    ("POST", "/api/v1/predict"),
     ("POST", "/api/v1/stream/"),
     ("POST", "/api/v1/stream/{stream_id}/stop"),
 }

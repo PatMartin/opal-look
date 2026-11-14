@@ -17,7 +17,8 @@ from .engines import ensure_engines, load_plugin_adapters
 from .errors import register_error_handlers
 from .framecache import FrameCache
 from .routers import (
-    backup, engines, hardware, health, models, profiles, service, settings,
+    backup, engines, hardware, health, models, predict, profiles, service,
+    settings,
 )
 from .store import Store
 
@@ -77,6 +78,7 @@ def create_app(
     app.include_router(engines.router)
     app.include_router(hardware.router)
     app.include_router(models.router)
+    app.include_router(predict.router)
     app.include_router(profiles.router)
     app.include_router(backup.router)
     app.include_router(service.router)

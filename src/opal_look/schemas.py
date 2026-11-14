@@ -23,3 +23,16 @@ class EnginePatch(BaseModel):
 
     enabled: bool | None = Field(default=None)
     options: dict[str, Any] | None = Field(default=None)
+
+
+class PredictRequest(BaseModel):
+    """Single-image inference request (engine required)."""
+    model_config = ConfigDict(extra="forbid")
+
+    engine_id: str = Field(min_length=1)
+    model_id: str
+    source: str = Field(min_length=1)
+    confidence: float = Field(default=0.25, ge=0.0, le=1.0)
+    device_id: str | None = None
+    engine_options: dict[str, Any] = Field(default_factory=dict)
+    include_native: bool = False

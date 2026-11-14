@@ -2,15 +2,14 @@
 
 from __future__ import annotations
 
-import json
 
 from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse
 
 from ..dependencies import StoreDep
-from ..engines import ENGINE_REGISTRY, EngineUnavailable, ModelNotFound
+from ..engines import (ENGINE_REGISTRY, EngineUnavailable, ModelNotFound,
+                       engine_gate)
 from ..errors import ApiError
-from ..store import Store
 
 router = APIRouter()
 
@@ -43,18 +42,6 @@ def _resolve_owner(model_id: str, engine_id: str | None):
     return owners[0]
 
 
-def _engine_gate(store: Store, adapter) -> None:
-    """Disabled/unavailable engines cannot serve model lifecycle ops (503)."""
-    row = store.engines.get(adapter.engine_id)
-    if row is None:
-        raise ApiError(503, f"Engine {adapter.engine_id!r} is not installed.")
-    enabled = bool(row["enabled"])
-    available, message = adapter.probe(json.loads(row["config"]), enabled)
-    if not available:
-        raise ApiError(503, f"Engine {adapter.engine_id!r} is unavailable: "
-                            f"{message or 'disabled'}.")
-
-
 @router.get("/api/v1/model/")
 def get_api_v1_models(request: Request,
                     engine_id: str | None = None) -> JSONResponse:
@@ -73,7 +60,7 @@ def get_api_v1_model(request: Request, model_id: str,
 def post_api_v1_model_load(request: Request, store: StoreDep, model_id: str,
                            engine_id: str | None = None) -> JSONResponse:
     adapter = _resolve_owner(model_id, engine_id)
-    _engine_gate(store, adapter)
+    engine_gate(store, adapter)
     try:
         return JSONResponse(adapter.load_model(model_id, device_id=None))
     except ModelNotFound:

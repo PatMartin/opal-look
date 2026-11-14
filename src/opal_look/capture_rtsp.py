@@ -1,6 +1,7 @@
 """RTSP capture adapter backed by PyAV (FFmpeg bindings).
 
-source_options keys: ``transport`` (tcp|udp) -> ffmpeg rtsp_transport;
+source_options keys: ``transport`` (tcp|udp) -> ffmpeg rtsp_transport
+(default tcp: works across NAT/firewalls and cameras without UDP);
 ``timeout_ms`` -> stimeout/timeout in microseconds (default 5000).
 PyAV is imported lazily so a missing/broken install degrades the adapter
 to "not installed" rather than breaking the service.
@@ -29,9 +30,7 @@ def _import_av():
 def _av_options(options: dict[str, Any]) -> dict[str, str]:
     timeout_us = str(int(options.get("timeout_ms") or DEFAULT_TIMEOUT_MS) * 1000)
     opts = {"stimeout": timeout_us, "timeout": timeout_us}
-    transport = options.get("transport")
-    if transport:
-        opts["rtsp_transport"] = str(transport)
+    opts["rtsp_transport"] = str(options.get("transport") or "tcp")
     return opts
 
 

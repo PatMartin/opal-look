@@ -3,20 +3,18 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/opal_look"]
+packages = ["src/opal_look", "src/opal_look_cli"]
 
 [project]
 name = "opal-look"
 version = "0.1.0"
-description = "OPAL Look vision service (contract opal_look_v1.6.0)"
+description = "OPAL Look vision service (contract opal_look_v1.7.1)"
 requires-python = ">=3.12"
 dependencies = [
     "fastapi>=0.115",
     "uvicorn>=0.30",
     "pydantic>=2.8",
     "Pillow>=10",
-    "python-multipart>=0.0.9",
-    "pyzmq>=25",
     "av>=12",
     "typer>=0.12",
     "rich>=13",

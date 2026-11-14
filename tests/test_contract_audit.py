@@ -30,7 +30,6 @@ def app(tmp_path):
 # MVP replacement contract (still versioned 1.7.1): these sets track the
 # in-flight migration gaps and shrink to empty as steps land.
 EXPECTED_MISSING: set[tuple[str, str]] = {
-    ("GET", "/api/v1/engine/{engine_id}/capabilities"),
     ("GET", "/api/v1/hardware/"),
     ("GET", "/api/v1/model/"),
     ("GET", "/api/v1/model/{model_id}"),
@@ -41,7 +40,6 @@ EXPECTED_MISSING: set[tuple[str, str]] = {
     ("GET", "/api/v1/stream/{stream_id}/metrics"),
     ("GET", "/api/v1/stream/{stream_id}/snapshot"),
     ("GET", "/api/v1/stream/{stream_id}/video"),
-    ("POST", "/api/v1/engine/discover"),
     ("POST", "/api/v1/model/{model_id}/load"),
     ("POST", "/api/v1/model/{model_id}/unload"),
     ("POST", "/api/v1/predict"),

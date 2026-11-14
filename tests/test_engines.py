@@ -8,9 +8,7 @@ def test_list_engines_includes_synthetic(client):
     assert eng["enabled"] is True
     assert eng["available"] is True
     assert eng["state"] == "ready"
-    assert {t["task"] for t in eng["tasks"]} == {
-        "detection", "classification", "segmentation", "pose", "ocr"
-    }
+    assert {t["task"] for t in eng["tasks"]} == {"detection"}
     assert eng["version"]
     assert eng["metadata"]["adapter"] == "synthetic"
     assert eng["device_types"] == ["cpu"]
@@ -96,3 +94,37 @@ def test_engine_validate_route_removed(client):
     """Upstream v1.5.0 has no per-engine validate operation."""
     resp = client.post("/api/v1/engine/synthetic/validate")
     assert resp.status_code in (404, 405)
+
+
+def test_discover_engines(client):
+    resp = client.post("/api/v1/engine/discover")
+    assert resp.status_code == 200
+    body = resp.json()
+    assert isinstance(body["engines"], list)
+    assert isinstance(body["errors"], list)
+    ids = {e["engine_id"] for e in body["engines"]}
+    assert "synthetic" in ids
+
+
+def test_discover_empty_catalog_is_healthy(client, monkeypatch):
+    """Zero usable engines is a valid, healthy discovery result."""
+    from opal_look import engines as eng_mod
+    monkeypatch.setattr(eng_mod.ENGINE_REGISTRY, "_adapters", {})
+    resp = client.post("/api/v1/engine/discover")
+    assert resp.status_code == 200
+    assert resp.json() == {"engines": [], "errors": []}
+
+
+def test_engine_capabilities(client):
+    resp = client.get("/api/v1/engine/synthetic/capabilities")
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["engine_id"] == "synthetic"
+    assert "detection" in body["tasks"]
+    assert "cpu" in body["device_types"]
+    assert "engine_options" in body
+
+
+def test_engine_capabilities_unknown_404(client):
+    resp = client.get("/api/v1/engine/ghost/capabilities")
+    assert resp.status_code == 404

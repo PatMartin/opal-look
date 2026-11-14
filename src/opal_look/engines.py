@@ -24,59 +24,17 @@ class EngineUnavailable(Exception):
     """Adapter cannot execute inference right now (-> 503)."""
 
 
-def _rle_rect(width: int, height: int, box: dict[str, float]) -> dict[str, Any]:
-    """Row-major RLE mask for a normalized rectangle at frame dimensions.
+class ModelNotFound(Exception):
+    """Adapter does not own the requested model (-> 404)."""
 
-    Alternating background/foreground runs; first run is background (may
-    be 0); sum(counts) == width*height.
-    """
-    x0 = int(box["x"] * width)
-    y0 = int(box["y"] * height)
-    x1 = min(width, x0 + max(1, int(box["width"] * width)))
-    y1 = min(height, y0 + max(1, int(box["height"] * height)))
 
-    counts: list[int] = []
-    run = 0
-    prev_fg = False
-
-    def emit(length: int, fg: bool) -> None:
-        nonlocal run, prev_fg
-        if length == 0:
-            return
-        if fg == prev_fg:
-            run += length
-        else:
-            counts.append(run)
-            prev_fg = fg
-            run = length
-
-    for y in range(height):
-        if y0 <= y < y1:
-            emit(x0, False)
-            emit(x1 - x0, True)
-            emit(width - x1, False)
-        else:
-            emit(width, False)
-    counts.append(run)
-    return {"width": width, "height": height, "encoding": "rle", "counts": counts}
-
-TASKS = ["detection", "classification", "segmentation", "pose", "ocr"]
-SOURCE_TYPES = ["camera", "rtsp", "http", "host_video", "media"]
+TASKS = ["detection"]
+SOURCE_TYPES = ["rtsp"]
 
 _SYNTHETIC_CLASSES = [
     {"class_id": 0, "label": "person"},
     {"class_id": 1, "label": "car"},
     {"class_id": 2, "label": "dog"},
-]
-_COCO_KEYPOINTS = [
-    "nose", "left_eye", "right_eye", "left_ear", "right_ear",
-    "left_shoulder", "right_shoulder", "left_elbow", "right_elbow",
-    "left_wrist", "right_wrist", "left_hip", "right_hip",
-    "left_knee", "right_knee", "left_ankle", "right_ankle",
-]
-_SYNTHETIC_SKELETON = [
-    [0, 1], [0, 2], [1, 3], [2, 4], [5, 6], [5, 7], [7, 9], [6, 8], [8, 10],
-    [5, 11], [6, 12], [11, 12], [11, 13], [13, 15], [12, 14], [14, 16],
 ]
 
 
@@ -90,17 +48,22 @@ class EngineAdapter(Protocol):
     def options_schema(self) -> dict[str, Any]: ...
     def validate_config(self, config: dict[str, Any]) -> list[str]: ...
     def metadata(self) -> dict[str, Any]: ...
-    def describe_model(self, resource: dict[str, Any]) -> dict[str, Any]: ...
-    def validate_model(self, resource: dict[str, Any]) -> tuple[list[str], list[str]]: ...
     def validate_engine_options(self, options: dict[str, Any]) -> list[str]: ...
-    def infer(
+
+    # MVP surface: engine-local hardware, federated model catalog, prediction.
+    def hardware(self) -> list[dict[str, Any]]: ...
+    def models(self) -> list[dict[str, Any]]: ...
+    def load_model(self, model_id: str, device_id: str | None) -> dict[str, Any]: ...
+    def unload_model(self, model_id: str) -> dict[str, Any]: ...
+    def predict(
         self,
         width: int,
         height: int,
-        task: str,
-        model_desc: dict[str, Any],
+        model_id: str,
+        confidence: float,
+        device_id: str | None,
         engine_options: dict[str, Any],
-        frame_key: int,
+        include_native: bool,
     ) -> dict[str, Any]: ...
 
 
@@ -111,6 +74,9 @@ class SyntheticAdapter:
     name = "Synthetic deterministic engine"
     execution = "local"
 
+    def __init__(self) -> None:
+        self._loaded: dict[str, bool] = {}
+
     _CONFIG_KEYS = {"seed", "force_unavailable"}
 
     def capabilities(self) -> dict[str, Any]:
@@ -119,7 +85,8 @@ class SyntheticAdapter:
             "tracking": True,
             "device_types": ["cpu"],
             "source_types": list(SOURCE_TYPES),
-            "max_concurrent_sessions": None,
+            "engine_options": sorted(self._ENGINE_OPTION_KEYS),
+            "annotation": True,
         }
 
     _OPTIONS_SCHEMA = {
@@ -155,29 +122,38 @@ class SyntheticAdapter:
     def metadata(self) -> dict[str, Any]:
         return {"adapter": "synthetic", "version": "0.1.0"}
 
-    def describe_model(self, resource: dict[str, Any]) -> dict[str, Any]:
-        return {
-            "tasks": list(TASKS),
-            "tracking": True,
-            "classes": list(_SYNTHETIC_CLASSES),
-            "keypoints": [{"index": i, "name": n} for i, n in enumerate(_COCO_KEYPOINTS)],
-            "skeleton": [list(edge) for edge in _SYNTHETIC_SKELETON],
-            "metadata": {
-                "adapter": "synthetic",
-                "segmentation_kinds": ["instance", "semantic"],
-                "ocr_languages": ["eng"],
-            },
-        }
+    _MODEL_ID = "synthetic-det"
 
-    def validate_model(self, resource: dict[str, Any]) -> tuple[list[str], list[str]]:
-        errors: list[str] = []
-        warnings: list[str] = []
-        if not resource:
-            errors.append("resource locator must be a non-empty object")
-        unknown = set(resource) - {"path", "ref"}
-        for key in sorted(unknown):
-            warnings.append(f"unrecognized resource key: {key}")
-        return errors, warnings
+    def hardware(self) -> list[dict[str, Any]]:
+        return [{"device_id": "cpu", "type": "cpu", "available": True,
+                 "name": "Host CPU"}]
+
+    def models(self) -> list[dict[str, Any]]:
+        return [{
+            "model_id": self._MODEL_ID,
+            "engine_id": self.engine_id,
+            "tasks": ["detection"],
+            "loaded": self._loaded.get(self._MODEL_ID, False),
+            "available": True,
+            "metadata": {"adapter": "synthetic",
+                         "classes": [c["label"] for c in _SYNTHETIC_CLASSES]},
+        }]
+
+    def load_model(self, model_id: str, device_id: str | None) -> dict[str, Any]:
+        self._require_model(model_id)
+        if device_id not in (None, "cpu"):
+            raise EngineUnavailable(f"unknown device: {device_id!r}")
+        self._loaded[self._MODEL_ID] = True
+        return self.models()[0]
+
+    def unload_model(self, model_id: str) -> dict[str, Any]:
+        self._require_model(model_id)
+        self._loaded[self._MODEL_ID] = False
+        return self.models()[0]
+
+    def _require_model(self, model_id: str) -> None:
+        if model_id != self._MODEL_ID:
+            raise ModelNotFound(model_id)
 
     _ENGINE_OPTION_KEYS = {"seed", "fail", "latency_ms"}
 
@@ -194,15 +170,20 @@ class SyntheticAdapter:
                 errors.append("engine option 'fail' must be a boolean")
         return errors
 
-    def infer(
+    def predict(
         self,
         width: int,
         height: int,
-        task: str,
-        model_desc: dict[str, Any],
+        model_id: str,
+        confidence: float,
+        device_id: str | None,
         engine_options: dict[str, Any],
-        frame_key: int,
+        include_native: bool,
     ) -> dict[str, Any]:
+        """Deterministic contract-normalized detections (xyxy pixels)."""
+        self._require_model(model_id)
+        if device_id not in (None, "cpu"):
+            raise EngineUnavailable(f"unknown device: {device_id!r}")
         if engine_options.get("fail"):
             raise EngineUnavailable("synthetic engine forced failure")
         latency = engine_options.get("latency_ms") or 0
@@ -210,97 +191,29 @@ class SyntheticAdapter:
             import time
 
             time.sleep(min(latency, 10_000) / 1000)
-        rng = random.Random((engine_options.get("seed") or 0) ^ frame_key ^ hash(task))
-        classes = model_desc["classes"]
-
-        def box() -> dict[str, float]:
-            w = round(rng.uniform(0.08, 0.5), 4)
-            h = round(rng.uniform(0.08, 0.6), 4)
-            return {
-                "x": round(rng.uniform(0, 1 - w), 4),
-                "y": round(rng.uniform(0, 1 - h), 4),
-                "width": w,
-                "height": h,
-            }
-
-        def pick() -> dict[str, Any]:
-            cls = rng.choice(classes)
-            return {
+        rng = random.Random((engine_options.get("seed") or 0) ^ (width * 31 + height))
+        detections = []
+        for _ in range(rng.randint(1, 3)):
+            cls = rng.choice(_SYNTHETIC_CLASSES)
+            bw = rng.uniform(0.08, 0.5) * width
+            bh = rng.uniform(0.08, 0.6) * height
+            x1 = rng.uniform(0, width - bw)
+            y1 = rng.uniform(0, height - bh)
+            conf = round(rng.uniform(0.05, 0.99), 4)
+            if conf < confidence:
+                continue
+            detections.append({
                 "class_id": cls["class_id"],
-                "label": cls["label"],
-                "confidence": round(rng.uniform(0.05, 0.99), 4),
-            }
-
-        n = rng.randint(1, 3)
-        if task == "detection":
-            objects = [
-                {**pick(), "box": box(), "track_id": None} for _ in range(n)
-            ]
-            objects.sort(key=lambda o: (-o["confidence"], o["class_id"], o["box"]["x"], o["box"]["y"]))
-            return {"task": "detection", "objects": objects}
-        if task == "classification":
-            scored = [pick() for _ in classes]
-            scored.sort(key=lambda c: (-c["confidence"], c["class_id"]))
-            return {"task": "classification", "classes": scored}
-        if task == "segmentation":
-            if engine_options.get("segmentation_kind", "instance") == "semantic":
-                half = (width * height) // 2
-                return {
-                    "task": "segmentation",
-                    "kind": "semantic",
-                    "map": {
-                        "width": width,
-                        "height": height,
-                        "encoding": "rle",
-                        "runs": [
-                            {"class_id": classes[0]["class_id"], "count": half},
-                            {"class_id": classes[1]["class_id"], "count": width * height - half},
-                        ],
-                        "classes": [
-                            {"class_id": classes[0]["class_id"], "label": classes[0]["label"], "confidence": 0.9},
-                            {"class_id": classes[1]["class_id"], "label": classes[1]["label"], "confidence": 0.8},
-                        ],
-                    },
-                }
-            instances = [
-                {**pick(), "box": b, "mask": _rle_rect(width, height, b)}
-                for b in (box() for _ in range(n))
-            ]
-            instances.sort(key=lambda o: (-o["confidence"], o["class_id"], o["box"]["x"], o["box"]["y"]))
-            return {"task": "segmentation", "kind": "instance", "instances": instances}
-        if task == "pose":
-            poses = []
-            for _ in range(n):
-                base = pick()
-                keypoints = [
-                    {
-                        "index": kp["index"],
-                        "x": round(rng.random(), 4),
-                        "y": round(rng.random(), 4),
-                        "confidence": round(rng.uniform(0.3, 0.99), 4),
-                    }
-                    for kp in model_desc["keypoints"]
-                ]
-                poses.append({**base, "box": box(), "keypoints": keypoints})
-            poses.sort(key=lambda o: (-o["confidence"], o["class_id"], o["box"]["x"], o["box"]["y"]))
-            return {"task": "pose", "poses": poses}
-        if task == "ocr":
-            regions = [
-                {
-                    "text": rng.choice(["OPAL LOOK", "SNAPSHOT 42", "EXIT", "ZONE A"]),
-                    "confidence": round(rng.uniform(0.4, 0.99), 4),
-                    "polygon": [
-                        {"x": round(bx, 4), "y": round(by, 4)}
-                        for bx, by in (
-                            (0.1, 0.1), (0.4, 0.1), (0.4, 0.2), (0.1, 0.2)
-                        )
-                    ],
-                    "language": "eng",
-                }
-                for _ in range(n)
-            ]
-            return {"task": "ocr", "regions": regions}
-        raise ValueError(f"unsupported task: {task}")
+                "class_name": cls["label"],
+                "confidence": conf,
+                "box": [round(x1, 2), round(y1, 2),
+                        round(x1 + bw, 2), round(y1 + bh, 2)],
+            })
+        detections.sort(key=lambda d: (-d["confidence"], d["class_id"]))
+        out: dict[str, Any] = {"detections": detections}
+        if include_native:
+            out["native"] = {"adapter": "synthetic", "inference_ms": latency}
+        return out
 
 
 class EngineRegistry:
@@ -308,6 +221,7 @@ class EngineRegistry:
 
     def __init__(self) -> None:
         self._adapters: dict[str, EngineAdapter] = {}
+        self.errors: list[str] = []
 
     def register(self, adapter: EngineAdapter) -> None:
         self._adapters[adapter.engine_id] = adapter
@@ -327,14 +241,16 @@ ENGINE_REGISTRY.register(SyntheticAdapter())
 
 
 def load_plugin_adapters(registry: EngineRegistry = ENGINE_REGISTRY) -> None:
-    """Optional plugin hook: register adapters from 'opal_look.engines' entry points."""
+    """Optional plugin hook: register adapters from 'opal_look.engines' entry
+    points. Load failures are recorded for EngineDiscovery.errors."""
     import logging
     from importlib.metadata import entry_points
 
     for ep in entry_points(group="opal_look.engines"):
         try:
             registry.register(ep.load()())
-        except Exception:
+        except Exception as exc:
+            registry.errors.append(f"{ep.name}: {exc}")
             logging.getLogger(__name__).warning("failed to load engine plugin %s", ep.name)
 
 

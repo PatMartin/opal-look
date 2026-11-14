@@ -1,0 +1,682 @@
+openapi: 3.1.0
+jsonSchemaDialect: https://json-schema.org/draft/2020-12/schema
+info:
+  title: OPAL-compatible Ultralytics YOLO Standalone REST Adapter
+  version: 0.1.0-draft
+  description: 'Contract-first adapter for Ultralytics YOLO; independently deployable with no opal-look or opal-devices
+    runtime dependency. Shared vision domain semantics derive from vision_kernel.yaml and suite-wide conventions
+    from opal_kernel.yaml. '
+servers:
+- url: http://127.0.0.1:8000
+  description: Illustrative loopback server; host/port configured by deployment
+tags:
+- name: capabilities
+- name: engines
+- name: models
+- name: inference
+- name: training
+- name: deployment
+- name: benchmark
+- name: jobs
+- name: runtimes
+- name: artifacts
+- name: executions
+x-vision-engine:
+  family: yolo
+  supported_task_families:
+  - detect
+  - segment
+  - classify
+  - pose
+  - obb
+  native_operations:
+  - track
+  - tune
+  - solutions
+  capability_gating: true
+security:
+- BearerAuth: []
+components:
+  securitySchemes:
+    BearerAuth:
+      $ref: ../shared/opal_kernel.yaml#/components/securitySchemes/BearerAuth
+  schemas:
+    YoloPredictOptions:
+      type: object
+      properties:
+        augment:
+          type: boolean
+        retina_masks:
+          type: boolean
+        agnostic_nms:
+          type: boolean
+        max_det:
+          type: integer
+          minimum: 1
+        half:
+          type: boolean
+      additionalProperties: false
+      description: Ultralytics YOLO predict extension options. All fields conditional on engine/model/runtime capabilities.
+    YoloPredictRequest:
+      allOf:
+      - $ref: ../shared/vision_kernel.yaml#/components/schemas/PredictionCore
+      - type: object
+        properties:
+          engine_options:
+            $ref: '#/components/schemas/YoloPredictOptions'
+        additionalProperties: true
+      description: Common predict request, extended with typed yolo options.
+    YoloTrainOptions:
+      type: object
+      properties:
+        optimizer:
+          type: string
+        freeze_layers:
+          type: array
+          items:
+            type: integer
+            minimum: 0
+        cos_lr:
+          type: boolean
+        patience:
+          type: integer
+          minimum: 0
+      additionalProperties: false
+      description: Ultralytics YOLO train extension options. All fields conditional on engine/model/runtime capabilities.
+    YoloTrainRequest:
+      allOf:
+      - $ref: ../shared/vision_kernel.yaml#/components/schemas/TrainingCore
+      - type: object
+        properties:
+          engine_options:
+            $ref: '#/components/schemas/YoloTrainOptions'
+        additionalProperties: true
+      description: Common train request, extended with typed yolo options.
+    YoloValidateOptions:
+      type: object
+      properties:
+        plots:
+          type: boolean
+        save_json:
+          type: boolean
+      additionalProperties: false
+      description: Ultralytics YOLO validate extension options. All fields conditional on engine/model/runtime capabilities.
+    YoloValidateRequest:
+      allOf:
+      - $ref: ../shared/vision_kernel.yaml#/components/schemas/ValidationCore
+      - type: object
+        properties:
+          engine_options:
+            $ref: '#/components/schemas/YoloValidateOptions'
+        additionalProperties: true
+      description: Common validate request, extended with typed yolo options.
+    YoloExportOptions:
+      type: object
+      properties:
+        dynamic:
+          type: boolean
+        simplify:
+          type: boolean
+        opset:
+          type: integer
+          minimum: 1
+      additionalProperties: false
+      description: Ultralytics YOLO export extension options. All fields conditional on engine/model/runtime capabilities.
+    YoloExportRequest:
+      allOf:
+      - $ref: ../shared/vision_kernel.yaml#/components/schemas/ExportCore
+      - type: object
+        properties:
+          engine_options:
+            $ref: '#/components/schemas/YoloExportOptions'
+        additionalProperties: true
+      description: Common export request, extended with typed yolo options.
+    YoloBenchmarkOptions:
+      type: object
+      properties:
+        half:
+          type: boolean
+        int8:
+          type: boolean
+      additionalProperties: false
+      description: Ultralytics YOLO benchmark extension options. All fields conditional on engine/model/runtime
+        capabilities.
+    YoloBenchmarkRequest:
+      allOf:
+      - $ref: ../shared/vision_kernel.yaml#/components/schemas/BenchmarkCore
+      - type: object
+        properties:
+          engine_options:
+            $ref: '#/components/schemas/YoloBenchmarkOptions'
+        additionalProperties: true
+      description: Common benchmark request, extended with typed yolo options.
+    YoloTrackRequest:
+      allOf:
+      - $ref: ../shared/vision_kernel.yaml#/components/schemas/PredictionCore
+      - type: object
+        properties:
+          tracker:
+            type: string
+            enum:
+            - bytetrack
+            - botsort
+          persist:
+            type: boolean
+          tracker_config_uri:
+            type: string
+        additionalProperties: true
+    YoloTuneRequest:
+      allOf:
+      - $ref: ../shared/vision_kernel.yaml#/components/schemas/TrainingCore
+      - type: object
+        properties:
+          iterations:
+            type: integer
+            minimum: 1
+          space:
+            type: object
+            properties: {}
+            additionalProperties: true
+        additionalProperties: true
+    YoloSolutionRequest:
+      type: object
+      properties:
+        solution_id:
+          type: string
+        source:
+          $ref: ../shared/vision_kernel.yaml#/components/schemas/VisionSource
+        model_id:
+          type: string
+        options:
+          type: object
+          properties: {}
+          additionalProperties: true
+      additionalProperties: false
+      required:
+      - solution_id
+      - source
+      - model_id
+paths:
+  /api/v1/health/:
+    $ref: ../shared/opal_kernel.yaml#/components/pathItems/health
+  /api/v1/health/live:
+    $ref: ../shared/opal_kernel.yaml#/components/pathItems/health_live
+  /api/v1/health/ready:
+    $ref: ../shared/opal_kernel.yaml#/components/pathItems/health_ready
+  /api/v1/info/:
+    $ref: ../shared/opal_kernel.yaml#/components/pathItems/info
+  /api/v1/info/ping:
+    $ref: ../shared/opal_kernel.yaml#/components/pathItems/info_ping
+  /api/v1/engine/:
+    $ref: ../shared/opal_kernel.yaml#/components/pathItems/engines_collection
+  /api/v1/engine/{engine_id}:
+    $ref: ../shared/opal_kernel.yaml#/components/pathItems/engine_item
+  /api/v1/setting/:
+    $ref: ../shared/opal_kernel.yaml#/components/pathItems/settings_collection
+  /api/v1/setting/{key}:
+    $ref: ../shared/opal_kernel.yaml#/components/pathItems/settings_key
+  /api/v1/capabilities/:
+    $ref: ../shared/vision_kernel.yaml#/components/pathItems/capabilities
+  /api/v1/model/:
+    $ref: ../shared/vision_kernel.yaml#/components/pathItems/models_collection
+  /api/v1/model/{model_id}:
+    $ref: ../shared/vision_kernel.yaml#/components/pathItems/model_item
+  /api/v1/model/{model_id}/capabilities:
+    $ref: ../shared/vision_kernel.yaml#/components/pathItems/model_capabilities
+  /api/v1/model/{model_id}/install:
+    $ref: ../shared/vision_kernel.yaml#/components/pathItems/model_install
+  /api/v1/model/{model_id}/load:
+    $ref: ../shared/vision_kernel.yaml#/components/pathItems/model_load
+  /api/v1/model/{model_id}/unload:
+    $ref: ../shared/vision_kernel.yaml#/components/pathItems/model_unload
+  /api/v1/model/{model_id}/versions/:
+    $ref: ../shared/vision_kernel.yaml#/components/pathItems/model_versions
+  /api/v1/model/{model_id}/installations/:
+    $ref: ../shared/vision_kernel.yaml#/components/pathItems/model_installations
+  /api/v1/runtime/:
+    $ref: ../shared/vision_kernel.yaml#/components/pathItems/runtimes
+  /api/v1/runtime/{runtime_id}:
+    $ref: ../shared/vision_kernel.yaml#/components/pathItems/runtime_item
+  /api/v1/job/:
+    $ref: ../shared/vision_kernel.yaml#/components/pathItems/jobs_collection
+  /api/v1/job/{job_id}:
+    $ref: ../shared/vision_kernel.yaml#/components/pathItems/jobs_item
+  /api/v1/job/{job_id}/cancel:
+    $ref: ../shared/vision_kernel.yaml#/components/pathItems/jobs_cancel
+  /api/v1/job/{job_id}/logs:
+    $ref: ../shared/vision_kernel.yaml#/components/pathItems/jobs_logs
+  /api/v1/artifact/{artifact_id}:
+    $ref: ../shared/vision_kernel.yaml#/components/pathItems/artifact_item
+  /api/v1/artifact/{artifact_id}/content:
+    $ref: ../shared/vision_kernel.yaml#/components/pathItems/artifact_content
+  /api/v1/execution/:
+    $ref: ../shared/vision_kernel.yaml#/components/pathItems/executions
+  /api/v1/execution/{execution_id}:
+    $ref: ../shared/vision_kernel.yaml#/components/pathItems/execution_item
+  /api/v1/execution/{execution_id}/manifest:
+    $ref: ../shared/vision_kernel.yaml#/components/pathItems/execution_manifest
+  /api/v1/execution/{execution_id}/reproduce:
+    $ref: ../shared/vision_kernel.yaml#/components/pathItems/execution_reproduce
+  /api/v1/predict:
+    parameters:
+    - $ref: ../shared/opal_kernel.yaml#/components/parameters/OpalSessionIdParameter
+    - $ref: ../shared/opal_kernel.yaml#/components/parameters/OpalTransactionIdParameter
+    - $ref: ../shared/opal_kernel.yaml#/components/parameters/OpalRequestIdParameter
+    - $ref: ../shared/opal_kernel.yaml#/components/parameters/OpalCausationIdParameter
+    x-opal-cli:
+      post:
+        command: predict
+    post:
+      tags:
+      - inference
+      operationId: yolo_predict
+      summary: Ultralytics YOLO predict
+      description: Common operation semantics, specialized request schema. Reject unadvertised engine options with
+        422.
+      x-opal-cli:
+        command: predict
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/YoloPredictRequest'
+      responses:
+        '200':
+          description: Success.
+          headers:
+            X-Opal-Session-Id: &id001
+              $ref: ../shared/opal_kernel.yaml#/components/headers/OpalSessionIdHeader
+            X-Opal-Transaction-Id: &id002
+              $ref: ../shared/opal_kernel.yaml#/components/headers/OpalTransactionIdHeader
+            X-Opal-Request-Id: &id003
+              $ref: ../shared/opal_kernel.yaml#/components/headers/OpalRequestIdHeader
+            X-Opal-Causation-Id: &id004
+              $ref: ../shared/opal_kernel.yaml#/components/headers/OpalCausationIdHeader
+          content:
+            application/json:
+              schema:
+                $ref: ../shared/vision_kernel.yaml#/components/schemas/PredictionResult
+        '400':
+          $ref: ../shared/opal_kernel.yaml#/components/responses/BadRequest
+        '401':
+          $ref: ../shared/opal_kernel.yaml#/components/responses/Unauthorized
+        '403':
+          $ref: ../shared/opal_kernel.yaml#/components/responses/Forbidden
+        '409':
+          $ref: ../shared/opal_kernel.yaml#/components/responses/Conflict
+        '422':
+          $ref: ../shared/opal_kernel.yaml#/components/responses/UnprocessableEntity
+        '429':
+          $ref: ../shared/opal_kernel.yaml#/components/responses/TooManyRequests
+        '503':
+          $ref: ../shared/opal_kernel.yaml#/components/responses/ServiceUnavailable
+        '413':
+          $ref: ../shared/opal_kernel.yaml#/components/responses/PayloadTooLarge
+  /api/v1/train/:
+    parameters:
+    - $ref: ../shared/opal_kernel.yaml#/components/parameters/OpalSessionIdParameter
+    - $ref: ../shared/opal_kernel.yaml#/components/parameters/OpalTransactionIdParameter
+    - $ref: ../shared/opal_kernel.yaml#/components/parameters/OpalRequestIdParameter
+    - $ref: ../shared/opal_kernel.yaml#/components/parameters/OpalCausationIdParameter
+    x-opal-cli:
+      post:
+        command: train
+    post:
+      tags:
+      - training
+      operationId: yolo_train
+      summary: Ultralytics YOLO train
+      description: Common operation semantics, specialized request schema. Reject unadvertised engine options with
+        422.
+      x-opal-cli:
+        command: train
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/YoloTrainRequest'
+      responses:
+        '202':
+          description: Operation accepted.
+          headers:
+            X-Opal-Session-Id: *id001
+            X-Opal-Transaction-Id: *id002
+            X-Opal-Request-Id: *id003
+            X-Opal-Causation-Id: *id004
+            Location:
+              $ref: ../shared/opal_kernel.yaml#/components/headers/Location
+          content:
+            application/json:
+              schema:
+                $ref: ../shared/vision_kernel.yaml#/components/schemas/VisionJob
+        '400':
+          $ref: ../shared/opal_kernel.yaml#/components/responses/BadRequest
+        '401':
+          $ref: ../shared/opal_kernel.yaml#/components/responses/Unauthorized
+        '403':
+          $ref: ../shared/opal_kernel.yaml#/components/responses/Forbidden
+        '409':
+          $ref: ../shared/opal_kernel.yaml#/components/responses/Conflict
+        '422':
+          $ref: ../shared/opal_kernel.yaml#/components/responses/UnprocessableEntity
+        '429':
+          $ref: ../shared/opal_kernel.yaml#/components/responses/TooManyRequests
+        '503':
+          $ref: ../shared/opal_kernel.yaml#/components/responses/ServiceUnavailable
+      parameters:
+      - $ref: ../shared/opal_kernel.yaml#/components/parameters/IdempotencyKey
+  /api/v1/validate/:
+    parameters:
+    - $ref: ../shared/opal_kernel.yaml#/components/parameters/OpalSessionIdParameter
+    - $ref: ../shared/opal_kernel.yaml#/components/parameters/OpalTransactionIdParameter
+    - $ref: ../shared/opal_kernel.yaml#/components/parameters/OpalRequestIdParameter
+    - $ref: ../shared/opal_kernel.yaml#/components/parameters/OpalCausationIdParameter
+    x-opal-cli:
+      post:
+        command: validate
+    post:
+      tags:
+      - training
+      operationId: yolo_validate
+      summary: Ultralytics YOLO validate
+      description: Common operation semantics, specialized request schema. Reject unadvertised engine options with
+        422.
+      x-opal-cli:
+        command: validate
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/YoloValidateRequest'
+      responses:
+        '202':
+          description: Operation accepted.
+          headers:
+            X-Opal-Session-Id: *id001
+            X-Opal-Transaction-Id: *id002
+            X-Opal-Request-Id: *id003
+            X-Opal-Causation-Id: *id004
+            Location:
+              $ref: ../shared/opal_kernel.yaml#/components/headers/Location
+          content:
+            application/json:
+              schema:
+                $ref: ../shared/vision_kernel.yaml#/components/schemas/VisionJob
+        '400':
+          $ref: ../shared/opal_kernel.yaml#/components/responses/BadRequest
+        '401':
+          $ref: ../shared/opal_kernel.yaml#/components/responses/Unauthorized
+        '403':
+          $ref: ../shared/opal_kernel.yaml#/components/responses/Forbidden
+        '409':
+          $ref: ../shared/opal_kernel.yaml#/components/responses/Conflict
+        '422':
+          $ref: ../shared/opal_kernel.yaml#/components/responses/UnprocessableEntity
+        '429':
+          $ref: ../shared/opal_kernel.yaml#/components/responses/TooManyRequests
+        '503':
+          $ref: ../shared/opal_kernel.yaml#/components/responses/ServiceUnavailable
+      parameters:
+      - $ref: ../shared/opal_kernel.yaml#/components/parameters/IdempotencyKey
+  /api/v1/export/:
+    parameters:
+    - $ref: ../shared/opal_kernel.yaml#/components/parameters/OpalSessionIdParameter
+    - $ref: ../shared/opal_kernel.yaml#/components/parameters/OpalTransactionIdParameter
+    - $ref: ../shared/opal_kernel.yaml#/components/parameters/OpalRequestIdParameter
+    - $ref: ../shared/opal_kernel.yaml#/components/parameters/OpalCausationIdParameter
+    x-opal-cli:
+      post:
+        command: export
+    post:
+      tags:
+      - deployment
+      operationId: yolo_export
+      summary: Ultralytics YOLO export
+      description: Common operation semantics, specialized request schema. Reject unadvertised engine options with
+        422.
+      x-opal-cli:
+        command: export
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/YoloExportRequest'
+      responses:
+        '202':
+          description: Operation accepted.
+          headers:
+            X-Opal-Session-Id: *id001
+            X-Opal-Transaction-Id: *id002
+            X-Opal-Request-Id: *id003
+            X-Opal-Causation-Id: *id004
+            Location:
+              $ref: ../shared/opal_kernel.yaml#/components/headers/Location
+          content:
+            application/json:
+              schema:
+                $ref: ../shared/vision_kernel.yaml#/components/schemas/VisionJob
+        '400':
+          $ref: ../shared/opal_kernel.yaml#/components/responses/BadRequest
+        '401':
+          $ref: ../shared/opal_kernel.yaml#/components/responses/Unauthorized
+        '403':
+          $ref: ../shared/opal_kernel.yaml#/components/responses/Forbidden
+        '409':
+          $ref: ../shared/opal_kernel.yaml#/components/responses/Conflict
+        '422':
+          $ref: ../shared/opal_kernel.yaml#/components/responses/UnprocessableEntity
+        '429':
+          $ref: ../shared/opal_kernel.yaml#/components/responses/TooManyRequests
+        '503':
+          $ref: ../shared/opal_kernel.yaml#/components/responses/ServiceUnavailable
+      parameters:
+      - $ref: ../shared/opal_kernel.yaml#/components/parameters/IdempotencyKey
+  /api/v1/benchmark/:
+    parameters:
+    - $ref: ../shared/opal_kernel.yaml#/components/parameters/OpalSessionIdParameter
+    - $ref: ../shared/opal_kernel.yaml#/components/parameters/OpalTransactionIdParameter
+    - $ref: ../shared/opal_kernel.yaml#/components/parameters/OpalRequestIdParameter
+    - $ref: ../shared/opal_kernel.yaml#/components/parameters/OpalCausationIdParameter
+    x-opal-cli:
+      post:
+        command: benchmark
+    post:
+      tags:
+      - benchmark
+      operationId: yolo_benchmark
+      summary: Ultralytics YOLO benchmark
+      description: Common operation semantics, specialized request schema. Reject unadvertised engine options with
+        422.
+      x-opal-cli:
+        command: benchmark
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/YoloBenchmarkRequest'
+      responses:
+        '202':
+          description: Operation accepted.
+          headers:
+            X-Opal-Session-Id: *id001
+            X-Opal-Transaction-Id: *id002
+            X-Opal-Request-Id: *id003
+            X-Opal-Causation-Id: *id004
+            Location:
+              $ref: ../shared/opal_kernel.yaml#/components/headers/Location
+          content:
+            application/json:
+              schema:
+                $ref: ../shared/vision_kernel.yaml#/components/schemas/VisionJob
+        '400':
+          $ref: ../shared/opal_kernel.yaml#/components/responses/BadRequest
+        '401':
+          $ref: ../shared/opal_kernel.yaml#/components/responses/Unauthorized
+        '403':
+          $ref: ../shared/opal_kernel.yaml#/components/responses/Forbidden
+        '409':
+          $ref: ../shared/opal_kernel.yaml#/components/responses/Conflict
+        '422':
+          $ref: ../shared/opal_kernel.yaml#/components/responses/UnprocessableEntity
+        '429':
+          $ref: ../shared/opal_kernel.yaml#/components/responses/TooManyRequests
+        '503':
+          $ref: ../shared/opal_kernel.yaml#/components/responses/ServiceUnavailable
+      parameters:
+      - $ref: ../shared/opal_kernel.yaml#/components/parameters/IdempotencyKey
+  /api/v1/track/:
+    parameters:
+    - $ref: ../shared/opal_kernel.yaml#/components/parameters/OpalSessionIdParameter
+    - $ref: ../shared/opal_kernel.yaml#/components/parameters/OpalTransactionIdParameter
+    - $ref: ../shared/opal_kernel.yaml#/components/parameters/OpalRequestIdParameter
+    - $ref: ../shared/opal_kernel.yaml#/components/parameters/OpalCausationIdParameter
+    x-opal-cli:
+      post: &id005
+        command: track
+    post:
+      tags:
+      - inference
+      operationId: yolo_track
+      summary: YOLO-native track
+      description: Capability-gated native Ultralytics workflow. Does not replace common opal-look tracking/analytics.
+      x-opal-cli: *id005
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/YoloTrackRequest'
+      responses:
+        '202':
+          description: Operation accepted.
+          headers:
+            X-Opal-Session-Id: *id001
+            X-Opal-Transaction-Id: *id002
+            X-Opal-Request-Id: *id003
+            X-Opal-Causation-Id: *id004
+            Location:
+              $ref: ../shared/opal_kernel.yaml#/components/headers/Location
+          content:
+            application/json:
+              schema:
+                $ref: ../shared/vision_kernel.yaml#/components/schemas/VisionJob
+        '400':
+          $ref: ../shared/opal_kernel.yaml#/components/responses/BadRequest
+        '401':
+          $ref: ../shared/opal_kernel.yaml#/components/responses/Unauthorized
+        '403':
+          $ref: ../shared/opal_kernel.yaml#/components/responses/Forbidden
+        '409':
+          $ref: ../shared/opal_kernel.yaml#/components/responses/Conflict
+        '422':
+          $ref: ../shared/opal_kernel.yaml#/components/responses/UnprocessableEntity
+        '429':
+          $ref: ../shared/opal_kernel.yaml#/components/responses/TooManyRequests
+        '503':
+          $ref: ../shared/opal_kernel.yaml#/components/responses/ServiceUnavailable
+  /api/v1/tune/:
+    parameters:
+    - $ref: ../shared/opal_kernel.yaml#/components/parameters/OpalSessionIdParameter
+    - $ref: ../shared/opal_kernel.yaml#/components/parameters/OpalTransactionIdParameter
+    - $ref: ../shared/opal_kernel.yaml#/components/parameters/OpalRequestIdParameter
+    - $ref: ../shared/opal_kernel.yaml#/components/parameters/OpalCausationIdParameter
+    x-opal-cli:
+      post: &id006
+        command: tune
+    post:
+      tags:
+      - training
+      operationId: yolo_tune
+      summary: YOLO-native tune
+      description: Capability-gated native Ultralytics workflow. Does not replace common opal-look tracking/analytics.
+      x-opal-cli: *id006
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/YoloTuneRequest'
+      responses:
+        '202':
+          description: Operation accepted.
+          headers:
+            X-Opal-Session-Id: *id001
+            X-Opal-Transaction-Id: *id002
+            X-Opal-Request-Id: *id003
+            X-Opal-Causation-Id: *id004
+            Location:
+              $ref: ../shared/opal_kernel.yaml#/components/headers/Location
+          content:
+            application/json:
+              schema:
+                $ref: ../shared/vision_kernel.yaml#/components/schemas/VisionJob
+        '400':
+          $ref: ../shared/opal_kernel.yaml#/components/responses/BadRequest
+        '401':
+          $ref: ../shared/opal_kernel.yaml#/components/responses/Unauthorized
+        '403':
+          $ref: ../shared/opal_kernel.yaml#/components/responses/Forbidden
+        '409':
+          $ref: ../shared/opal_kernel.yaml#/components/responses/Conflict
+        '422':
+          $ref: ../shared/opal_kernel.yaml#/components/responses/UnprocessableEntity
+        '429':
+          $ref: ../shared/opal_kernel.yaml#/components/responses/TooManyRequests
+        '503':
+          $ref: ../shared/opal_kernel.yaml#/components/responses/ServiceUnavailable
+  /api/v1/solution/run:
+    parameters:
+    - $ref: ../shared/opal_kernel.yaml#/components/parameters/OpalSessionIdParameter
+    - $ref: ../shared/opal_kernel.yaml#/components/parameters/OpalTransactionIdParameter
+    - $ref: ../shared/opal_kernel.yaml#/components/parameters/OpalRequestIdParameter
+    - $ref: ../shared/opal_kernel.yaml#/components/parameters/OpalCausationIdParameter
+    x-opal-cli:
+      post: &id007
+        group: solutions
+        command: run
+    post:
+      tags:
+      - inference
+      operationId: yolo_solutions_run
+      summary: YOLO-native solutions run
+      description: Capability-gated native Ultralytics workflow. Does not replace common opal-look tracking/analytics.
+      x-opal-cli: *id007
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/YoloSolutionRequest'
+      responses:
+        '202':
+          description: Operation accepted.
+          headers:
+            X-Opal-Session-Id: *id001
+            X-Opal-Transaction-Id: *id002
+            X-Opal-Request-Id: *id003
+            X-Opal-Causation-Id: *id004
+            Location:
+              $ref: ../shared/opal_kernel.yaml#/components/headers/Location
+          content:
+            application/json:
+              schema:
+                $ref: ../shared/vision_kernel.yaml#/components/schemas/VisionJob
+        '400':
+          $ref: ../shared/opal_kernel.yaml#/components/responses/BadRequest
+        '401':
+          $ref: ../shared/opal_kernel.yaml#/components/responses/Unauthorized
+        '403':
+          $ref: ../shared/opal_kernel.yaml#/components/responses/Forbidden
+        '409':
+          $ref: ../shared/opal_kernel.yaml#/components/responses/Conflict
+        '422':
+          $ref: ../shared/opal_kernel.yaml#/components/responses/UnprocessableEntity
+        '429':
+          $ref: ../shared/opal_kernel.yaml#/components/responses/TooManyRequests
+        '503':
+          $ref: ../shared/opal_kernel.yaml#/components/responses/ServiceUnavailable

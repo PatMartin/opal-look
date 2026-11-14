@@ -1,0 +1,2186 @@
+openapi: 3.1.0
+jsonSchemaDialect: https://json-schema.org/draft/2020-12/schema
+info:
+  title: OPAL Vision Kernel (reusable, not standalone)
+  version: 0.1.0-draft
+  description: Domain-specific reusable components and Path Items. MUST be consumed with the authoritative opal_kernel.yaml;
+    never publish this as a standalone REST service. Shared functionality only; engine-specific request schemas
+    specialize common operation contracts.
+paths: {}
+x-vision-composition:
+  suite_kernel: ./opal_kernel.yaml
+  reuse_model: External $refs and typed schema composition; do not merge kernels
+  cli_compatibility: x-opal-cli per OPAL suite v1.7.1
+components:
+  schemas:
+    VisionCapabilities:
+      type: object
+      properties:
+        engine_id:
+          type: string
+        engine_family:
+          type: string
+          enum:
+          - yolo
+          - rfdetr
+          - rtdetr
+          - dfine
+        implementation:
+          type: string
+        version:
+          type: string
+        tasks:
+          type: array
+          items:
+            type: string
+        operations:
+          type: array
+          items:
+            type: string
+        runtimes:
+          type: array
+          items:
+            type: string
+        extension_schemas:
+          type: object
+          properties: {}
+          additionalProperties: true
+        instances:
+          type: array
+          items:
+            type: string
+        available:
+          type: boolean
+      additionalProperties: true
+      required:
+      - engine_id
+      - engine_family
+      - implementation
+      - version
+      - tasks
+      - operations
+      - available
+      description: Capabilities are instance-level observations, not guarantees for each model or runtime.
+    VisionRuntime:
+      type: object
+      properties:
+        runtime_id:
+          type: string
+        implementation:
+          type: string
+        version:
+          type: string
+        operations:
+          type: array
+          items:
+            type: string
+        devices:
+          type: array
+          items:
+            type: string
+        available:
+          type: boolean
+        limitations:
+          type: array
+          items:
+            type: string
+      additionalProperties: true
+      required:
+      - runtime_id
+      - implementation
+      - available
+    VisionModel:
+      type: object
+      properties:
+        model_id:
+          type: string
+        logical_id:
+          type: string
+        engine_id:
+          type: string
+        name:
+          type: string
+        version:
+          type: string
+        weights_sha256:
+          type: string
+          pattern: ^[a-fA-F0-9]{64}$
+        tasks:
+          type: array
+          items:
+            type: string
+        operations:
+          type: array
+          items:
+            type: string
+        runtimes:
+          type: array
+          items:
+            type: string
+        status:
+          type: string
+          enum:
+          - available
+          - unavailable
+          - stale
+          - unknown
+        loaded:
+          type: boolean
+        bytes:
+          type: integer
+          minimum: 0
+        created_at:
+          type: string
+          format: date-time
+      additionalProperties: true
+      required:
+      - model_id
+      - engine_id
+      - name
+      - tasks
+      - status
+    ModelInstallation:
+      type: object
+      properties:
+        installation_id:
+          type: string
+        model_id:
+          type: string
+        instance_id:
+          type: string
+        host:
+          type: string
+        runtime:
+          type: string
+        status:
+          type: string
+          enum:
+          - available
+          - unavailable
+          - stale
+          - unknown
+        last_seen:
+          type: string
+          format: date-time
+        weights_sha256:
+          type: string
+      additionalProperties: true
+      required:
+      - installation_id
+      - model_id
+      - instance_id
+      - status
+    ModelInstallRequest:
+      type: object
+      properties:
+        model:
+          type: string
+        version:
+          type: string
+        source_uri:
+          type: string
+          format: uri
+        expected_sha256:
+          type: string
+        agree_to_license:
+          type: boolean
+          default: false
+      additionalProperties: false
+      required:
+      - model
+      description: Explicit install only. No implicit downloading during predict.
+    ModelLoadRequest:
+      type: object
+      properties:
+        runtime:
+          type: string
+        device:
+          type: string
+        residency:
+          type: string
+          enum:
+          - on-demand
+          - keep-loaded
+          - idle-timeout
+        idle_timeout_seconds:
+          type: integer
+          minimum: 1
+      additionalProperties: false
+    VisionSource:
+      type: object
+      properties:
+        kind:
+          type: string
+          enum:
+          - uri
+          - host_path
+          - inline
+          - artifact
+          - device
+        uri:
+          type: string
+        host_path:
+          type: string
+        base64:
+          type: string
+        media_type:
+          type: string
+        artifact_id:
+          type: string
+        device_id:
+          type: string
+      additionalProperties: false
+      required:
+      - kind
+      description: Exactly one locator matching kind MUST be populated. Local paths are not assumed visible remotely.
+        URI schemes and network access are policy-controlled.
+    FrameEnvelope:
+      type: object
+      properties:
+        frame_id:
+          type: string
+        source_id:
+          type: string
+        pipeline_run_id:
+          type: string
+        sequence:
+          type: integer
+          minimum: 0
+        captured_at:
+          type: string
+          format: date-time
+        width:
+          type: integer
+          minimum: 1
+        height:
+          type: integer
+          minimum: 1
+        session_id:
+          type: string
+        transaction_id:
+          type: string
+        request_id:
+          type: string
+        causation_id:
+          type: string
+      additionalProperties: true
+      required:
+      - frame_id
+      - width
+      - height
+    Point:
+      type: object
+      properties:
+        x:
+          type: number
+        y:
+          type: number
+      additionalProperties: false
+      required:
+      - x
+      - y
+    BoundingBox:
+      type: object
+      properties:
+        type:
+          const: bbox
+        format:
+          const: xyxy
+        coordinate_system:
+          const: image_pixels
+        values:
+          type: array
+          items:
+            type: number
+          minItems: 4
+          maxItems: 4
+      additionalProperties: false
+      required:
+      - type
+      - format
+      - coordinate_system
+      - values
+    OrientedBox:
+      type: object
+      properties:
+        type:
+          const: obb
+        coordinate_system:
+          const: image_pixels
+        cx:
+          type: number
+        cy:
+          type: number
+        width:
+          type: number
+          minimum: 0
+        height:
+          type: number
+          minimum: 0
+        angle_rad:
+          type: number
+      additionalProperties: false
+      required:
+      - type
+      - coordinate_system
+      - cx
+      - cy
+      - width
+      - height
+      - angle_rad
+    Polygon:
+      type: object
+      properties:
+        type:
+          const: polygon
+        coordinate_system:
+          const: image_pixels
+        points:
+          type: array
+          items:
+            $ref: '#/components/schemas/Point'
+          minItems: 3
+      additionalProperties: false
+      required:
+      - type
+      - coordinate_system
+      - points
+    MaskGeometry:
+      type: object
+      properties:
+        type:
+          const: mask
+        coordinate_system:
+          const: image_pixels
+        width:
+          type: integer
+          minimum: 1
+        height:
+          type: integer
+          minimum: 1
+        encoding:
+          type: string
+          enum:
+          - rle
+          - polygon
+          - artifact
+        rle:
+          type: object
+          properties: {}
+          additionalProperties: true
+        polygons:
+          type: array
+          items:
+            $ref: '#/components/schemas/Polygon'
+        artifact:
+          $ref: '#/components/schemas/VisionArtifactRef'
+      additionalProperties: false
+      required:
+      - type
+      - coordinate_system
+      - width
+      - height
+      - encoding
+    Keypoint:
+      type: object
+      properties:
+        name:
+          type: string
+        x:
+          type: number
+        y:
+          type: number
+        confidence:
+          type: number
+          minimum: 0
+          maximum: 1
+        visible:
+          type: boolean
+      additionalProperties: false
+      required:
+      - x
+      - y
+    KeypointSet:
+      type: object
+      properties:
+        type:
+          const: keypoints
+        coordinate_system:
+          const: image_pixels
+        keypoints:
+          type: array
+          items:
+            $ref: '#/components/schemas/Keypoint'
+      additionalProperties: false
+      required:
+      - type
+      - coordinate_system
+      - keypoints
+    Geometry:
+      oneOf:
+      - $ref: '#/components/schemas/BoundingBox'
+      - $ref: '#/components/schemas/OrientedBox'
+      - $ref: '#/components/schemas/Polygon'
+      - $ref: '#/components/schemas/MaskGeometry'
+      - $ref: '#/components/schemas/KeypointSet'
+      description: Canonical pixel coordinates refer to orientation-corrected original source frame.
+    ClassIdentity:
+      type: object
+      properties:
+        native_class_id:
+          oneOf:
+          - type: string
+          - type: integer
+        native_name:
+          type: string
+        canonical_id:
+          type: string
+        taxonomy_version:
+          type: string
+      additionalProperties: false
+      required:
+      - native_class_id
+    Detection:
+      type: object
+      properties:
+        detection_id:
+          type: string
+        class:
+          $ref: '#/components/schemas/ClassIdentity'
+        confidence:
+          type: number
+          minimum: 0
+          maximum: 1
+        geometry:
+          $ref: '#/components/schemas/Geometry'
+        contributing_models:
+          type: array
+          items:
+            type: string
+        track_id:
+          type: string
+      additionalProperties: true
+      required:
+      - class
+      - confidence
+      - geometry
+    VisionArtifactRef:
+      type: object
+      properties:
+        artifact_id:
+          type: string
+        media_type:
+          type: string
+        size_bytes:
+          type: integer
+          minimum: 0
+        uri:
+          type: string
+        expires_at:
+          type: string
+          format: date-time
+        sha256:
+          type: string
+      additionalProperties: false
+      required:
+      - artifact_id
+      - media_type
+      - size_bytes
+      - uri
+    PredictionCore:
+      type: object
+      properties:
+        model_id:
+          type: string
+        source:
+          $ref: '#/components/schemas/VisionSource'
+        task:
+          type: string
+          enum:
+          - detect
+          - segment
+          - classify
+          - pose
+          - obb
+          - depth
+          - embed
+        runtime:
+          type: string
+        device:
+          type: string
+        include_native:
+          type: boolean
+          default: false
+        output_mode:
+          type: string
+          enum:
+          - auto
+          - inline
+          - reference
+        options:
+          type: object
+          properties:
+            confidence:
+              type: number
+              minimum: 0
+              maximum: 1
+            iou:
+              type: number
+              minimum: 0
+              maximum: 1
+            image_size:
+              type: integer
+              minimum: 1
+            classes:
+              type: array
+              items:
+                type: integer
+          additionalProperties: true
+      additionalProperties: true
+      required:
+      - model_id
+      - source
+      - task
+    PredictionRequest:
+      allOf:
+      - $ref: '#/components/schemas/PredictionCore'
+      - type: object
+        properties:
+          engine_options:
+            type: object
+            properties: {}
+            additionalProperties: true
+        additionalProperties: true
+      description: Generic base; engine contracts override engine_options with a typed schema.
+    PredictionResult:
+      type: object
+      properties:
+        engine_id:
+          type: string
+        instance_id:
+          type: string
+        model_id:
+          type: string
+        runtime:
+          type: string
+        task:
+          type: string
+        frame:
+          $ref: '#/components/schemas/FrameEnvelope'
+        detections:
+          type: array
+          items:
+            $ref: '#/components/schemas/Detection'
+        classifications:
+          type: array
+          items:
+            type: object
+            properties:
+              class:
+                $ref: '#/components/schemas/ClassIdentity'
+              probability:
+                type: number
+                minimum: 0
+                maximum: 1
+            additionalProperties: false
+            required:
+            - class
+            - probability
+        artifacts:
+          type: array
+          items:
+            $ref: '#/components/schemas/VisionArtifactRef'
+        coordinate_transform:
+          type: object
+          properties: {}
+          additionalProperties: true
+        native:
+          type: object
+          properties:
+            format:
+              type: string
+            data:
+              type: object
+              properties: {}
+              additionalProperties: true
+          additionalProperties: true
+        execution_id:
+          type: string
+      additionalProperties: true
+      required:
+      - engine_id
+      - instance_id
+      - model_id
+      - task
+      - frame
+      description: Normalizes common results; native included only on explicit request, bounded by output policy.
+    TrainingCore:
+      type: object
+      properties:
+        model_id:
+          type: string
+        dataset_uri:
+          type: string
+        epochs:
+          type: integer
+          minimum: 1
+        batch_size:
+          type: integer
+          minimum: 1
+        seed:
+          type: integer
+        resume_from:
+          type: string
+        runtime:
+          type: string
+        device:
+          type: string
+      additionalProperties: true
+      required:
+      - model_id
+      - dataset_uri
+    ValidationCore:
+      type: object
+      properties:
+        model_id:
+          type: string
+        dataset_uri:
+          type: string
+        split:
+          type: string
+        device:
+          type: string
+      additionalProperties: true
+      required:
+      - model_id
+      - dataset_uri
+    ExportCore:
+      type: object
+      properties:
+        model_id:
+          type: string
+        format:
+          type: string
+        runtime:
+          type: string
+        device:
+          type: string
+        precision:
+          type: string
+          enum:
+          - fp32
+          - fp16
+          - int8
+      additionalProperties: true
+      required:
+      - model_id
+      - format
+    BenchmarkCore:
+      type: object
+      properties:
+        model_id:
+          type: string
+        dataset_uri:
+          type: string
+        device:
+          type: string
+        runtime:
+          type: string
+        batch_size:
+          type: integer
+          minimum: 1
+        warmup_iterations:
+          type: integer
+          minimum: 0
+        iterations:
+          type: integer
+          minimum: 1
+        measure:
+          type: string
+          enum:
+          - model-only
+          - end-to-end
+      additionalProperties: true
+      required:
+      - model_id
+    JobRequest:
+      type: object
+      properties:
+        operation:
+          type: string
+          enum:
+          - train
+          - validate
+          - export
+          - benchmark
+          - tune
+        parameters:
+          type: object
+          properties: {}
+          additionalProperties: true
+        model_id:
+          type: string
+      additionalProperties: false
+      required:
+      - operation
+      - parameters
+    VisionJob:
+      type: object
+      properties:
+        job_id:
+          type: string
+        operation:
+          type: string
+        engine_id:
+          type: string
+        instance_id:
+          type: string
+        state:
+          type: string
+          enum:
+          - queued
+          - running
+          - succeeded
+          - failed
+          - cancelled
+          - cancel_requested
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+        result_artifacts:
+          type: array
+          items:
+            $ref: '#/components/schemas/VisionArtifactRef'
+        error:
+          $ref: ./opal_kernel.yaml#/components/schemas/OpalErrorBody
+      additionalProperties: true
+      required:
+      - job_id
+      - operation
+      - engine_id
+      - state
+      - created_at
+    VisionMetrics:
+      type: object
+      properties:
+        latency_p50_ms:
+          type: number
+          minimum: 0
+        latency_p95_ms:
+          type: number
+          minimum: 0
+        latency_p99_ms:
+          type: number
+          minimum: 0
+        throughput_fps:
+          type: number
+          minimum: 0
+        precision:
+          type: number
+          minimum: 0
+          maximum: 1
+        recall:
+          type: number
+          minimum: 0
+          maximum: 1
+        map50:
+          type: number
+          minimum: 0
+          maximum: 1
+        map50_95:
+          type: number
+          minimum: 0
+          maximum: 1
+        peak_memory_mb:
+          type: number
+          minimum: 0
+        model_size_mb:
+          type: number
+          minimum: 0
+        warmup_ms:
+          type: number
+          minimum: 0
+        native:
+          type: object
+          properties: {}
+          additionalProperties: true
+      additionalProperties: true
+    BenchmarkResult:
+      type: object
+      properties:
+        benchmark_id:
+          type: string
+        engine_id:
+          type: string
+        model_id:
+          type: string
+        dataset_uri:
+          type: string
+        runtime:
+          type: string
+        device:
+          type: string
+        precision:
+          type: string
+        resolution:
+          type: array
+          items:
+            type: integer
+          minItems: 2
+          maxItems: 2
+        batch_size:
+          type: integer
+          minimum: 1
+        measurement_scope:
+          type: string
+          enum:
+          - model-only
+          - end-to-end
+        metrics:
+          $ref: '#/components/schemas/VisionMetrics'
+        execution_id:
+          type: string
+      additionalProperties: false
+      required:
+      - benchmark_id
+      - engine_id
+      - model_id
+      - runtime
+      - device
+      - measurement_scope
+      - metrics
+    ExecutionManifest:
+      type: object
+      properties:
+        execution_id:
+          type: string
+        engine_id:
+          type: string
+        implementation:
+          type: string
+        engine_version:
+          type: string
+        instance_id:
+          type: string
+        model_id:
+          type: string
+        model_sha256:
+          type: string
+        runtime:
+          type: string
+        device:
+          type: string
+        effective_parameters:
+          type: object
+          properties: {}
+          additionalProperties: true
+        input_sha256:
+          type: string
+        input_reference:
+          type: string
+        random_seed:
+          type: integer
+        fallback_history:
+          type: array
+          items:
+            type: object
+            properties: {}
+            additionalProperties: true
+        pipeline_run_id:
+          type: string
+        artifacts:
+          type: array
+          items:
+            $ref: '#/components/schemas/VisionArtifactRef'
+        created_at:
+          type: string
+          format: date-time
+      additionalProperties: true
+      required:
+      - execution_id
+      - engine_id
+      - instance_id
+      - model_id
+      - runtime
+      - created_at
+    ReproduceRequest:
+      type: object
+      properties:
+        verify_only:
+          type: boolean
+          default: true
+        allow_stateful_replay:
+          type: boolean
+          default: false
+      additionalProperties: false
+      description: Requires explicit consent to rerun stateful operations; validates resources and permissions.
+    LogRead:
+      type: object
+      properties:
+        job_id:
+          type: string
+        lines:
+          type: array
+          items:
+            type: string
+      additionalProperties: false
+      required:
+      - job_id
+      - lines
+    InstallResult:
+      type: object
+      properties:
+        job_id:
+          type: string
+        model_id:
+          type: string
+        status:
+          type: string
+      additionalProperties: false
+      required:
+      - job_id
+      - model_id
+      - status
+    ArtifactRead:
+      type: object
+      properties:
+        artifact:
+          $ref: '#/components/schemas/VisionArtifactRef'
+        status:
+          type: string
+      additionalProperties: false
+      required:
+      - artifact
+      - status
+  pathItems:
+    capabilities:
+      parameters:
+      - &id001
+        $ref: ./opal_kernel.yaml#/components/parameters/OpalSessionIdParameter
+      - &id002
+        $ref: ./opal_kernel.yaml#/components/parameters/OpalTransactionIdParameter
+      - &id003
+        $ref: ./opal_kernel.yaml#/components/parameters/OpalRequestIdParameter
+      - &id004
+        $ref: ./opal_kernel.yaml#/components/parameters/OpalCausationIdParameter
+      x-opal-cli:
+        get:
+          group: engines
+          command: capabilities
+      get:
+        tags:
+        - capabilities
+        operationId: vision_capabilities_get
+        summary: Discover engine instance capabilities
+        responses:
+          '200':
+            description: Success.
+            content:
+              application/json:
+                schema:
+                  $ref: '#/components/schemas/VisionCapabilities'
+            headers:
+              X-Opal-Session-Id: &id005
+                $ref: ./opal_kernel.yaml#/components/headers/OpalSessionIdHeader
+              X-Opal-Transaction-Id: &id006
+                $ref: ./opal_kernel.yaml#/components/headers/OpalTransactionIdHeader
+              X-Opal-Request-Id: &id007
+                $ref: ./opal_kernel.yaml#/components/headers/OpalRequestIdHeader
+              X-Opal-Causation-Id: &id008
+                $ref: ./opal_kernel.yaml#/components/headers/OpalCausationIdHeader
+          '401':
+            $ref: ./opal_kernel.yaml#/components/responses/Unauthorized
+          '403':
+            $ref: ./opal_kernel.yaml#/components/responses/Forbidden
+          '503':
+            $ref: ./opal_kernel.yaml#/components/responses/ServiceUnavailable
+    models_collection:
+      parameters:
+      - *id001
+      - *id002
+      - *id003
+      - *id004
+      x-opal-cli:
+        get:
+          group: models
+          command: list
+      get:
+        tags:
+        - models
+        operationId: vision_models_list
+        summary: List available models (bounded catalog)
+        responses:
+          '200':
+            description: Success.
+            headers:
+              X-Opal-Session-Id: *id005
+              X-Opal-Transaction-Id: *id006
+              X-Opal-Request-Id: *id007
+              X-Opal-Causation-Id: *id008
+            content:
+              application/json:
+                schema:
+                  type: array
+                  items:
+                    $ref: '#/components/schemas/VisionModel'
+          '401':
+            $ref: ./opal_kernel.yaml#/components/responses/Unauthorized
+          '403':
+            $ref: ./opal_kernel.yaml#/components/responses/Forbidden
+          '503':
+            $ref: ./opal_kernel.yaml#/components/responses/ServiceUnavailable
+        parameters:
+        - name: loaded
+          in: query
+          required: false
+          schema:
+            type: boolean
+        - name: task
+          in: query
+          required: false
+          schema:
+            type: string
+    model_item:
+      parameters:
+      - *id001
+      - *id002
+      - *id003
+      - *id004
+      - name: model_id
+        in: path
+        required: true
+        schema:
+          type: string
+      x-opal-cli:
+        get:
+          group: models
+          command: show
+        delete:
+          group: models
+          command: remove
+      get:
+        tags:
+        - models
+        operationId: vision_model_show
+        summary: Show model
+        responses:
+          '200':
+            description: Success.
+            content:
+              application/json:
+                schema:
+                  $ref: '#/components/schemas/VisionModel'
+            headers:
+              X-Opal-Session-Id: *id005
+              X-Opal-Transaction-Id: *id006
+              X-Opal-Request-Id: *id007
+              X-Opal-Causation-Id: *id008
+          '401':
+            $ref: ./opal_kernel.yaml#/components/responses/Unauthorized
+          '403':
+            $ref: ./opal_kernel.yaml#/components/responses/Forbidden
+          '404':
+            $ref: ./opal_kernel.yaml#/components/responses/NotFound
+          '503':
+            $ref: ./opal_kernel.yaml#/components/responses/ServiceUnavailable
+      delete:
+        tags:
+        - models
+        operationId: vision_model_remove
+        summary: Remove this installation after dependency check
+        parameters:
+        - $ref: ./opal_kernel.yaml#/components/parameters/IfMatch
+        - name: dry_run
+          in: query
+          required: false
+          schema:
+            type: boolean
+            default: false
+          description: Validate dependencies and report effects without removing the installation.
+        responses:
+          '204':
+            description: Resource removed.
+            headers:
+              X-Opal-Session-Id: *id005
+              X-Opal-Transaction-Id: *id006
+              X-Opal-Request-Id: *id007
+              X-Opal-Causation-Id: *id008
+          '401':
+            $ref: ./opal_kernel.yaml#/components/responses/Unauthorized
+          '403':
+            $ref: ./opal_kernel.yaml#/components/responses/Forbidden
+          '404':
+            $ref: ./opal_kernel.yaml#/components/responses/NotFound
+          '409':
+            $ref: ./opal_kernel.yaml#/components/responses/Conflict
+          '412':
+            $ref: ./opal_kernel.yaml#/components/responses/PreconditionFailed
+          '422':
+            $ref: ./opal_kernel.yaml#/components/responses/UnprocessableEntity
+          '428':
+            $ref: ./opal_kernel.yaml#/components/responses/PreconditionRequired
+          '503':
+            $ref: ./opal_kernel.yaml#/components/responses/ServiceUnavailable
+    model_capabilities:
+      parameters:
+      - *id001
+      - *id002
+      - *id003
+      - *id004
+      - name: model_id
+        in: path
+        required: true
+        schema:
+          type: string
+      x-opal-cli:
+        get:
+          group: models
+          command: capabilities
+      get:
+        tags:
+        - models
+        operationId: vision_model_capabilities
+        summary: Show model task/runtime capabilities
+        responses:
+          '200':
+            description: Success.
+            content:
+              application/json:
+                schema:
+                  $ref: '#/components/schemas/VisionCapabilities'
+            headers:
+              X-Opal-Session-Id: *id005
+              X-Opal-Transaction-Id: *id006
+              X-Opal-Request-Id: *id007
+              X-Opal-Causation-Id: *id008
+          '401':
+            $ref: ./opal_kernel.yaml#/components/responses/Unauthorized
+          '403':
+            $ref: ./opal_kernel.yaml#/components/responses/Forbidden
+          '404':
+            $ref: ./opal_kernel.yaml#/components/responses/NotFound
+          '503':
+            $ref: ./opal_kernel.yaml#/components/responses/ServiceUnavailable
+    model_install:
+      parameters:
+      - *id001
+      - *id002
+      - *id003
+      - *id004
+      - name: model_id
+        in: path
+        required: true
+        schema:
+          type: string
+      x-opal-cli:
+        post:
+          group: models
+          command: install
+      post:
+        tags:
+        - models
+        operationId: vision_model_install
+        summary: Install one version explicitly
+        requestBody:
+          required: true
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ModelInstallRequest'
+        responses:
+          '202':
+            description: Operation accepted.
+            content:
+              application/json:
+                schema:
+                  $ref: '#/components/schemas/InstallResult'
+            headers:
+              X-Opal-Session-Id: *id005
+              X-Opal-Transaction-Id: *id006
+              X-Opal-Request-Id: *id007
+              X-Opal-Causation-Id: *id008
+              Location:
+                $ref: ./opal_kernel.yaml#/components/headers/Location
+          '400':
+            $ref: ./opal_kernel.yaml#/components/responses/BadRequest
+          '401':
+            $ref: ./opal_kernel.yaml#/components/responses/Unauthorized
+          '403':
+            $ref: ./opal_kernel.yaml#/components/responses/Forbidden
+          '409':
+            $ref: ./opal_kernel.yaml#/components/responses/Conflict
+          '422':
+            $ref: ./opal_kernel.yaml#/components/responses/UnprocessableEntity
+          '429':
+            $ref: ./opal_kernel.yaml#/components/responses/TooManyRequests
+          '503':
+            $ref: ./opal_kernel.yaml#/components/responses/ServiceUnavailable
+        parameters:
+        - $ref: ./opal_kernel.yaml#/components/parameters/IdempotencyKey
+    model_load:
+      parameters:
+      - *id001
+      - *id002
+      - *id003
+      - *id004
+      - name: model_id
+        in: path
+        required: true
+        schema:
+          type: string
+      x-opal-cli:
+        post:
+          group: models
+          command: load
+      post:
+        tags:
+        - models
+        operationId: vision_model_load
+        summary: Load model into engine memory
+        requestBody:
+          required: true
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ModelLoadRequest'
+        responses:
+          '202':
+            description: Operation accepted.
+            content:
+              application/json:
+                schema:
+                  $ref: '#/components/schemas/VisionJob'
+            headers:
+              X-Opal-Session-Id: *id005
+              X-Opal-Transaction-Id: *id006
+              X-Opal-Request-Id: *id007
+              X-Opal-Causation-Id: *id008
+              Location:
+                $ref: ./opal_kernel.yaml#/components/headers/Location
+          '401':
+            $ref: ./opal_kernel.yaml#/components/responses/Unauthorized
+          '403':
+            $ref: ./opal_kernel.yaml#/components/responses/Forbidden
+          '404':
+            $ref: ./opal_kernel.yaml#/components/responses/NotFound
+          '409':
+            $ref: ./opal_kernel.yaml#/components/responses/Conflict
+          '422':
+            $ref: ./opal_kernel.yaml#/components/responses/UnprocessableEntity
+          '429':
+            $ref: ./opal_kernel.yaml#/components/responses/TooManyRequests
+          '503':
+            $ref: ./opal_kernel.yaml#/components/responses/ServiceUnavailable
+        parameters:
+        - $ref: ./opal_kernel.yaml#/components/parameters/IdempotencyKey
+    model_unload:
+      parameters:
+      - *id001
+      - *id002
+      - *id003
+      - *id004
+      - name: model_id
+        in: path
+        required: true
+        schema:
+          type: string
+      x-opal-cli:
+        post:
+          group: models
+          command: unload
+      post:
+        tags:
+        - models
+        operationId: vision_model_unload
+        summary: Unload model if unused
+        responses:
+          '202':
+            description: Operation accepted.
+            content:
+              application/json:
+                schema:
+                  $ref: '#/components/schemas/VisionJob'
+            headers:
+              X-Opal-Session-Id: *id005
+              X-Opal-Transaction-Id: *id006
+              X-Opal-Request-Id: *id007
+              X-Opal-Causation-Id: *id008
+              Location:
+                $ref: ./opal_kernel.yaml#/components/headers/Location
+          '401':
+            $ref: ./opal_kernel.yaml#/components/responses/Unauthorized
+          '403':
+            $ref: ./opal_kernel.yaml#/components/responses/Forbidden
+          '404':
+            $ref: ./opal_kernel.yaml#/components/responses/NotFound
+          '409':
+            $ref: ./opal_kernel.yaml#/components/responses/Conflict
+          '422':
+            $ref: ./opal_kernel.yaml#/components/responses/UnprocessableEntity
+          '429':
+            $ref: ./opal_kernel.yaml#/components/responses/TooManyRequests
+          '503':
+            $ref: ./opal_kernel.yaml#/components/responses/ServiceUnavailable
+    model_versions:
+      parameters:
+      - *id001
+      - *id002
+      - *id003
+      - *id004
+      - name: model_id
+        in: path
+        required: true
+        schema:
+          type: string
+      x-opal-cli:
+        get:
+          group: models
+          command: versions
+      get:
+        tags:
+        - models
+        operationId: vision_model_versions
+        summary: List known immutable model versions
+        responses:
+          '200':
+            description: Success.
+            headers:
+              X-Opal-Session-Id: *id005
+              X-Opal-Transaction-Id: *id006
+              X-Opal-Request-Id: *id007
+              X-Opal-Causation-Id: *id008
+            content:
+              application/json:
+                schema:
+                  type: array
+                  items:
+                    $ref: '#/components/schemas/VisionModel'
+          '401':
+            $ref: ./opal_kernel.yaml#/components/responses/Unauthorized
+          '403':
+            $ref: ./opal_kernel.yaml#/components/responses/Forbidden
+          '404':
+            $ref: ./opal_kernel.yaml#/components/responses/NotFound
+          '503':
+            $ref: ./opal_kernel.yaml#/components/responses/ServiceUnavailable
+    model_installations:
+      parameters:
+      - *id001
+      - *id002
+      - *id003
+      - *id004
+      - name: model_id
+        in: path
+        required: true
+        schema:
+          type: string
+      x-opal-cli:
+        get:
+          group: models
+          command: instances
+      get:
+        tags:
+        - models
+        operationId: vision_model_installations
+        summary: List known installations for this model
+        responses:
+          '200':
+            description: Success.
+            headers:
+              X-Opal-Session-Id: *id005
+              X-Opal-Transaction-Id: *id006
+              X-Opal-Request-Id: *id007
+              X-Opal-Causation-Id: *id008
+            content:
+              application/json:
+                schema:
+                  type: array
+                  items:
+                    $ref: '#/components/schemas/ModelInstallation'
+          '401':
+            $ref: ./opal_kernel.yaml#/components/responses/Unauthorized
+          '403':
+            $ref: ./opal_kernel.yaml#/components/responses/Forbidden
+          '404':
+            $ref: ./opal_kernel.yaml#/components/responses/NotFound
+          '503':
+            $ref: ./opal_kernel.yaml#/components/responses/ServiceUnavailable
+    runtimes:
+      parameters:
+      - *id001
+      - *id002
+      - *id003
+      - *id004
+      x-opal-cli:
+        get:
+          group: runtimes
+          command: list
+      get:
+        tags:
+        - runtimes
+        operationId: vision_runtimes_list
+        summary: List supported runtimes
+        responses:
+          '200':
+            description: Success.
+            headers:
+              X-Opal-Session-Id: *id005
+              X-Opal-Transaction-Id: *id006
+              X-Opal-Request-Id: *id007
+              X-Opal-Causation-Id: *id008
+            content:
+              application/json:
+                schema:
+                  type: array
+                  items:
+                    $ref: '#/components/schemas/VisionRuntime'
+          '401':
+            $ref: ./opal_kernel.yaml#/components/responses/Unauthorized
+          '403':
+            $ref: ./opal_kernel.yaml#/components/responses/Forbidden
+          '503':
+            $ref: ./opal_kernel.yaml#/components/responses/ServiceUnavailable
+    runtime_item:
+      parameters:
+      - *id001
+      - *id002
+      - *id003
+      - *id004
+      - name: runtime_id
+        in: path
+        required: true
+        schema:
+          type: string
+      x-opal-cli:
+        get:
+          group: runtimes
+          command: show
+      get:
+        tags:
+        - runtimes
+        operationId: vision_runtime_show
+        summary: Inspect runtime capabilities
+        responses:
+          '200':
+            description: Success.
+            content:
+              application/json:
+                schema:
+                  $ref: '#/components/schemas/VisionRuntime'
+            headers:
+              X-Opal-Session-Id: *id005
+              X-Opal-Transaction-Id: *id006
+              X-Opal-Request-Id: *id007
+              X-Opal-Causation-Id: *id008
+          '401':
+            $ref: ./opal_kernel.yaml#/components/responses/Unauthorized
+          '403':
+            $ref: ./opal_kernel.yaml#/components/responses/Forbidden
+          '404':
+            $ref: ./opal_kernel.yaml#/components/responses/NotFound
+          '503':
+            $ref: ./opal_kernel.yaml#/components/responses/ServiceUnavailable
+    jobs_collection:
+      parameters:
+      - *id001
+      - *id002
+      - *id003
+      - *id004
+      x-opal-cli:
+        get:
+          group: jobs
+          command: list
+        post:
+          group: jobs
+          command: create
+      get:
+        tags:
+        - jobs
+        operationId: vision_jobs_list
+        summary: List jobs
+        responses:
+          '200':
+            description: Success.
+            headers:
+              X-Opal-Session-Id: *id005
+              X-Opal-Transaction-Id: *id006
+              X-Opal-Request-Id: *id007
+              X-Opal-Causation-Id: *id008
+            content:
+              application/json:
+                schema:
+                  type: array
+                  items:
+                    $ref: '#/components/schemas/VisionJob'
+          '401':
+            $ref: ./opal_kernel.yaml#/components/responses/Unauthorized
+          '403':
+            $ref: ./opal_kernel.yaml#/components/responses/Forbidden
+          '503':
+            $ref: ./opal_kernel.yaml#/components/responses/ServiceUnavailable
+      post:
+        tags:
+        - jobs
+        operationId: vision_jobs_create
+        summary: Create asynchronous job
+        requestBody:
+          required: true
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/JobRequest'
+        responses:
+          '202':
+            description: Operation accepted.
+            content:
+              application/json:
+                schema:
+                  $ref: '#/components/schemas/VisionJob'
+            headers:
+              X-Opal-Session-Id: *id005
+              X-Opal-Transaction-Id: *id006
+              X-Opal-Request-Id: *id007
+              X-Opal-Causation-Id: *id008
+              Location:
+                $ref: ./opal_kernel.yaml#/components/headers/Location
+          '400':
+            $ref: ./opal_kernel.yaml#/components/responses/BadRequest
+          '401':
+            $ref: ./opal_kernel.yaml#/components/responses/Unauthorized
+          '403':
+            $ref: ./opal_kernel.yaml#/components/responses/Forbidden
+          '409':
+            $ref: ./opal_kernel.yaml#/components/responses/Conflict
+          '422':
+            $ref: ./opal_kernel.yaml#/components/responses/UnprocessableEntity
+          '429':
+            $ref: ./opal_kernel.yaml#/components/responses/TooManyRequests
+          '503':
+            $ref: ./opal_kernel.yaml#/components/responses/ServiceUnavailable
+        parameters:
+        - $ref: ./opal_kernel.yaml#/components/parameters/IdempotencyKey
+    jobs_item:
+      parameters:
+      - *id001
+      - *id002
+      - *id003
+      - *id004
+      - name: job_id
+        in: path
+        required: true
+        schema:
+          type: string
+      x-opal-cli:
+        get:
+          group: jobs
+          command: show
+      get:
+        tags:
+        - jobs
+        operationId: vision_job_show
+        summary: Inspect job state
+        responses:
+          '200':
+            description: Success.
+            content:
+              application/json:
+                schema:
+                  $ref: '#/components/schemas/VisionJob'
+            headers:
+              X-Opal-Session-Id: *id005
+              X-Opal-Transaction-Id: *id006
+              X-Opal-Request-Id: *id007
+              X-Opal-Causation-Id: *id008
+          '401':
+            $ref: ./opal_kernel.yaml#/components/responses/Unauthorized
+          '403':
+            $ref: ./opal_kernel.yaml#/components/responses/Forbidden
+          '404':
+            $ref: ./opal_kernel.yaml#/components/responses/NotFound
+          '503':
+            $ref: ./opal_kernel.yaml#/components/responses/ServiceUnavailable
+    jobs_cancel:
+      parameters:
+      - *id001
+      - *id002
+      - *id003
+      - *id004
+      - name: job_id
+        in: path
+        required: true
+        schema:
+          type: string
+      x-opal-cli:
+        post:
+          group: jobs
+          command: cancel
+      post:
+        tags:
+        - jobs
+        operationId: vision_job_cancel
+        summary: Request cancellation
+        responses:
+          '202':
+            description: Operation accepted.
+            content:
+              application/json:
+                schema:
+                  $ref: '#/components/schemas/VisionJob'
+            headers:
+              X-Opal-Session-Id: *id005
+              X-Opal-Transaction-Id: *id006
+              X-Opal-Request-Id: *id007
+              X-Opal-Causation-Id: *id008
+              Location:
+                $ref: ./opal_kernel.yaml#/components/headers/Location
+          '401':
+            $ref: ./opal_kernel.yaml#/components/responses/Unauthorized
+          '403':
+            $ref: ./opal_kernel.yaml#/components/responses/Forbidden
+          '404':
+            $ref: ./opal_kernel.yaml#/components/responses/NotFound
+          '409':
+            $ref: ./opal_kernel.yaml#/components/responses/Conflict
+          '503':
+            $ref: ./opal_kernel.yaml#/components/responses/ServiceUnavailable
+    jobs_logs:
+      parameters:
+      - *id001
+      - *id002
+      - *id003
+      - *id004
+      - name: job_id
+        in: path
+        required: true
+        schema:
+          type: string
+      x-opal-cli:
+        get:
+          group: jobs
+          command: logs
+      get:
+        tags:
+        - jobs
+        operationId: vision_job_logs
+        summary: Read job logs
+        responses:
+          '200':
+            description: Success.
+            content:
+              application/json:
+                schema:
+                  $ref: '#/components/schemas/LogRead'
+            headers:
+              X-Opal-Session-Id: *id005
+              X-Opal-Transaction-Id: *id006
+              X-Opal-Request-Id: *id007
+              X-Opal-Causation-Id: *id008
+          '401':
+            $ref: ./opal_kernel.yaml#/components/responses/Unauthorized
+          '403':
+            $ref: ./opal_kernel.yaml#/components/responses/Forbidden
+          '404':
+            $ref: ./opal_kernel.yaml#/components/responses/NotFound
+          '503':
+            $ref: ./opal_kernel.yaml#/components/responses/ServiceUnavailable
+    artifact_item:
+      parameters:
+      - *id001
+      - *id002
+      - *id003
+      - *id004
+      - name: artifact_id
+        in: path
+        required: true
+        schema:
+          type: string
+      x-opal-cli:
+        get:
+          group: artifacts
+          command: show
+      get:
+        tags:
+        - artifacts
+        operationId: vision_artifact_show
+        summary: Read artifact metadata
+        responses:
+          '200':
+            description: Success.
+            content:
+              application/json:
+                schema:
+                  $ref: '#/components/schemas/ArtifactRead'
+            headers:
+              X-Opal-Session-Id: *id005
+              X-Opal-Transaction-Id: *id006
+              X-Opal-Request-Id: *id007
+              X-Opal-Causation-Id: *id008
+          '401':
+            $ref: ./opal_kernel.yaml#/components/responses/Unauthorized
+          '403':
+            $ref: ./opal_kernel.yaml#/components/responses/Forbidden
+          '404':
+            $ref: ./opal_kernel.yaml#/components/responses/NotFound
+          '503':
+            $ref: ./opal_kernel.yaml#/components/responses/ServiceUnavailable
+    artifact_content:
+      parameters:
+      - *id001
+      - *id002
+      - *id003
+      - *id004
+      - name: artifact_id
+        in: path
+        required: true
+        schema:
+          type: string
+      x-opal-cli:
+        get:
+          group: artifacts
+          command: download
+      get:
+        tags:
+        - artifacts
+        operationId: vision_artifact_download
+        summary: Download artifact bytes
+        responses:
+          '200':
+            description: Success.
+            headers:
+              X-Opal-Session-Id: *id005
+              X-Opal-Transaction-Id: *id006
+              X-Opal-Request-Id: *id007
+              X-Opal-Causation-Id: *id008
+            content:
+              application/octet-stream:
+                schema:
+                  type: string
+                  format: binary
+          '401':
+            $ref: ./opal_kernel.yaml#/components/responses/Unauthorized
+          '403':
+            $ref: ./opal_kernel.yaml#/components/responses/Forbidden
+          '404':
+            $ref: ./opal_kernel.yaml#/components/responses/NotFound
+          '503':
+            $ref: ./opal_kernel.yaml#/components/responses/ServiceUnavailable
+    executions:
+      parameters:
+      - *id001
+      - *id002
+      - *id003
+      - *id004
+      x-opal-cli:
+        get:
+          group: executions
+          command: list
+      get:
+        tags:
+        - executions
+        operationId: vision_executions_list
+        summary: List recent execution manifests
+        responses:
+          '200':
+            description: Success.
+            headers:
+              X-Opal-Session-Id: *id005
+              X-Opal-Transaction-Id: *id006
+              X-Opal-Request-Id: *id007
+              X-Opal-Causation-Id: *id008
+            content:
+              application/json:
+                schema:
+                  type: array
+                  items:
+                    $ref: '#/components/schemas/ExecutionManifest'
+          '401':
+            $ref: ./opal_kernel.yaml#/components/responses/Unauthorized
+          '403':
+            $ref: ./opal_kernel.yaml#/components/responses/Forbidden
+          '503':
+            $ref: ./opal_kernel.yaml#/components/responses/ServiceUnavailable
+    execution_item:
+      parameters:
+      - *id001
+      - *id002
+      - *id003
+      - *id004
+      - name: execution_id
+        in: path
+        required: true
+        schema:
+          type: string
+      x-opal-cli:
+        get:
+          group: executions
+          command: show
+      get:
+        tags:
+        - executions
+        operationId: vision_execution_show
+        summary: Inspect execution metadata
+        responses:
+          '200':
+            description: Success.
+            content:
+              application/json:
+                schema:
+                  $ref: '#/components/schemas/ExecutionManifest'
+            headers:
+              X-Opal-Session-Id: *id005
+              X-Opal-Transaction-Id: *id006
+              X-Opal-Request-Id: *id007
+              X-Opal-Causation-Id: *id008
+          '401':
+            $ref: ./opal_kernel.yaml#/components/responses/Unauthorized
+          '403':
+            $ref: ./opal_kernel.yaml#/components/responses/Forbidden
+          '404':
+            $ref: ./opal_kernel.yaml#/components/responses/NotFound
+          '503':
+            $ref: ./opal_kernel.yaml#/components/responses/ServiceUnavailable
+    execution_manifest:
+      parameters:
+      - *id001
+      - *id002
+      - *id003
+      - *id004
+      - name: execution_id
+        in: path
+        required: true
+        schema:
+          type: string
+      x-opal-cli:
+        get:
+          group: executions
+          command: manifest
+      get:
+        tags:
+        - executions
+        operationId: vision_execution_manifest
+        summary: Fetch reproducibility manifest
+        responses:
+          '200':
+            description: Success.
+            content:
+              application/json:
+                schema:
+                  $ref: '#/components/schemas/ExecutionManifest'
+            headers:
+              X-Opal-Session-Id: *id005
+              X-Opal-Transaction-Id: *id006
+              X-Opal-Request-Id: *id007
+              X-Opal-Causation-Id: *id008
+          '401':
+            $ref: ./opal_kernel.yaml#/components/responses/Unauthorized
+          '403':
+            $ref: ./opal_kernel.yaml#/components/responses/Forbidden
+          '404':
+            $ref: ./opal_kernel.yaml#/components/responses/NotFound
+          '503':
+            $ref: ./opal_kernel.yaml#/components/responses/ServiceUnavailable
+    execution_reproduce:
+      parameters:
+      - *id001
+      - *id002
+      - *id003
+      - *id004
+      - name: execution_id
+        in: path
+        required: true
+        schema:
+          type: string
+      x-opal-cli:
+        post:
+          group: executions
+          command: reproduce
+      post:
+        tags:
+        - executions
+        operationId: vision_execution_reproduce
+        summary: Reproduce a recorded operation when explicitly permitted
+        requestBody:
+          required: true
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReproduceRequest'
+        responses:
+          '202':
+            description: Operation accepted.
+            content:
+              application/json:
+                schema:
+                  $ref: '#/components/schemas/VisionJob'
+            headers:
+              X-Opal-Session-Id: *id005
+              X-Opal-Transaction-Id: *id006
+              X-Opal-Request-Id: *id007
+              X-Opal-Causation-Id: *id008
+              Location:
+                $ref: ./opal_kernel.yaml#/components/headers/Location
+          '401':
+            $ref: ./opal_kernel.yaml#/components/responses/Unauthorized
+          '403':
+            $ref: ./opal_kernel.yaml#/components/responses/Forbidden
+          '404':
+            $ref: ./opal_kernel.yaml#/components/responses/NotFound
+          '409':
+            $ref: ./opal_kernel.yaml#/components/responses/Conflict
+          '422':
+            $ref: ./opal_kernel.yaml#/components/responses/UnprocessableEntity
+          '503':
+            $ref: ./opal_kernel.yaml#/components/responses/ServiceUnavailable
+        parameters:
+        - $ref: ./opal_kernel.yaml#/components/parameters/IdempotencyKey
+    predict:
+      parameters:
+      - *id001
+      - *id002
+      - *id003
+      - *id004
+      x-opal-cli:
+        post:
+          command: predict
+      post:
+        tags:
+        - inference
+        operationId: vision_predict
+        summary: Predict using installed model
+        requestBody:
+          required: true
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PredictionRequest'
+        responses:
+          '200':
+            description: Success.
+            content:
+              application/json:
+                schema:
+                  $ref: '#/components/schemas/PredictionResult'
+            headers:
+              X-Opal-Session-Id: *id005
+              X-Opal-Transaction-Id: *id006
+              X-Opal-Request-Id: *id007
+              X-Opal-Causation-Id: *id008
+          '400':
+            $ref: ./opal_kernel.yaml#/components/responses/BadRequest
+          '401':
+            $ref: ./opal_kernel.yaml#/components/responses/Unauthorized
+          '403':
+            $ref: ./opal_kernel.yaml#/components/responses/Forbidden
+          '409':
+            $ref: ./opal_kernel.yaml#/components/responses/Conflict
+          '422':
+            $ref: ./opal_kernel.yaml#/components/responses/UnprocessableEntity
+          '429':
+            $ref: ./opal_kernel.yaml#/components/responses/TooManyRequests
+          '503':
+            $ref: ./opal_kernel.yaml#/components/responses/ServiceUnavailable
+        description: Synchronous single-input inference; task selected in request body. Native data is optional
+          and bounded. Specialized native workflows use separate operations.
+    train:
+      parameters:
+      - *id001
+      - *id002
+      - *id003
+      - *id004
+      x-opal-cli:
+        post:
+          command: train
+      post:
+        tags:
+        - training
+        operationId: vision_train
+        summary: Train using installed model
+        requestBody:
+          required: true
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TrainingCore'
+        responses:
+          '202':
+            description: Operation accepted.
+            content:
+              application/json:
+                schema:
+                  $ref: '#/components/schemas/VisionJob'
+            headers:
+              X-Opal-Session-Id: *id005
+              X-Opal-Transaction-Id: *id006
+              X-Opal-Request-Id: *id007
+              X-Opal-Causation-Id: *id008
+              Location:
+                $ref: ./opal_kernel.yaml#/components/headers/Location
+          '400':
+            $ref: ./opal_kernel.yaml#/components/responses/BadRequest
+          '401':
+            $ref: ./opal_kernel.yaml#/components/responses/Unauthorized
+          '403':
+            $ref: ./opal_kernel.yaml#/components/responses/Forbidden
+          '409':
+            $ref: ./opal_kernel.yaml#/components/responses/Conflict
+          '422':
+            $ref: ./opal_kernel.yaml#/components/responses/UnprocessableEntity
+          '429':
+            $ref: ./opal_kernel.yaml#/components/responses/TooManyRequests
+          '503':
+            $ref: ./opal_kernel.yaml#/components/responses/ServiceUnavailable
+        parameters:
+        - $ref: ./opal_kernel.yaml#/components/parameters/IdempotencyKey
+    validate:
+      parameters:
+      - *id001
+      - *id002
+      - *id003
+      - *id004
+      x-opal-cli:
+        post:
+          command: validate
+      post:
+        tags:
+        - training
+        operationId: vision_validate
+        summary: Validate using installed model
+        requestBody:
+          required: true
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ValidationCore'
+        responses:
+          '202':
+            description: Operation accepted.
+            content:
+              application/json:
+                schema:
+                  $ref: '#/components/schemas/VisionJob'
+            headers:
+              X-Opal-Session-Id: *id005
+              X-Opal-Transaction-Id: *id006
+              X-Opal-Request-Id: *id007
+              X-Opal-Causation-Id: *id008
+              Location:
+                $ref: ./opal_kernel.yaml#/components/headers/Location
+          '400':
+            $ref: ./opal_kernel.yaml#/components/responses/BadRequest
+          '401':
+            $ref: ./opal_kernel.yaml#/components/responses/Unauthorized
+          '403':
+            $ref: ./opal_kernel.yaml#/components/responses/Forbidden
+          '409':
+            $ref: ./opal_kernel.yaml#/components/responses/Conflict
+          '422':
+            $ref: ./opal_kernel.yaml#/components/responses/UnprocessableEntity
+          '429':
+            $ref: ./opal_kernel.yaml#/components/responses/TooManyRequests
+          '503':
+            $ref: ./opal_kernel.yaml#/components/responses/ServiceUnavailable
+        parameters:
+        - $ref: ./opal_kernel.yaml#/components/parameters/IdempotencyKey
+    export:
+      parameters:
+      - *id001
+      - *id002
+      - *id003
+      - *id004
+      x-opal-cli:
+        post:
+          command: export
+      post:
+        tags:
+        - deployment
+        operationId: vision_export
+        summary: Export using installed model
+        requestBody:
+          required: true
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ExportCore'
+        responses:
+          '202':
+            description: Operation accepted.
+            content:
+              application/json:
+                schema:
+                  $ref: '#/components/schemas/VisionJob'
+            headers:
+              X-Opal-Session-Id: *id005
+              X-Opal-Transaction-Id: *id006
+              X-Opal-Request-Id: *id007
+              X-Opal-Causation-Id: *id008
+              Location:
+                $ref: ./opal_kernel.yaml#/components/headers/Location
+          '400':
+            $ref: ./opal_kernel.yaml#/components/responses/BadRequest
+          '401':
+            $ref: ./opal_kernel.yaml#/components/responses/Unauthorized
+          '403':
+            $ref: ./opal_kernel.yaml#/components/responses/Forbidden
+          '409':
+            $ref: ./opal_kernel.yaml#/components/responses/Conflict
+          '422':
+            $ref: ./opal_kernel.yaml#/components/responses/UnprocessableEntity
+          '429':
+            $ref: ./opal_kernel.yaml#/components/responses/TooManyRequests
+          '503':
+            $ref: ./opal_kernel.yaml#/components/responses/ServiceUnavailable
+        parameters:
+        - $ref: ./opal_kernel.yaml#/components/parameters/IdempotencyKey
+    benchmark:
+      parameters:
+      - *id001
+      - *id002
+      - *id003
+      - *id004
+      x-opal-cli:
+        post:
+          command: benchmark
+      post:
+        tags:
+        - benchmark
+        operationId: vision_benchmark
+        summary: Benchmark using installed model
+        requestBody:
+          required: true
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BenchmarkCore'
+        responses:
+          '202':
+            description: Operation accepted.
+            content:
+              application/json:
+                schema:
+                  $ref: '#/components/schemas/VisionJob'
+            headers:
+              X-Opal-Session-Id: *id005
+              X-Opal-Transaction-Id: *id006
+              X-Opal-Request-Id: *id007
+              X-Opal-Causation-Id: *id008
+              Location:
+                $ref: ./opal_kernel.yaml#/components/headers/Location
+          '400':
+            $ref: ./opal_kernel.yaml#/components/responses/BadRequest
+          '401':
+            $ref: ./opal_kernel.yaml#/components/responses/Unauthorized
+          '403':
+            $ref: ./opal_kernel.yaml#/components/responses/Forbidden
+          '409':
+            $ref: ./opal_kernel.yaml#/components/responses/Conflict
+          '422':
+            $ref: ./opal_kernel.yaml#/components/responses/UnprocessableEntity
+          '429':
+            $ref: ./opal_kernel.yaml#/components/responses/TooManyRequests
+          '503':
+            $ref: ./opal_kernel.yaml#/components/responses/ServiceUnavailable
+        parameters:
+        - $ref: ./opal_kernel.yaml#/components/parameters/IdempotencyKey

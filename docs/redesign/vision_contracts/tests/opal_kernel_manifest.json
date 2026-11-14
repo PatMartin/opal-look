@@ -1,0 +1,14 @@
+{
+  "source": "https://github.com/PatMartin/opal-api/blob/main/openapi/shared/opal_kernel.yaml",
+  "checked_at": "2026-11-11",
+  "version": "1.7.1",
+  "sha": "0773c5fea4ac2dd4e96536e630ec9a26a5232ec5",
+  "components": {
+    "parameters": ["OpalSessionIdParameter","OpalTransactionIdParameter","OpalRequestIdParameter","OpalCausationIdParameter","IfMatch","IdempotencyKey","Limit","SettingKey","BackupFilename","ProfileId","EngineId","ServiceLogLines","OpalPersonaIdParameter"],
+    "headers": ["OpalSessionIdHeader","OpalTransactionIdHeader","OpalRequestIdHeader","OpalCausationIdHeader","ETag","Location"],
+    "responses": ["BadRequest","Unauthorized","Forbidden","NotFound","Conflict","PreconditionFailed","PayloadTooLarge","PreconditionRequired","UnprocessableEntity","TooManyRequests","OperationFailed","InternalError","ServiceUnavailable"],
+    "schemas": ["OpalErrorBody","OpalError","OpalHealthProbe","OpalHealthReport","SettingRead","SettingUpdate","OpalSettingsMap","OpalConfigExport","OpalBackupInfo","OpalBackupCreateResponse","OpalImportResult","OpalValidationReport","OpalProfile","OpalProfileCreate","OpalProfilePatch","OpalEngine","OpalEnginePatch","ServiceInfo","LivenessRead","OpalServiceStartOptions","OpalServiceStatus","OpalServiceLogTail","OpalPersonaCreate","OpalPersonaUpdate","OpalPersonaRef","OpalPersonaRead"],
+    "securitySchemes": ["BearerAuth"],
+    "pathItems": ["health","health_live","health_ready","settings_collection","settings_key","backup_create","backup_list","backup_download","backup_delete","backup_export","backup_import","backup_restore","backup_validate_post","backup_validate","profiles_collection","profile_item","profile_activate","engines_collection","engine_item","info","info_ping","service_start","service_stop","service_log"]
+  }
+}

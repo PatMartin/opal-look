@@ -1,0 +1,469 @@
+openapi: 3.1.0
+jsonSchemaDialect: https://json-schema.org/draft/2020-12/schema
+info:
+  title: OPAL-compatible Roboflow RF-DETR Standalone REST Adapter
+  version: 0.1.0-draft
+  description: Contract-first adapter for Roboflow RF-DETR; independently deployable with no opal-look or opal-devices
+    runtime dependency. Shared vision domain semantics derive from vision_kernel.yaml and suite-wide conventions
+    from opal_kernel.yaml. Pose/keypoint functionality is preview/model-dependent; every operation is capability
+    gated.
+servers:
+- url: http://127.0.0.1:8000
+  description: Illustrative loopback server; host/port configured by deployment
+tags:
+- name: capabilities
+- name: engines
+- name: models
+- name: inference
+- name: training
+- name: deployment
+- name: benchmark
+- name: jobs
+- name: runtimes
+- name: artifacts
+- name: executions
+x-vision-engine:
+  family: rfdetr
+  supported_task_families:
+  - detect
+  - segment
+  - pose
+  native_operations: []
+  capability_gating: true
+security:
+- BearerAuth: []
+components:
+  securitySchemes:
+    BearerAuth:
+      $ref: ../shared/opal_kernel.yaml#/components/securitySchemes/BearerAuth
+  schemas:
+    RfdetrPredictOptions:
+      type: object
+      properties:
+        resolution:
+          type: integer
+          minimum: 1
+        threshold:
+          type: number
+          minimum: 0
+          maximum: 1
+      additionalProperties: false
+      description: Roboflow RF-DETR predict extension options. All fields conditional on engine/model/runtime capabilities.
+    RfdetrPredictRequest:
+      allOf:
+      - $ref: ../shared/vision_kernel.yaml#/components/schemas/PredictionCore
+      - type: object
+        properties:
+          engine_options:
+            $ref: '#/components/schemas/RfdetrPredictOptions'
+        additionalProperties: true
+      description: Common predict request, extended with typed rfdetr options.
+    RfdetrTrainOptions:
+      type: object
+      properties:
+        gradient_accumulation_steps:
+          type: integer
+          minimum: 1
+        learning_rate:
+          type: number
+          exclusiveMinimum: 0
+        early_stopping:
+          type: boolean
+      additionalProperties: false
+      description: Roboflow RF-DETR train extension options. All fields conditional on engine/model/runtime capabilities.
+    RfdetrTrainRequest:
+      allOf:
+      - $ref: ../shared/vision_kernel.yaml#/components/schemas/TrainingCore
+      - type: object
+        properties:
+          engine_options:
+            $ref: '#/components/schemas/RfdetrTrainOptions'
+        additionalProperties: true
+      description: Common train request, extended with typed rfdetr options.
+    RfdetrValidateOptions:
+      type: object
+      properties:
+        evaluation_config:
+          type: string
+      additionalProperties: false
+      description: Roboflow RF-DETR validate extension options. All fields conditional on engine/model/runtime capabilities.
+    RfdetrValidateRequest:
+      allOf:
+      - $ref: ../shared/vision_kernel.yaml#/components/schemas/ValidationCore
+      - type: object
+        properties:
+          engine_options:
+            $ref: '#/components/schemas/RfdetrValidateOptions'
+        additionalProperties: true
+      description: Common validate request, extended with typed rfdetr options.
+    RfdetrExportOptions:
+      type: object
+      properties:
+        input_shape:
+          type: array
+          items:
+            type: integer
+            minimum: 1
+          minItems: 2
+          maxItems: 2
+      additionalProperties: false
+      description: Roboflow RF-DETR export extension options. All fields conditional on engine/model/runtime capabilities.
+    RfdetrExportRequest:
+      allOf:
+      - $ref: ../shared/vision_kernel.yaml#/components/schemas/ExportCore
+      - type: object
+        properties:
+          engine_options:
+            $ref: '#/components/schemas/RfdetrExportOptions'
+        additionalProperties: true
+      description: Common export request, extended with typed rfdetr options.
+    RfdetrBenchmarkOptions:
+      type: object
+      properties:
+        amp:
+          type: boolean
+      additionalProperties: false
+      description: Roboflow RF-DETR benchmark extension options. All fields conditional on engine/model/runtime
+        capabilities.
+    RfdetrBenchmarkRequest:
+      allOf:
+      - $ref: ../shared/vision_kernel.yaml#/components/schemas/BenchmarkCore
+      - type: object
+        properties:
+          engine_options:
+            $ref: '#/components/schemas/RfdetrBenchmarkOptions'
+        additionalProperties: true
+      description: Common benchmark request, extended with typed rfdetr options.
+paths:
+  /api/v1/health/:
+    $ref: ../shared/opal_kernel.yaml#/components/pathItems/health
+  /api/v1/health/live:
+    $ref: ../shared/opal_kernel.yaml#/components/pathItems/health_live
+  /api/v1/health/ready:
+    $ref: ../shared/opal_kernel.yaml#/components/pathItems/health_ready
+  /api/v1/info/:
+    $ref: ../shared/opal_kernel.yaml#/components/pathItems/info
+  /api/v1/info/ping:
+    $ref: ../shared/opal_kernel.yaml#/components/pathItems/info_ping
+  /api/v1/engine/:
+    $ref: ../shared/opal_kernel.yaml#/components/pathItems/engines_collection
+  /api/v1/engine/{engine_id}:
+    $ref: ../shared/opal_kernel.yaml#/components/pathItems/engine_item
+  /api/v1/setting/:
+    $ref: ../shared/opal_kernel.yaml#/components/pathItems/settings_collection
+  /api/v1/setting/{key}:
+    $ref: ../shared/opal_kernel.yaml#/components/pathItems/settings_key
+  /api/v1/capabilities/:
+    $ref: ../shared/vision_kernel.yaml#/components/pathItems/capabilities
+  /api/v1/model/:
+    $ref: ../shared/vision_kernel.yaml#/components/pathItems/models_collection
+  /api/v1/model/{model_id}:
+    $ref: ../shared/vision_kernel.yaml#/components/pathItems/model_item
+  /api/v1/model/{model_id}/capabilities:
+    $ref: ../shared/vision_kernel.yaml#/components/pathItems/model_capabilities
+  /api/v1/model/{model_id}/install:
+    $ref: ../shared/vision_kernel.yaml#/components/pathItems/model_install
+  /api/v1/model/{model_id}/load:
+    $ref: ../shared/vision_kernel.yaml#/components/pathItems/model_load
+  /api/v1/model/{model_id}/unload:
+    $ref: ../shared/vision_kernel.yaml#/components/pathItems/model_unload
+  /api/v1/model/{model_id}/versions/:
+    $ref: ../shared/vision_kernel.yaml#/components/pathItems/model_versions
+  /api/v1/model/{model_id}/installations/:
+    $ref: ../shared/vision_kernel.yaml#/components/pathItems/model_installations
+  /api/v1/runtime/:
+    $ref: ../shared/vision_kernel.yaml#/components/pathItems/runtimes
+  /api/v1/runtime/{runtime_id}:
+    $ref: ../shared/vision_kernel.yaml#/components/pathItems/runtime_item
+  /api/v1/job/:
+    $ref: ../shared/vision_kernel.yaml#/components/pathItems/jobs_collection
+  /api/v1/job/{job_id}:
+    $ref: ../shared/vision_kernel.yaml#/components/pathItems/jobs_item
+  /api/v1/job/{job_id}/cancel:
+    $ref: ../shared/vision_kernel.yaml#/components/pathItems/jobs_cancel
+  /api/v1/job/{job_id}/logs:
+    $ref: ../shared/vision_kernel.yaml#/components/pathItems/jobs_logs
+  /api/v1/artifact/{artifact_id}:
+    $ref: ../shared/vision_kernel.yaml#/components/pathItems/artifact_item
+  /api/v1/artifact/{artifact_id}/content:
+    $ref: ../shared/vision_kernel.yaml#/components/pathItems/artifact_content
+  /api/v1/execution/:
+    $ref: ../shared/vision_kernel.yaml#/components/pathItems/executions
+  /api/v1/execution/{execution_id}:
+    $ref: ../shared/vision_kernel.yaml#/components/pathItems/execution_item
+  /api/v1/execution/{execution_id}/manifest:
+    $ref: ../shared/vision_kernel.yaml#/components/pathItems/execution_manifest
+  /api/v1/execution/{execution_id}/reproduce:
+    $ref: ../shared/vision_kernel.yaml#/components/pathItems/execution_reproduce
+  /api/v1/predict:
+    parameters:
+    - $ref: ../shared/opal_kernel.yaml#/components/parameters/OpalSessionIdParameter
+    - $ref: ../shared/opal_kernel.yaml#/components/parameters/OpalTransactionIdParameter
+    - $ref: ../shared/opal_kernel.yaml#/components/parameters/OpalRequestIdParameter
+    - $ref: ../shared/opal_kernel.yaml#/components/parameters/OpalCausationIdParameter
+    x-opal-cli:
+      post:
+        command: predict
+    post:
+      tags:
+      - inference
+      operationId: rfdetr_predict
+      summary: Roboflow RF-DETR predict
+      description: Common operation semantics, specialized request schema. Reject unadvertised engine options with
+        422.
+      x-opal-cli:
+        command: predict
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RfdetrPredictRequest'
+      responses:
+        '200':
+          description: Success.
+          headers:
+            X-Opal-Session-Id: &id001
+              $ref: ../shared/opal_kernel.yaml#/components/headers/OpalSessionIdHeader
+            X-Opal-Transaction-Id: &id002
+              $ref: ../shared/opal_kernel.yaml#/components/headers/OpalTransactionIdHeader
+            X-Opal-Request-Id: &id003
+              $ref: ../shared/opal_kernel.yaml#/components/headers/OpalRequestIdHeader
+            X-Opal-Causation-Id: &id004
+              $ref: ../shared/opal_kernel.yaml#/components/headers/OpalCausationIdHeader
+          content:
+            application/json:
+              schema:
+                $ref: ../shared/vision_kernel.yaml#/components/schemas/PredictionResult
+        '400':
+          $ref: ../shared/opal_kernel.yaml#/components/responses/BadRequest
+        '401':
+          $ref: ../shared/opal_kernel.yaml#/components/responses/Unauthorized
+        '403':
+          $ref: ../shared/opal_kernel.yaml#/components/responses/Forbidden
+        '409':
+          $ref: ../shared/opal_kernel.yaml#/components/responses/Conflict
+        '422':
+          $ref: ../shared/opal_kernel.yaml#/components/responses/UnprocessableEntity
+        '429':
+          $ref: ../shared/opal_kernel.yaml#/components/responses/TooManyRequests
+        '503':
+          $ref: ../shared/opal_kernel.yaml#/components/responses/ServiceUnavailable
+        '413':
+          $ref: ../shared/opal_kernel.yaml#/components/responses/PayloadTooLarge
+  /api/v1/train/:
+    parameters:
+    - $ref: ../shared/opal_kernel.yaml#/components/parameters/OpalSessionIdParameter
+    - $ref: ../shared/opal_kernel.yaml#/components/parameters/OpalTransactionIdParameter
+    - $ref: ../shared/opal_kernel.yaml#/components/parameters/OpalRequestIdParameter
+    - $ref: ../shared/opal_kernel.yaml#/components/parameters/OpalCausationIdParameter
+    x-opal-cli:
+      post:
+        command: train
+    post:
+      tags:
+      - training
+      operationId: rfdetr_train
+      summary: Roboflow RF-DETR train
+      description: Common operation semantics, specialized request schema. Reject unadvertised engine options with
+        422.
+      x-opal-cli:
+        command: train
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RfdetrTrainRequest'
+      responses:
+        '202':
+          description: Operation accepted.
+          headers:
+            X-Opal-Session-Id: *id001
+            X-Opal-Transaction-Id: *id002
+            X-Opal-Request-Id: *id003
+            X-Opal-Causation-Id: *id004
+            Location:
+              $ref: ../shared/opal_kernel.yaml#/components/headers/Location
+          content:
+            application/json:
+              schema:
+                $ref: ../shared/vision_kernel.yaml#/components/schemas/VisionJob
+        '400':
+          $ref: ../shared/opal_kernel.yaml#/components/responses/BadRequest
+        '401':
+          $ref: ../shared/opal_kernel.yaml#/components/responses/Unauthorized
+        '403':
+          $ref: ../shared/opal_kernel.yaml#/components/responses/Forbidden
+        '409':
+          $ref: ../shared/opal_kernel.yaml#/components/responses/Conflict
+        '422':
+          $ref: ../shared/opal_kernel.yaml#/components/responses/UnprocessableEntity
+        '429':
+          $ref: ../shared/opal_kernel.yaml#/components/responses/TooManyRequests
+        '503':
+          $ref: ../shared/opal_kernel.yaml#/components/responses/ServiceUnavailable
+      parameters:
+      - $ref: ../shared/opal_kernel.yaml#/components/parameters/IdempotencyKey
+  /api/v1/validate/:
+    parameters:
+    - $ref: ../shared/opal_kernel.yaml#/components/parameters/OpalSessionIdParameter
+    - $ref: ../shared/opal_kernel.yaml#/components/parameters/OpalTransactionIdParameter
+    - $ref: ../shared/opal_kernel.yaml#/components/parameters/OpalRequestIdParameter
+    - $ref: ../shared/opal_kernel.yaml#/components/parameters/OpalCausationIdParameter
+    x-opal-cli:
+      post:
+        command: validate
+    post:
+      tags:
+      - training
+      operationId: rfdetr_validate
+      summary: Roboflow RF-DETR validate
+      description: Common operation semantics, specialized request schema. Reject unadvertised engine options with
+        422.
+      x-opal-cli:
+        command: validate
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RfdetrValidateRequest'
+      responses:
+        '202':
+          description: Operation accepted.
+          headers:
+            X-Opal-Session-Id: *id001
+            X-Opal-Transaction-Id: *id002
+            X-Opal-Request-Id: *id003
+            X-Opal-Causation-Id: *id004
+            Location:
+              $ref: ../shared/opal_kernel.yaml#/components/headers/Location
+          content:
+            application/json:
+              schema:
+                $ref: ../shared/vision_kernel.yaml#/components/schemas/VisionJob
+        '400':
+          $ref: ../shared/opal_kernel.yaml#/components/responses/BadRequest
+        '401':
+          $ref: ../shared/opal_kernel.yaml#/components/responses/Unauthorized
+        '403':
+          $ref: ../shared/opal_kernel.yaml#/components/responses/Forbidden
+        '409':
+          $ref: ../shared/opal_kernel.yaml#/components/responses/Conflict
+        '422':
+          $ref: ../shared/opal_kernel.yaml#/components/responses/UnprocessableEntity
+        '429':
+          $ref: ../shared/opal_kernel.yaml#/components/responses/TooManyRequests
+        '503':
+          $ref: ../shared/opal_kernel.yaml#/components/responses/ServiceUnavailable
+      parameters:
+      - $ref: ../shared/opal_kernel.yaml#/components/parameters/IdempotencyKey
+  /api/v1/export/:
+    parameters:
+    - $ref: ../shared/opal_kernel.yaml#/components/parameters/OpalSessionIdParameter
+    - $ref: ../shared/opal_kernel.yaml#/components/parameters/OpalTransactionIdParameter
+    - $ref: ../shared/opal_kernel.yaml#/components/parameters/OpalRequestIdParameter
+    - $ref: ../shared/opal_kernel.yaml#/components/parameters/OpalCausationIdParameter
+    x-opal-cli:
+      post:
+        command: export
+    post:
+      tags:
+      - deployment
+      operationId: rfdetr_export
+      summary: Roboflow RF-DETR export
+      description: Common operation semantics, specialized request schema. Reject unadvertised engine options with
+        422.
+      x-opal-cli:
+        command: export
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RfdetrExportRequest'
+      responses:
+        '202':
+          description: Operation accepted.
+          headers:
+            X-Opal-Session-Id: *id001
+            X-Opal-Transaction-Id: *id002
+            X-Opal-Request-Id: *id003
+            X-Opal-Causation-Id: *id004
+            Location:
+              $ref: ../shared/opal_kernel.yaml#/components/headers/Location
+          content:
+            application/json:
+              schema:
+                $ref: ../shared/vision_kernel.yaml#/components/schemas/VisionJob
+        '400':
+          $ref: ../shared/opal_kernel.yaml#/components/responses/BadRequest
+        '401':
+          $ref: ../shared/opal_kernel.yaml#/components/responses/Unauthorized
+        '403':
+          $ref: ../shared/opal_kernel.yaml#/components/responses/Forbidden
+        '409':
+          $ref: ../shared/opal_kernel.yaml#/components/responses/Conflict
+        '422':
+          $ref: ../shared/opal_kernel.yaml#/components/responses/UnprocessableEntity
+        '429':
+          $ref: ../shared/opal_kernel.yaml#/components/responses/TooManyRequests
+        '503':
+          $ref: ../shared/opal_kernel.yaml#/components/responses/ServiceUnavailable
+      parameters:
+      - $ref: ../shared/opal_kernel.yaml#/components/parameters/IdempotencyKey
+  /api/v1/benchmark/:
+    parameters:
+    - $ref: ../shared/opal_kernel.yaml#/components/parameters/OpalSessionIdParameter
+    - $ref: ../shared/opal_kernel.yaml#/components/parameters/OpalTransactionIdParameter
+    - $ref: ../shared/opal_kernel.yaml#/components/parameters/OpalRequestIdParameter
+    - $ref: ../shared/opal_kernel.yaml#/components/parameters/OpalCausationIdParameter
+    x-opal-cli:
+      post:
+        command: benchmark
+    post:
+      tags:
+      - benchmark
+      operationId: rfdetr_benchmark
+      summary: Roboflow RF-DETR benchmark
+      description: Common operation semantics, specialized request schema. Reject unadvertised engine options with
+        422.
+      x-opal-cli:
+        command: benchmark
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RfdetrBenchmarkRequest'
+      responses:
+        '202':
+          description: Operation accepted.
+          headers:
+            X-Opal-Session-Id: *id001
+            X-Opal-Transaction-Id: *id002
+            X-Opal-Request-Id: *id003
+            X-Opal-Causation-Id: *id004
+            Location:
+              $ref: ../shared/opal_kernel.yaml#/components/headers/Location
+          content:
+            application/json:
+              schema:
+                $ref: ../shared/vision_kernel.yaml#/components/schemas/VisionJob
+        '400':
+          $ref: ../shared/opal_kernel.yaml#/components/responses/BadRequest
+        '401':
+          $ref: ../shared/opal_kernel.yaml#/components/responses/Unauthorized
+        '403':
+          $ref: ../shared/opal_kernel.yaml#/components/responses/Forbidden
+        '409':
+          $ref: ../shared/opal_kernel.yaml#/components/responses/Conflict
+        '422':
+          $ref: ../shared/opal_kernel.yaml#/components/responses/UnprocessableEntity
+        '429':
+          $ref: ../shared/opal_kernel.yaml#/components/responses/TooManyRequests
+        '503':
+          $ref: ../shared/opal_kernel.yaml#/components/responses/ServiceUnavailable
+      parameters:
+      - $ref: ../shared/opal_kernel.yaml#/components/parameters/IdempotencyKey

@@ -1,0 +1,463 @@
+openapi: 3.1.0
+jsonSchemaDialect: https://json-schema.org/draft/2020-12/schema
+info:
+  title: OPAL-compatible RT-DETR / RT-DETRv2 Standalone REST Adapter
+  version: 0.1.0-draft
+  description: Contract-first adapter for RT-DETR / RT-DETRv2; independently deployable with no opal-look or opal-devices
+    runtime dependency. Shared vision domain semantics derive from vision_kernel.yaml and suite-wide conventions
+    from opal_kernel.yaml. Decoder and query controls are optional and must be advertised by the selected implementation;
+    never assume all RT-DETR backends support them.
+servers:
+- url: http://127.0.0.1:8000
+  description: Illustrative loopback server; host/port configured by deployment
+tags:
+- name: capabilities
+- name: engines
+- name: models
+- name: inference
+- name: training
+- name: deployment
+- name: benchmark
+- name: jobs
+- name: runtimes
+- name: artifacts
+- name: executions
+x-vision-engine:
+  family: rtdetr
+  supported_task_families:
+  - detect
+  native_operations: []
+  capability_gating: true
+security:
+- BearerAuth: []
+components:
+  securitySchemes:
+    BearerAuth:
+      $ref: ../shared/opal_kernel.yaml#/components/securitySchemes/BearerAuth
+  schemas:
+    RtdetrPredictOptions:
+      type: object
+      properties:
+        decoder_layers:
+          type: integer
+          minimum: 1
+        num_queries:
+          type: integer
+          minimum: 1
+      additionalProperties: false
+      description: RT-DETR / RT-DETRv2 predict extension options. All fields conditional on engine/model/runtime
+        capabilities.
+    RtdetrPredictRequest:
+      allOf:
+      - $ref: ../shared/vision_kernel.yaml#/components/schemas/PredictionCore
+      - type: object
+        properties:
+          engine_options:
+            $ref: '#/components/schemas/RtdetrPredictOptions'
+        additionalProperties: true
+      description: Common predict request, extended with typed rtdetr options.
+    RtdetrTrainOptions:
+      type: object
+      properties:
+        config_uri:
+          type: string
+        ema:
+          type: boolean
+        distributed:
+          type: boolean
+      additionalProperties: false
+      description: RT-DETR / RT-DETRv2 train extension options. All fields conditional on engine/model/runtime capabilities.
+    RtdetrTrainRequest:
+      allOf:
+      - $ref: ../shared/vision_kernel.yaml#/components/schemas/TrainingCore
+      - type: object
+        properties:
+          engine_options:
+            $ref: '#/components/schemas/RtdetrTrainOptions'
+        additionalProperties: true
+      description: Common train request, extended with typed rtdetr options.
+    RtdetrValidateOptions:
+      type: object
+      properties:
+        coco_metrics:
+          type: boolean
+      additionalProperties: false
+      description: RT-DETR / RT-DETRv2 validate extension options. All fields conditional on engine/model/runtime
+        capabilities.
+    RtdetrValidateRequest:
+      allOf:
+      - $ref: ../shared/vision_kernel.yaml#/components/schemas/ValidationCore
+      - type: object
+        properties:
+          engine_options:
+            $ref: '#/components/schemas/RtdetrValidateOptions'
+        additionalProperties: true
+      description: Common validate request, extended with typed rtdetr options.
+    RtdetrExportOptions:
+      type: object
+      properties:
+        exporter_config:
+          type: string
+      additionalProperties: false
+      description: RT-DETR / RT-DETRv2 export extension options. All fields conditional on engine/model/runtime
+        capabilities.
+    RtdetrExportRequest:
+      allOf:
+      - $ref: ../shared/vision_kernel.yaml#/components/schemas/ExportCore
+      - type: object
+        properties:
+          engine_options:
+            $ref: '#/components/schemas/RtdetrExportOptions'
+        additionalProperties: true
+      description: Common export request, extended with typed rtdetr options.
+    RtdetrBenchmarkOptions:
+      type: object
+      properties:
+        decoder_layers:
+          type: integer
+          minimum: 1
+      additionalProperties: false
+      description: RT-DETR / RT-DETRv2 benchmark extension options. All fields conditional on engine/model/runtime
+        capabilities.
+    RtdetrBenchmarkRequest:
+      allOf:
+      - $ref: ../shared/vision_kernel.yaml#/components/schemas/BenchmarkCore
+      - type: object
+        properties:
+          engine_options:
+            $ref: '#/components/schemas/RtdetrBenchmarkOptions'
+        additionalProperties: true
+      description: Common benchmark request, extended with typed rtdetr options.
+paths:
+  /api/v1/health/:
+    $ref: ../shared/opal_kernel.yaml#/components/pathItems/health
+  /api/v1/health/live:
+    $ref: ../shared/opal_kernel.yaml#/components/pathItems/health_live
+  /api/v1/health/ready:
+    $ref: ../shared/opal_kernel.yaml#/components/pathItems/health_ready
+  /api/v1/info/:
+    $ref: ../shared/opal_kernel.yaml#/components/pathItems/info
+  /api/v1/info/ping:
+    $ref: ../shared/opal_kernel.yaml#/components/pathItems/info_ping
+  /api/v1/engine/:
+    $ref: ../shared/opal_kernel.yaml#/components/pathItems/engines_collection
+  /api/v1/engine/{engine_id}:
+    $ref: ../shared/opal_kernel.yaml#/components/pathItems/engine_item
+  /api/v1/setting/:
+    $ref: ../shared/opal_kernel.yaml#/components/pathItems/settings_collection
+  /api/v1/setting/{key}:
+    $ref: ../shared/opal_kernel.yaml#/components/pathItems/settings_key
+  /api/v1/capabilities/:
+    $ref: ../shared/vision_kernel.yaml#/components/pathItems/capabilities
+  /api/v1/model/:
+    $ref: ../shared/vision_kernel.yaml#/components/pathItems/models_collection
+  /api/v1/model/{model_id}:
+    $ref: ../shared/vision_kernel.yaml#/components/pathItems/model_item
+  /api/v1/model/{model_id}/capabilities:
+    $ref: ../shared/vision_kernel.yaml#/components/pathItems/model_capabilities
+  /api/v1/model/{model_id}/install:
+    $ref: ../shared/vision_kernel.yaml#/components/pathItems/model_install
+  /api/v1/model/{model_id}/load:
+    $ref: ../shared/vision_kernel.yaml#/components/pathItems/model_load
+  /api/v1/model/{model_id}/unload:
+    $ref: ../shared/vision_kernel.yaml#/components/pathItems/model_unload
+  /api/v1/model/{model_id}/versions/:
+    $ref: ../shared/vision_kernel.yaml#/components/pathItems/model_versions
+  /api/v1/model/{model_id}/installations/:
+    $ref: ../shared/vision_kernel.yaml#/components/pathItems/model_installations
+  /api/v1/runtime/:
+    $ref: ../shared/vision_kernel.yaml#/components/pathItems/runtimes
+  /api/v1/runtime/{runtime_id}:
+    $ref: ../shared/vision_kernel.yaml#/components/pathItems/runtime_item
+  /api/v1/job/:
+    $ref: ../shared/vision_kernel.yaml#/components/pathItems/jobs_collection
+  /api/v1/job/{job_id}:
+    $ref: ../shared/vision_kernel.yaml#/components/pathItems/jobs_item
+  /api/v1/job/{job_id}/cancel:
+    $ref: ../shared/vision_kernel.yaml#/components/pathItems/jobs_cancel
+  /api/v1/job/{job_id}/logs:
+    $ref: ../shared/vision_kernel.yaml#/components/pathItems/jobs_logs
+  /api/v1/artifact/{artifact_id}:
+    $ref: ../shared/vision_kernel.yaml#/components/pathItems/artifact_item
+  /api/v1/artifact/{artifact_id}/content:
+    $ref: ../shared/vision_kernel.yaml#/components/pathItems/artifact_content
+  /api/v1/execution/:
+    $ref: ../shared/vision_kernel.yaml#/components/pathItems/executions
+  /api/v1/execution/{execution_id}:
+    $ref: ../shared/vision_kernel.yaml#/components/pathItems/execution_item
+  /api/v1/execution/{execution_id}/manifest:
+    $ref: ../shared/vision_kernel.yaml#/components/pathItems/execution_manifest
+  /api/v1/execution/{execution_id}/reproduce:
+    $ref: ../shared/vision_kernel.yaml#/components/pathItems/execution_reproduce
+  /api/v1/predict:
+    parameters:
+    - $ref: ../shared/opal_kernel.yaml#/components/parameters/OpalSessionIdParameter
+    - $ref: ../shared/opal_kernel.yaml#/components/parameters/OpalTransactionIdParameter
+    - $ref: ../shared/opal_kernel.yaml#/components/parameters/OpalRequestIdParameter
+    - $ref: ../shared/opal_kernel.yaml#/components/parameters/OpalCausationIdParameter
+    x-opal-cli:
+      post:
+        command: predict
+    post:
+      tags:
+      - inference
+      operationId: rtdetr_predict
+      summary: RT-DETR / RT-DETRv2 predict
+      description: Common operation semantics, specialized request schema. Reject unadvertised engine options with
+        422.
+      x-opal-cli:
+        command: predict
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RtdetrPredictRequest'
+      responses:
+        '200':
+          description: Success.
+          headers:
+            X-Opal-Session-Id: &id001
+              $ref: ../shared/opal_kernel.yaml#/components/headers/OpalSessionIdHeader
+            X-Opal-Transaction-Id: &id002
+              $ref: ../shared/opal_kernel.yaml#/components/headers/OpalTransactionIdHeader
+            X-Opal-Request-Id: &id003
+              $ref: ../shared/opal_kernel.yaml#/components/headers/OpalRequestIdHeader
+            X-Opal-Causation-Id: &id004
+              $ref: ../shared/opal_kernel.yaml#/components/headers/OpalCausationIdHeader
+          content:
+            application/json:
+              schema:
+                $ref: ../shared/vision_kernel.yaml#/components/schemas/PredictionResult
+        '400':
+          $ref: ../shared/opal_kernel.yaml#/components/responses/BadRequest
+        '401':
+          $ref: ../shared/opal_kernel.yaml#/components/responses/Unauthorized
+        '403':
+          $ref: ../shared/opal_kernel.yaml#/components/responses/Forbidden
+        '409':
+          $ref: ../shared/opal_kernel.yaml#/components/responses/Conflict
+        '422':
+          $ref: ../shared/opal_kernel.yaml#/components/responses/UnprocessableEntity
+        '429':
+          $ref: ../shared/opal_kernel.yaml#/components/responses/TooManyRequests
+        '503':
+          $ref: ../shared/opal_kernel.yaml#/components/responses/ServiceUnavailable
+        '413':
+          $ref: ../shared/opal_kernel.yaml#/components/responses/PayloadTooLarge
+  /api/v1/train/:
+    parameters:
+    - $ref: ../shared/opal_kernel.yaml#/components/parameters/OpalSessionIdParameter
+    - $ref: ../shared/opal_kernel.yaml#/components/parameters/OpalTransactionIdParameter
+    - $ref: ../shared/opal_kernel.yaml#/components/parameters/OpalRequestIdParameter
+    - $ref: ../shared/opal_kernel.yaml#/components/parameters/OpalCausationIdParameter
+    x-opal-cli:
+      post:
+        command: train
+    post:
+      tags:
+      - training
+      operationId: rtdetr_train
+      summary: RT-DETR / RT-DETRv2 train
+      description: Common operation semantics, specialized request schema. Reject unadvertised engine options with
+        422.
+      x-opal-cli:
+        command: train
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RtdetrTrainRequest'
+      responses:
+        '202':
+          description: Operation accepted.
+          headers:
+            X-Opal-Session-Id: *id001
+            X-Opal-Transaction-Id: *id002
+            X-Opal-Request-Id: *id003
+            X-Opal-Causation-Id: *id004
+            Location:
+              $ref: ../shared/opal_kernel.yaml#/components/headers/Location
+          content:
+            application/json:
+              schema:
+                $ref: ../shared/vision_kernel.yaml#/components/schemas/VisionJob
+        '400':
+          $ref: ../shared/opal_kernel.yaml#/components/responses/BadRequest
+        '401':
+          $ref: ../shared/opal_kernel.yaml#/components/responses/Unauthorized
+        '403':
+          $ref: ../shared/opal_kernel.yaml#/components/responses/Forbidden
+        '409':
+          $ref: ../shared/opal_kernel.yaml#/components/responses/Conflict
+        '422':
+          $ref: ../shared/opal_kernel.yaml#/components/responses/UnprocessableEntity
+        '429':
+          $ref: ../shared/opal_kernel.yaml#/components/responses/TooManyRequests
+        '503':
+          $ref: ../shared/opal_kernel.yaml#/components/responses/ServiceUnavailable
+      parameters:
+      - $ref: ../shared/opal_kernel.yaml#/components/parameters/IdempotencyKey
+  /api/v1/validate/:
+    parameters:
+    - $ref: ../shared/opal_kernel.yaml#/components/parameters/OpalSessionIdParameter
+    - $ref: ../shared/opal_kernel.yaml#/components/parameters/OpalTransactionIdParameter
+    - $ref: ../shared/opal_kernel.yaml#/components/parameters/OpalRequestIdParameter
+    - $ref: ../shared/opal_kernel.yaml#/components/parameters/OpalCausationIdParameter
+    x-opal-cli:
+      post:
+        command: validate
+    post:
+      tags:
+      - training
+      operationId: rtdetr_validate
+      summary: RT-DETR / RT-DETRv2 validate
+      description: Common operation semantics, specialized request schema. Reject unadvertised engine options with
+        422.
+      x-opal-cli:
+        command: validate
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RtdetrValidateRequest'
+      responses:
+        '202':
+          description: Operation accepted.
+          headers:
+            X-Opal-Session-Id: *id001
+            X-Opal-Transaction-Id: *id002
+            X-Opal-Request-Id: *id003
+            X-Opal-Causation-Id: *id004
+            Location:
+              $ref: ../shared/opal_kernel.yaml#/components/headers/Location
+          content:
+            application/json:
+              schema:
+                $ref: ../shared/vision_kernel.yaml#/components/schemas/VisionJob
+        '400':
+          $ref: ../shared/opal_kernel.yaml#/components/responses/BadRequest
+        '401':
+          $ref: ../shared/opal_kernel.yaml#/components/responses/Unauthorized
+        '403':
+          $ref: ../shared/opal_kernel.yaml#/components/responses/Forbidden
+        '409':
+          $ref: ../shared/opal_kernel.yaml#/components/responses/Conflict
+        '422':
+          $ref: ../shared/opal_kernel.yaml#/components/responses/UnprocessableEntity
+        '429':
+          $ref: ../shared/opal_kernel.yaml#/components/responses/TooManyRequests
+        '503':
+          $ref: ../shared/opal_kernel.yaml#/components/responses/ServiceUnavailable
+      parameters:
+      - $ref: ../shared/opal_kernel.yaml#/components/parameters/IdempotencyKey
+  /api/v1/export/:
+    parameters:
+    - $ref: ../shared/opal_kernel.yaml#/components/parameters/OpalSessionIdParameter
+    - $ref: ../shared/opal_kernel.yaml#/components/parameters/OpalTransactionIdParameter
+    - $ref: ../shared/opal_kernel.yaml#/components/parameters/OpalRequestIdParameter
+    - $ref: ../shared/opal_kernel.yaml#/components/parameters/OpalCausationIdParameter
+    x-opal-cli:
+      post:
+        command: export
+    post:
+      tags:
+      - deployment
+      operationId: rtdetr_export
+      summary: RT-DETR / RT-DETRv2 export
+      description: Common operation semantics, specialized request schema. Reject unadvertised engine options with
+        422.
+      x-opal-cli:
+        command: export
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RtdetrExportRequest'
+      responses:
+        '202':
+          description: Operation accepted.
+          headers:
+            X-Opal-Session-Id: *id001
+            X-Opal-Transaction-Id: *id002
+            X-Opal-Request-Id: *id003
+            X-Opal-Causation-Id: *id004
+            Location:
+              $ref: ../shared/opal_kernel.yaml#/components/headers/Location
+          content:
+            application/json:
+              schema:
+                $ref: ../shared/vision_kernel.yaml#/components/schemas/VisionJob
+        '400':
+          $ref: ../shared/opal_kernel.yaml#/components/responses/BadRequest
+        '401':
+          $ref: ../shared/opal_kernel.yaml#/components/responses/Unauthorized
+        '403':
+          $ref: ../shared/opal_kernel.yaml#/components/responses/Forbidden
+        '409':
+          $ref: ../shared/opal_kernel.yaml#/components/responses/Conflict
+        '422':
+          $ref: ../shared/opal_kernel.yaml#/components/responses/UnprocessableEntity
+        '429':
+          $ref: ../shared/opal_kernel.yaml#/components/responses/TooManyRequests
+        '503':
+          $ref: ../shared/opal_kernel.yaml#/components/responses/ServiceUnavailable
+      parameters:
+      - $ref: ../shared/opal_kernel.yaml#/components/parameters/IdempotencyKey
+  /api/v1/benchmark/:
+    parameters:
+    - $ref: ../shared/opal_kernel.yaml#/components/parameters/OpalSessionIdParameter
+    - $ref: ../shared/opal_kernel.yaml#/components/parameters/OpalTransactionIdParameter
+    - $ref: ../shared/opal_kernel.yaml#/components/parameters/OpalRequestIdParameter
+    - $ref: ../shared/opal_kernel.yaml#/components/parameters/OpalCausationIdParameter
+    x-opal-cli:
+      post:
+        command: benchmark
+    post:
+      tags:
+      - benchmark
+      operationId: rtdetr_benchmark
+      summary: RT-DETR / RT-DETRv2 benchmark
+      description: Common operation semantics, specialized request schema. Reject unadvertised engine options with
+        422.
+      x-opal-cli:
+        command: benchmark
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RtdetrBenchmarkRequest'
+      responses:
+        '202':
+          description: Operation accepted.
+          headers:
+            X-Opal-Session-Id: *id001
+            X-Opal-Transaction-Id: *id002
+            X-Opal-Request-Id: *id003
+            X-Opal-Causation-Id: *id004
+            Location:
+              $ref: ../shared/opal_kernel.yaml#/components/headers/Location
+          content:
+            application/json:
+              schema:
+                $ref: ../shared/vision_kernel.yaml#/components/schemas/VisionJob
+        '400':
+          $ref: ../shared/opal_kernel.yaml#/components/responses/BadRequest
+        '401':
+          $ref: ../shared/opal_kernel.yaml#/components/responses/Unauthorized
+        '403':
+          $ref: ../shared/opal_kernel.yaml#/components/responses/Forbidden
+        '409':
+          $ref: ../shared/opal_kernel.yaml#/components/responses/Conflict
+        '422':
+          $ref: ../shared/opal_kernel.yaml#/components/responses/UnprocessableEntity
+        '429':
+          $ref: ../shared/opal_kernel.yaml#/components/responses/TooManyRequests
+        '503':
+          $ref: ../shared/opal_kernel.yaml#/components/responses/ServiceUnavailable
+      parameters:
+      - $ref: ../shared/opal_kernel.yaml#/components/parameters/IdempotencyKey

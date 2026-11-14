@@ -168,17 +168,25 @@ def credentialed_locator(locator: str, credential_ref: str | None) -> str:
 
 
 class LiveFramePump:
-    """Daemon thread draining a blocking FrameStream into a size-1 queue.
+    """Daemon thread draining a blocking FrameStream into a bounded queue.
 
-    Drop-oldest semantics keep live sessions on fresh frames; ``dropped``
-    counts frames evicted unread and feeds frames_dropped. Terminal
-    errors are delivered through get() as exceptions.
+    ``policy`` selects the contract buffer_policy: ``drop-oldest`` (default;
+    evict unread frames, keep consumers on fresh data), ``drop-newest``
+    (discard incoming frames when full), or ``block`` (apply backpressure
+    to the decoder). ``dropped`` counts frames evicted unread and feeds
+    frames_dropped. Terminal errors are delivered through get() as
+    exceptions.
     """
 
     _SENTINEL = object()
+    _POLICIES = ("drop-oldest", "drop-newest", "block")
 
-    def __init__(self, stream: FrameStream, capacity: int = 1) -> None:
+    def __init__(self, stream: FrameStream, capacity: int = 1,
+                 policy: str = "drop-oldest") -> None:
+        if policy not in self._POLICIES:
+            raise ValueError(f"unknown buffer policy: {policy!r}")
         self._stream = stream
+        self._policy = policy
         self._queue: queue.Queue = queue.Queue(maxsize=capacity)
         self.dropped = 0
         self._closed = False
@@ -192,9 +200,20 @@ class LiveFramePump:
         try:
             while not self._closed:
                 frame = self._stream.read()
+                if self._policy == "block":
+                    while not self._closed:
+                        try:
+                            self._queue.put(frame, timeout=0.05)
+                            break
+                        except queue.Full:
+                            continue
+                    continue
                 try:
                     self._queue.put_nowait(frame)
                 except queue.Full:
+                    if self._policy == "drop-newest":
+                        self.dropped += 1
+                        continue
                     self._queue.get_nowait()
                     self.dropped += 1
                     self._queue.put_nowait(frame)
@@ -217,6 +236,10 @@ class LiveFramePump:
         """Frames dropped since the last call (reset-and-read)."""
         n, self.dropped = self.dropped, 0
         return n
+
+    @property
+    def queue_depth(self) -> int:
+        return self._queue.qsize()
 
     def close(self) -> None:
         self._closed = True

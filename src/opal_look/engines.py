@@ -57,8 +57,7 @@ class EngineAdapter(Protocol):
     def unload_model(self, model_id: str) -> dict[str, Any]: ...
     def predict(
         self,
-        width: int,
-        height: int,
+        image: Any,
         model_id: str,
         confidence: float,
         device_id: str | None,
@@ -172,8 +171,7 @@ class SyntheticAdapter:
 
     def predict(
         self,
-        width: int,
-        height: int,
+        image: Any,
         model_id: str,
         confidence: float,
         device_id: str | None,
@@ -182,6 +180,7 @@ class SyntheticAdapter:
     ) -> dict[str, Any]:
         """Deterministic contract-normalized detections (xyxy pixels)."""
         self._require_model(model_id)
+        width, height = image.size
         if device_id not in (None, "cpu"):
             raise EngineUnavailable(f"unknown device: {device_id!r}")
         if engine_options.get("fail"):

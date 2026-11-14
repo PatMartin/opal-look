@@ -27,18 +27,9 @@ def app(tmp_path):
     app.state.store.close()
 
 
-# MVP replacement contract (still versioned 1.7.1): these sets track the
-# in-flight migration gaps and shrink to empty as steps land.
-EXPECTED_MISSING: set[tuple[str, str]] = {
-    ("GET", "/api/v1/stream/"),
-    ("GET", "/api/v1/stream/{stream_id}"),
-    ("GET", "/api/v1/stream/{stream_id}/events"),
-    ("GET", "/api/v1/stream/{stream_id}/metrics"),
-    ("GET", "/api/v1/stream/{stream_id}/snapshot"),
-    ("GET", "/api/v1/stream/{stream_id}/video"),
-    ("POST", "/api/v1/stream/"),
-    ("POST", "/api/v1/stream/{stream_id}/stop"),
-}
+# MVP replacement contract (still versioned 1.7.1): the migration gap sets
+# tracked each step; both are empty now that coverage is complete.
+EXPECTED_MISSING: set[tuple[str, str]] = set()
 EXPECTED_LEGACY: set[tuple[str, str]] = set()
 
 
@@ -100,11 +91,9 @@ def test_main_is_nonblocking_by_default_and_strict_on_gaps(app, capsys):
                      or report.contract.problems) else 0
     assert contract_audit.main(["--contract", str(CONTRACT)]) == 0
     rc_strict = contract_audit.main(["--contract", str(CONTRACT), "--strict"])
-    assert rc_strict == expected == 1, (
-        "strict fails until the MVP migration removes legacy routes and adds the new ops"
-    )
+    assert rc_strict == expected == 0, "strict passes at full coverage"
     out = capsys.readouterr().out
-    assert "GAPS PRESENT" in out
+    assert "CONFORMANT" in out
 
 
 def test_main_json_output_is_machine_readable(capsys):
@@ -114,7 +103,7 @@ def test_main_json_output_is_machine_readable(capsys):
     assert payload["contract"]["operations"] == 47
     assert payload["contract"]["paths"] == 39
     assert payload["coverage"]["implemented"] + payload["coverage"]["missing"] == 47
-    assert payload["ok"] is False  # in-flight gaps until migration completes
+    assert payload["ok"] is True  # full contract coverage
 
 
 def test_main_missing_contract_returns_2(tmp_path, capsys):

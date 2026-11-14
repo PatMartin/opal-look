@@ -43,17 +43,15 @@ def _image_bytes(source: str, max_bytes: int) -> bytes:
     return data
 
 
-def _decode(data: bytes, max_pixels: int) -> tuple[int, int]:
+def _decode(data: bytes, max_pixels: int):
     try:
-        with Image.open(io.BytesIO(data)) as img:
-            img.verify()
-        with Image.open(io.BytesIO(data)) as img:
-            width, height = img.size
+        img = Image.open(io.BytesIO(data))
+        img.load()
     except Exception:
         raise ApiError(422, "Source is not a decodable image.")
-    if width * height > max_pixels:
+    if img.width * img.height > max_pixels:
         raise ApiError(413, f"Image exceeds max_image_pixels ({max_pixels}).")
-    return width, height
+    return img
 
 
 @router.post("/api/v1/predict")
@@ -80,11 +78,11 @@ def post_api_v1_predict(request: Request, store: StoreDep,
 
     limits = effective_settings(store)
     data = _image_bytes(body.source, limits.max_upload_bytes)
-    width, height = _decode(data, limits.max_image_pixels)
+    image = _decode(data, limits.max_image_pixels)
 
     try:
         result = adapter.predict(
-            width=width, height=height, model_id=body.model_id,
+            image=image, model_id=body.model_id,
             confidence=body.confidence, device_id=body.device_id,
             engine_options=body.engine_options,
             include_native=body.include_native)
@@ -96,7 +94,7 @@ def post_api_v1_predict(request: Request, store: StoreDep,
     out = {
         "engine_id": body.engine_id,
         "model_id": body.model_id,
-        "image": {"width": width, "height": height},
+        "image": {"width": image.width, "height": image.height},
         "detections": result["detections"],
         "execution_id": uuid.uuid4().hex,
     }

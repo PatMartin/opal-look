@@ -101,7 +101,7 @@ contract copies live under `vendor/opal-api/`.
 | profiles (CRUD+activate, kernel shapes) | verified |
 | backup (export/validate/import + managed create/list/download/restore/delete) | verified |
 | service (pidfile-managed start/stop/log; restart via OPAL_LOOK_WAIT_PID) | verified |
-| streams (202+Location admission, mode rules, idempotency-key, stop 409) | verified |
+| streams (202+Location admission, mode rules, idempotency-key, stop 409, client-chosen `name` -> stream_id, 409 active-name conflict, reuse after terminal) | verified |
 | stream video (MJPEG) + snapshot (JPEG) + metrics + annotated rules | verified |
 | stream SSE (frame/detection/status/terminal, heartbeat, Last-Event-ID replay, 409 stale) | verified |
 | inference-mode streams (detection events, annotate overlays, engine gates) | verified |

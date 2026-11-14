@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 import queue
+import threading
 from typing import Any
 
 from fastapi import APIRouter, Request
@@ -23,6 +24,7 @@ from ..timeutil import now_iso, plus_hours, iso
 router = APIRouter()
 
 _HEARTBEAT_SECONDS = 15.0
+_ADMISSION_LOCK = threading.Lock()
 
 
 def _runtimes(request: Request) -> dict[str, StreamRuntime]:
@@ -89,22 +91,31 @@ def post_api_v1_stream(request: Request, store: StoreDep,
 
     limits = effective_settings(store)
     runtimes = _runtimes(request)
-    active = sum(1 for rt in runtimes.values()
-                 if rt.status not in TERMINAL_STATES)
-    if active >= limits.max_concurrent_streams:
-        raise ApiError(429, "Stream admission limit reached "
-                            f"({limits.max_concurrent_streams}).")
     adapter = _admit_engine(store, body)
     if capture_adapter_for("rtsp") is None:
         raise ApiError(503, "No RTSP capture backend is installed.")
 
-    rt = StreamRuntime(
-        source=body.source, engine=adapter, model_id=body.model_id,
-        confidence=body.confidence, device_id=body.device_id,
-        engine_options=body.engine_options, annotate=body.annotate,
-        buffer_policy=body.buffer_policy, buffer_size=body.buffer_size,
-        sse_buffer=limits.sse_buffer_events)
-    runtimes[rt.stream_id] = rt
+    with _ADMISSION_LOCK:
+        active = sum(1 for rt in runtimes.values()
+                     if rt.status not in TERMINAL_STATES)
+        if active >= limits.max_concurrent_streams:
+            raise ApiError(429, "Stream admission limit reached "
+                                f"({limits.max_concurrent_streams}).")
+        if body.name is not None:
+            prior = runtimes.get(body.name)
+            if prior is not None:
+                if prior.status not in TERMINAL_STATES:
+                    raise ApiError(409, f"Stream name {body.name!r} is "
+                                        "already in use.")
+                del runtimes[body.name]
+        rt = StreamRuntime(
+            stream_id=body.name,
+            source=body.source, engine=adapter, model_id=body.model_id,
+            confidence=body.confidence, device_id=body.device_id,
+            engine_options=body.engine_options, annotate=body.annotate,
+            buffer_policy=body.buffer_policy, buffer_size=body.buffer_size,
+            sse_buffer=limits.sse_buffer_events)
+        runtimes[rt.stream_id] = rt
     if key:
         with store.write_txn():
             store._conn.execute(

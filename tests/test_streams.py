@@ -182,6 +182,59 @@ def test_idempotent_start(client, rtsp_frames):
     assert c.status_code == 409
 
 
+def test_named_stream(client, rtsp_frames):
+    resp = client.post("/api/v1/stream/", json={
+        "source": "rtsp://cam/x", "name": "front-door"})
+    assert resp.status_code == 202
+    assert resp.headers["location"] == "/api/v1/stream/front-door"
+    body = resp.json()
+    assert body["stream_id"] == "front-door"
+    assert body["events_url"] == "/api/v1/stream/front-door/events"
+    shown = client.get("/api/v1/stream/front-door").json()
+    assert shown["stream_id"] == "front-door"
+
+
+def test_named_stream_conflict(client, fake_rtsp):
+    fake_rtsp.frames_per_open = [None]  # endless feed: stays non-terminal
+    fake_rtsp.frame_delay = 0.01
+    client.post("/api/v1/stream/", json={
+        "source": "rtsp://cam/x", "name": "front-door"})
+    resp = client.post("/api/v1/stream/", json={
+        "source": "rtsp://cam/y", "name": "front-door"})
+    assert resp.status_code == 409
+
+
+def test_named_stream_reuse_after_stop(client, fake_rtsp):
+    fake_rtsp.frames_per_open = [None]
+    fake_rtsp.frame_delay = 0.01
+    sid = client.post("/api/v1/stream/", json={
+        "source": "rtsp://cam/x", "name": "front-door"}).json()["stream_id"]
+    assert client.post(f"/api/v1/stream/{sid}/stop").status_code == 200
+    resp = client.post("/api/v1/stream/", json={
+        "source": "rtsp://cam/y", "name": "front-door"})
+    assert resp.status_code == 202
+    body = resp.json()
+    assert body["stream_id"] == "front-door"
+    assert body["source_redacted"] == "rtsp://cam/y"
+
+
+def test_named_stream_invalid(client, rtsp_frames):
+    for bad in ("has space", "../escape", "-leading", ""):
+        resp = client.post("/api/v1/stream/", json={
+            "source": "rtsp://cam/x", "name": bad})
+        assert resp.status_code == 422, bad
+
+
+def test_named_stream_idempotent(client, rtsp_frames):
+    body = {"source": "rtsp://cam/x", "name": "front-door"}
+    a = client.post("/api/v1/stream/", json=body,
+                    headers={"Idempotency-Key": "k-name"})
+    b = client.post("/api/v1/stream/", json=body,
+                    headers={"Idempotency-Key": "k-name"})
+    assert a.status_code == b.status_code == 202
+    assert a.json()["stream_id"] == b.json()["stream_id"] == "front-door"
+
+
 def test_snapshot_and_video(client, rtsp_frames):
     sid = client.post("/api/v1/stream/", json={
         "source": "rtsp://cam/x"}).json()["stream_id"]

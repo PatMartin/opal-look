@@ -133,6 +133,7 @@ const SCREENS = {
     await _rememberStreams();
     el.innerHTML = await _list("Streams", "/api/v1/stream/") +
       `<input id="st-src" placeholder="rtsp://camera/live" size="40">
+       <input id="st-name" placeholder="stream name (optional)">
        <input id="st-eng" placeholder="engine_id (optional)">
        <input id="st-mod" placeholder="model_id (with engine)">
        <button onclick="startStream()">start</button>
@@ -262,6 +263,7 @@ async function runPredict() {
 }
 async function startStream() {
   const body = { source: $("#st-src").value };
+  if ($("#st-name").value) body.name = $("#st-name").value;
   if ($("#st-eng").value) body.engine_id = $("#st-eng").value;
   if ($("#st-mod").value) body.model_id = $("#st-mod").value;
   const r = await api("POST", "/api/v1/stream/", { body });

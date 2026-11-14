@@ -39,10 +39,16 @@ _state: dict = {"url": "http://127.0.0.1:8000", "json_out": False,
 
 @app.callback()
 def _opts(
-    url: str = typer.Option("http://127.0.0.1:8000", "--url", help="Service base URL"),
+    url: Optional[str] = typer.Option(
+        None, "--url",
+        help="Service base URL (default http://127.0.0.1:8000)"),
     json_out: bool = typer.Option(False, "--json", help="Raw JSON output"),
 ) -> None:
-    _state["url"], _state["json_out"] = url, json_out
+    # Only an explicit --url overrides _state — a default would clobber
+    # the URL tests inject via _state["url"].
+    if url is not None:
+        _state["url"] = url
+    _state["json_out"] = json_out
 
 
 def _client() -> ApiClient:
@@ -264,6 +270,8 @@ stream = typer.Typer(help="stream", epilog=(
 @stream.command("start")
 def _stream_start(
         source: str = typer.Argument(..., help="rtsp:// or rtsps:// URI"),
+        name: str = typer.Option(None, "--name",
+                                 help="client-chosen stream id"),
         engine_id: str = typer.Option(None, "--engine"),
         model_id: str = typer.Option(None, "--model"),
         confidence: float = typer.Option(None, "--confidence"),
@@ -274,6 +282,8 @@ def _stream_start(
         buffer_size: int = typer.Option(None, "--buffer-size")):
     """Video-only without --engine; inference mode needs --engine + --model."""
     body: dict = {"source": source}
+    if name is not None:
+        body["name"] = name
     if engine_id is not None:
         body["engine_id"] = engine_id
     if model_id is not None:

@@ -53,6 +53,7 @@ class StreamRuntime:
     def __init__(
         self,
         *,
+        stream_id: str | None = None,
         source: str,
         engine=None,
         model_id: str | None = None,
@@ -64,7 +65,7 @@ class StreamRuntime:
         buffer_size: int = 5,
         sse_buffer: int = 256,
     ) -> None:
-        self.stream_id = f"strm_{uuid.uuid4().hex[:16]}"
+        self.stream_id = stream_id or f"strm_{uuid.uuid4().hex[:16]}"
         self.mode = "inference" if engine is not None else "video"
         self._source = source
         self.source_redacted = redact_source(source)

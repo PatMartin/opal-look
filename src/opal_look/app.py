@@ -91,6 +91,14 @@ def create_app(
     app.include_router(service.router)
 
     from fastapi.staticfiles import StaticFiles
-    app.mount("/app", StaticFiles(directory=Path(__file__).parent / "static", html=True),
+
+    class _SpaFiles(StaticFiles):
+        # No-cache: the SPA is a thin dev UI; stale cached JS masks fixes.
+        async def get_response(self, path, scope):
+            resp = await super().get_response(path, scope)
+            resp.headers["Cache-Control"] = "no-cache"
+            return resp
+
+    app.mount("/app", _SpaFiles(directory=Path(__file__).parent / "static", html=True),
               name="app")
     return app

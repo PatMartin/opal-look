@@ -96,7 +96,12 @@ const _list = async (h, p) => `<h3>${h}</h3><pre>${esc(JSON.stringify(await api(
 
 async function render(id) {
   stopStreams();
-  document.querySelectorAll("main section").forEach(s => s.innerHTML = "");
+  document.querySelectorAll("main section").forEach(s => {
+    s.innerHTML = ""; s.classList.remove("on");
+  });
+  document.querySelectorAll("#nav button").forEach(b =>
+    b.classList.toggle("active", b.textContent === id));
+  sec(id).classList.add("on");
   const fn = SCREENS[id]; if (fn) await fn(sec(id));
 }
 
@@ -249,18 +254,55 @@ async function streamVideo() {
   stopStreams();
   const resp = await fetch(`/api/v1/stream/${id}/video`, { headers: _auth() });
   if (!resp.ok) { await _raise(resp); return; }
+  // Parse multipart/x-mixed-replace: each part is
+  //   --boundary\r\nContent-Type: image/jpeg\r\n\r\n<jpeg>\r\n
+  const ctype = resp.headers.get("content-type") || "";
+  const boundary = ("--" + (ctype.split("boundary=")[1] || "opalframe"))
+    .split("").map(c => c.charCodeAt(0));
   const rd = resp.body.getReader();
-  const chunks = [];
   _abort = new AbortController();
+  let buf = new Uint8Array(0), lastUrl = null;
+  const find = (hay, needle, from) => {
+    outer: for (let i = from; i <= hay.length - needle.length; i++) {
+      for (let j = 0; j < needle.length; j++)
+        if (hay[i + j] !== needle[j]) continue outer;
+      return i;
+    }
+    return -1;
+  };
   (async () => {
     try {
+      let mark = -1;
       while (true) {
         const { done, value } = await rd.read();
+        if (value && value.length) {
+          const next = new Uint8Array(buf.length + value.length);
+          next.set(buf); next.set(value, buf.length); buf = next;
+        }
+        if (done && !buf.length) break;
+        if (mark < 0) mark = find(buf, boundary, 0);
+        if (mark >= 0) {
+          const end = find(buf, boundary, mark + boundary.length);
+          if (end >= 0 || done) {
+            const part = buf.slice(mark + boundary.length, end >= 0 ? end : buf.length);
+            const hdr = [13, 10, 13, 10]; // \r\n\r\n
+            const hdrEnd = find(part, hdr, 0);
+            if (hdrEnd >= 0) {
+              const jpeg = part.slice(hdrEnd + 4);
+              if (jpeg.length > 100) {
+                const url = URL.createObjectURL(new Blob([jpeg], { type: "image/jpeg" }));
+                $("#st-img").src = url;
+                if (lastUrl) URL.revokeObjectURL(lastUrl);
+                lastUrl = url;
+              }
+            }
+            buf = end >= 0 ? buf.slice(end) : new Uint8Array(0);
+            mark = 0;
+            continue;
+          }
+        }
         if (done) break;
-        chunks.push(value);
-        if (chunks.length > 2) chunks.shift();
-        const blob = new Blob(chunks, { type: "image/jpeg" });
-        $("#st-img").src = URL.createObjectURL(blob);
+        if (buf.length > 4_000_000) buf = buf.slice(-1_000_000); // safety
       }
     } catch {}
   })();
@@ -329,4 +371,15 @@ $("#bearer").addEventListener("change", e => {
   _bearer = e.target.value;
   sessionStorage.setItem("opal_token", _bearer);
 });
+async function healthPill() {
+  try {
+    const h = await api("GET", "/api/v1/health/");
+    const p = $("#health");
+    p.textContent = h.status === "ok" ? "healthy" : h.status;
+    p.className = "pill " + (h.status === "ok" ? "ok" : "err");
+  } catch {
+    const p = $("#health"); p.textContent = "offline"; p.className = "pill err";
+  }
+}
+healthPill(); setInterval(healthPill, 15000);
 render("dashboard").catch(() => {});

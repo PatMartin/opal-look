@@ -204,3 +204,14 @@ def test_revision_shared_across_endpoints(client):
     settings_etag = client.get("/api/v1/setting/").headers["etag"]
     key_etag = client.get("/api/v1/setting/frame_cache_seconds").headers["etag"]
     assert settings_etag == key_etag
+
+
+def test_stale_override_keys_ignored(client):
+    """Overrides for retired keys (e.g. a pre-migration DB) are ignored, not
+    a 500."""
+    store = client.app.state.store
+    store.settings.set("max_concurrent_sessions", 4)
+    store.settings.set("result_retention_hours", 168)
+    resp = client.get("/api/v1/setting/")
+    assert resp.status_code == 200
+    assert resp.json() == DEFAULTS

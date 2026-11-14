@@ -24,8 +24,7 @@ from ..precondition import check_if_match, require_if_match
 
 router = APIRouter()
 
-_SECTIONS = ("settings", "engines", "profiles", "models", "sources",
-             "pipelines", "zones", "rules", "monitors", "personas")
+_SECTIONS = ("settings", "engines", "profiles")
 
 
 def _report(issues: list[dict[str, Any]]) -> dict[str, Any]:
@@ -86,8 +85,8 @@ def _import_result(
 
 @router.get("/api/v1/backup/export")
 def get_api_v1_backup_export(store: StoreDep) -> dict:
-    """OpalConfigExport: logical desired state only — redacted locators,
-    no credentials, no runtime state (media/observations/jobs/recordings)."""
+    """OpalConfigExport: logical desired state only — settings, engine
+    config and profiles; no credentials, no runtime state."""
     return build_export(store)
 
 

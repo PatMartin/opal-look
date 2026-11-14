@@ -1,10 +1,8 @@
-"""v1.7.1 CLI: every command mirrors a real REST op; no obsolete flows."""
+"""MVP CLI: every command mirrors a real REST op; no retired flows."""
 
-import io
 import json
 
 import pytest
-from PIL import Image
 from typer.testing import CliRunner
 
 from opal_look import service_control
@@ -35,124 +33,62 @@ def cli_offline(monkeypatch):
 
 def test_cli_engine_list(cli):
     r = cli.invoke(cli_app, ["--json", "engine", "list"])
-    assert r.exit_code == 0 and "synthetic" in r.output
+    assert r.exit_code == 0
+    assert "synthetic" in r.output
 
 
-def test_cli_model_show(cli):
-    r = cli.invoke(cli_app, ["config", "model", "show", "synthetic-vision"])
-    assert r.exit_code == 0 and "synthetic-vision" in r.output
+def test_cli_engine_show(cli):
+    r = cli.invoke(cli_app, ["engine", "show", "synthetic"])
+    assert r.exit_code == 0
+    assert "synthetic" in r.output
+
+
+def test_cli_engine_update(cli):
+    r = cli.invoke(cli_app, ["config", "engine", "update", "synthetic",
+                             "--body", '{"enabled": false}'])
+    assert r.exit_code == 0, r.output
+    assert '"enabled": false' in r.output
 
 
 def test_cli_health(cli):
     r = cli.invoke(cli_app, ["info", "health"])
     assert r.exit_code == 0
-
-
-def test_cli_metrics(cli):
-    r = cli.invoke(cli_app, ["info", "metrics"])
-    assert r.exit_code == 0 and "captured_frames" in r.output
-
-
-def test_cli_events_status(cli):
-    r = cli.invoke(cli_app, ["info", "events"])
-    assert r.exit_code == 0 and "enabled" in r.output
+    assert "synthetic" in r.output
 
 
 def test_cli_setting_show(cli):
     r = cli.invoke(cli_app, ["config", "setting", "show", "max_upload_bytes"])
-    assert r.exit_code == 0 and "1073741824" in r.output
+    assert r.exit_code == 0
+    assert "max_upload_bytes" in r.output
 
 
-def test_cli_setting_update_and_alias(cli):
+def test_cli_setting_update(cli):
     r = cli.invoke(cli_app, ["config", "setting", "update", "--body",
                              '{"max_viewers": 3}'])
-    assert r.exit_code == 0, r.output
-    r = cli.invoke(cli_app, ["settings", "patch", "--body",
-                             '{"max_viewers": 4}'])
-    assert r.exit_code == 0, r.output
-    r = cli.invoke(cli_app, ["settings", "reset", "max_viewers"])
-    assert r.exit_code == 0, r.output
-
-
-def test_cli_sources_add_and_list(cli, tmp_path):
-    body = tmp_path / "src.json"
-    body.write_text(
-        '{"id": "cli-src", "name": "CLI", "kind": "rtsp", '
-        '"locator": "rtsp://192.0.2.10/x"}')
-    r = cli.invoke(cli_app, ["source", "add", "--file", str(body)])
-    assert r.exit_code == 0, r.output
-    assert "cli-src" in cli.invoke(cli_app, ["source", "list"]).output
-
-
-def test_cli_media_upload_and_download(cli, tmp_path):
-    buf = io.BytesIO()
-    Image.new("RGB", (8, 8)).save(buf, format="JPEG")
-    img = tmp_path / "x.jpg"
-    img.write_bytes(buf.getvalue())
-    r = cli.invoke(cli_app, ["data", "media", "upload", str(img)])
-    assert r.exit_code == 0, r.output
-    mid = json.loads(r.output)["id"]
-    # media download is gone upstream; binary content lives on captures
-    out = tmp_path / "cap.jpg"
-    r = cli.invoke(cli_app, ["source", "add", "--body",
-                             '{"id":"ms","name":"M","kind":"media",'
-                             f'"locator":"{mid}"' + '}'])
-    assert r.exit_code == 0, r.output
-    r = cli.invoke(cli_app, ["source", "capture", "ms"])
-    assert r.exit_code == 0, r.output
-    cap_id = json.loads(r.output)["id"]
-    r = cli.invoke(cli_app, ["data", "capture", "download", cap_id,
-                             "--out", str(out)])
-    assert r.exit_code == 0 and out.read_bytes()[:2] == b"\xff\xd8"
-
-
-def test_cli_pipelines_validate(cli):
-    r = cli.invoke(cli_app, ["config", "pipeline", "validate", "--body",
-                             '{"id": "p", "name": "P", "stages": [{"id": "s1", "kind": '
-                             '"inference", "model_id": "synthetic-vision", '
-                             '"task": "detection"}]}'])
     assert r.exit_code == 0
+    assert '"max_viewers": 3' in r.output
 
 
-def test_cli_jobs_submit_cancel(cli):
-    body = {"kind": "media_export", "media_id": "none",
-            "output": {"format": "png"}}
-    r = cli.invoke(cli_app, ["data", "job", "submit", "--body",
-                             json.dumps(body)])
-    assert r.exit_code in (0, 1)  # 404 media -> SystemExit error, never hang
+def test_cli_profile_crud(cli):
+    r = cli.invoke(cli_app, ["config", "profile", "add", "--body",
+                             '{"name": "cli-prof"}'])
+    assert r.exit_code == 0, r.output
+    assert "cli-prof" in cli.invoke(
+        cli_app, ["config", "profile", "list"]).output
 
 
 def test_cli_backup_export(cli):
     r = cli.invoke(cli_app, ["backup", "export"])
-    assert r.exit_code == 0 and "settings" in r.output
+    assert r.exit_code == 0
+    assert '"format_version": "1.0.0"' in r.output
 
 
 def test_cli_backup_create_list(cli):
     r = cli.invoke(cli_app, ["backup", "create"])
     assert r.exit_code == 0, r.output
-    name = json.loads(r.output)["filename"]
-    assert "opal-look-" in name
+    assert "opal-look-" in r.output
     listed = json.loads(cli.invoke(cli_app, ["backup", "list"]).output)
-    assert listed[0]["filename"] == name
-
-
-def test_cli_persona_crud(cli):
-    r = cli.invoke(cli_app, ["config", "persona", "add", "--body",
-                             '{"persona_id":"amy","name":"Amy"}'])
-    assert r.exit_code == 0, r.output
-    assert "amy" in cli.invoke(
-        cli_app, ["config", "persona", "list"]).output
-    assert "Amy" in cli.invoke(
-        cli_app, ["config", "persona", "show", "amy"]).output
-    r = cli.invoke(cli_app, ["config", "persona", "update", "amy", "--body",
-                             '{"voice_id":"en-gb-alan-low"}'])
-    assert r.exit_code == 0, r.output
-    assert '"valid": true' in cli.invoke(
-        cli_app, ["--json", "config", "persona", "validate", "amy"]).output
-    r = cli.invoke(cli_app, ["config", "persona", "remove", "amy"])
-    assert r.exit_code == 0, r.output
-    assert cli.invoke(
-        cli_app, ["config", "persona", "show", "amy"]).exit_code != 0
+    assert listed and listed[0]["filename"].startswith("opal-look-")
 
 
 def test_cli_info(cli):
@@ -232,62 +168,23 @@ def test_cli_service_start_fallback(cli_offline, tmp_path, monkeypatch):
     assert service_control.pid_path().read_text().strip() == "-1"
 
 
-def test_cli_obsolete_commands_gone(cli):
-    """v1.4 resources and v1.6 plural groups have no v1.7.1 spelling."""
-    for group in ("results", "snapshots", "sources", "sessions", "engines",
-                  "models", "jobs", "captures", "artifacts", "recordings",
-                  "pipelines", "profiles", "zones", "rules", "monitors",
-                  "observations", "media", "configuration", "capabilities",
-                  "metrics", "events", "health"):
-        r = cli.invoke(cli_app, [group, "list"])
-        assert r.exit_code != 0, f"{group} still exposed"
+def test_cli_retired_groups_gone(cli):
+    """Retired domains and old plural/group spellings have no CLI home."""
+    for argv in (["source", "list"], ["session", "list"], ["analyze", "run"],
+                 ["data", "job", "list"], ["config", "pipeline", "list"],
+                 ["config", "zone", "list"], ["config", "rule", "list"],
+                 ["config", "monitor", "list"], ["config", "persona", "list"],
+                 ["config", "model", "list"], ["settings", "patch"],
+                 ["info", "metrics"], ["info", "events"],
+                 ["info", "capabilities"], ["output", "fetch", "x"]):
+        r = cli.invoke(cli_app, argv)
+        assert r.exit_code != 0, f"{argv} still exposed"
 
 
 def test_cli_unknown_exit_code(cli):
-    r = cli.invoke(cli_app, ["config", "model", "show", "ghost-model"])
+    r = cli.invoke(cli_app, ["engine", "show", "ghost-engine"])
     assert r.exit_code != 0
     assert "404" in r.output or "Unknown" in r.output
-
-
-def _upload_and_source(client):
-    buf = io.BytesIO()
-    Image.new("RGB", (8, 8), (1, 2, 3)).save(buf, format="JPEG")
-    mid = client.post("/api/v1/media/", files={
-        "file": ("x.jpg", buf.getvalue(), "image/jpeg")}).json()["id"]
-    client.post("/api/v1/source/",
-                json={"id": "ms", "name": "M", "kind": "media",
-                      "locator": mid}, headers={"If-Match": "*"})
-
-
-def test_cli_capture_output_ref_and_fetch(cli, tmp_path):
-    _upload_and_source(cli_mod._state["inner"])
-    r = cli.invoke(cli_app, ["--json", "source", "capture", "ms"])
-    assert r.exit_code == 0, r.output
-    ref = json.loads(r.output)["output_ref"]
-    out = tmp_path / "frame.jpg"
-    r = cli.invoke(cli_app, ["output", "fetch", ref["content_url"],
-                             "--out", str(out)])
-    assert r.exit_code == 0, r.output
-    assert out.read_bytes()[:2] == b"\xff\xd8"  # JPEG magic
-
-
-def test_cli_output_fetch_recording_artifact_ref(cli, tmp_path):
-    inner = cli_mod._state["inner"]
-    store = inner.app.state.store
-    store.recordings.insert({"recording_id": "rec-9", "source_id": "ms",
-        "state": "finished", "created_at": "t", "started_at": "t",
-        "finished_at": "t", "media_id": "m1", "failure": None})
-    store.recordings.update("rec-9", {"artifact_id": "art-9"})
-    r = cli.invoke(cli_app, ["--json", "data", "recording", "show", "rec-9"])
-    assert r.exit_code == 0, r.output
-    assert json.loads(r.output)["artifact_ref"]["content_url"] \
-        == "/api/v1/artifact/art-9/content"
-
-
-def test_cli_output_fetch_rejects_bad_url(cli):
-    r = cli.invoke(cli_app, ["output", "fetch", "/api/v1/media/m1/content"])
-    assert r.exit_code != 0
-    assert "expected a content_url" in r.output
 
 
 def test_cli_tree_renders_live_command_tree(cli):
@@ -296,12 +193,12 @@ def test_cli_tree_renders_live_command_tree(cli):
     out = result.output
     assert out.splitlines()[0].startswith("opal-look")
     # groups and leaf commands are present with Unicode box-drawing guides
-    assert "├── config" in out and "── model" in out and "└── " in out
+    assert "├── stream" in out and "└── config" in out
     # piped output carries no ANSI escapes; styles only appear on a terminal
     assert "\x1b[" not in out
-    # notation: required options bare, optional bracketed, positionals bare names
-    assert "cancel job_id" in out
-    assert "list [--limit]" in out
+    # notation: required args bare, optional bracketed
+    assert "start source" in out
+    assert "list [--engine]" in out
     # the tree's own --ascii flag shows as an optional parameter
     assert "tree [--ascii]" in out
     # built-in help and shell-completion plumbing are skipped
@@ -329,7 +226,7 @@ def test_cli_tree_styles_when_on_a_terminal(cli):
     assert "\x1b[" in styled and "\x1b[" not in plain
     # stripping ANSI leaves the same Unicode box-drawing tree either way
     assert re.sub(r"\x1b\[[0-9;]*m", "", styled) == plain
-    assert "├── config" in plain and "└── " in plain
+    assert "├── stream" in plain and "└── config" in plain
 
 
 def test_cli_tree_ascii(cli):
@@ -338,8 +235,8 @@ def test_cli_tree_ascii(cli):
     out = result.output
     assert out.splitlines()[0].startswith("opal-look")
     # ASCII guides only — no Unicode box-drawing, no ANSI escapes
-    assert "|-- config" in out and "`-- " in out
+    assert "|-- stream" in out and "`-- config" in out
     assert "├──" not in out and "└──" not in out and "│" not in out \
         and "\x1b[" not in out
     out.encode("ascii")
-    assert "tree [--ascii]" in out and "cancel job_id" in out
+    assert "tree [--ascii]" in out and "start source" in out

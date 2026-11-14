@@ -1,32 +1,13 @@
 import pytest
 
 DEFAULTS = {
-    "result_retention_hours": 168,
-    "media_retention_hours": 24,
-    "snapshot_retention_hours": 168,
     "frame_cache_seconds": 30,
     "sse_replay_seconds": 60,
     "sse_buffer_events": 256,
-    "max_concurrent_sessions": 4,
+    "max_concurrent_streams": 4,
     "max_upload_bytes": 1073741824,
     "max_image_pixels": 50000000,
-    "max_analysis_timeout_seconds": 60,
-    "max_preview_fps": 5,
-    "max_result_query_limit": 1000,
-    "events_enabled": False,
-    "event_topics_allowlist": [
-        "opal.look.session.started",
-        "opal.look.session.completed",
-        "opal.look.session.failed",
-        "opal.look.analysis.completed",
-    ],
-    "max_analysis_events_per_second": 5,
-    "event_queue_capacity": 256,
-    "default_pipeline_id": None,
-"max_viewers": 8,
-    "max_monitors": 8,
-    "max_jobs": 4,
-    "recording_max_bytes": 10485760,
+    "max_viewers": 8,
 }
 
 
@@ -43,7 +24,7 @@ def test_get_settings_returns_defaults_and_etag(client):
 
 
 def test_patch_requires_if_match(client):
-    resp = client.patch("/api/v1/setting/", json={"max_concurrent_sessions": 2})
+    resp = client.patch("/api/v1/setting/", json={"max_concurrent_streams": 2})
     assert resp.status_code == 428
     assert resp.json()["error"]["code"] == "precondition_required"
 
@@ -52,12 +33,12 @@ def test_patch_with_matching_etag(client):
     etag = _etag(client)
     resp = client.patch(
         "/api/v1/setting/",
-        json={"max_concurrent_sessions": 2, "sse_replay_seconds": 90},
+        json={"max_concurrent_streams": 2, "sse_replay_seconds": 90},
         headers={"If-Match": etag},
     )
     assert resp.status_code == 200
     body = resp.json()
-    assert body["max_concurrent_sessions"] == 2
+    assert body["max_concurrent_streams"] == 2
     assert body["sse_replay_seconds"] == 90
     assert resp.headers["etag"] != etag
 
@@ -71,10 +52,10 @@ def test_patch_with_star(client):
 
 
 def test_patch_with_stale_etag(client):
-    client.patch("/api/v1/setting/", json={"max_preview_fps": 3}, headers={"If-Match": "*"})
+    client.patch("/api/v1/setting/", json={"sse_replay_seconds": 90}, headers={"If-Match": "*"})
     stale = '"00000000000000000000000000000000"'
     resp = client.patch(
-        "/api/v1/setting/", json={"max_preview_fps": 4}, headers={"If-Match": stale}
+        "/api/v1/setting/", json={"sse_replay_seconds": 45}, headers={"If-Match": stale}
     )
     assert resp.status_code == 412
     assert resp.json()["error"]["code"] == "precondition_failed"
@@ -86,7 +67,7 @@ def test_patch_with_stale_etag(client):
 )
 def test_patch_malformed_if_match(client, if_match):
     resp = client.patch(
-        "/api/v1/setting/", json={"max_preview_fps": 3}, headers={"If-Match": if_match}
+        "/api/v1/setting/", json={"sse_replay_seconds": 90}, headers={"If-Match": if_match}
     )
     assert resp.status_code == 422
 
@@ -105,28 +86,28 @@ def test_patch_unknown_field_rejected(client):
 
 def test_patch_wrong_type_rejected(client):
     resp = client.patch(
-        "/api/v1/setting/", json={"max_concurrent_sessions": "4"}, headers={"If-Match": "*"}
+        "/api/v1/setting/", json={"max_concurrent_streams": "4"}, headers={"If-Match": "*"}
     )
     assert resp.status_code == 422
 
 
 def test_patch_bool_for_int_rejected(client):
     resp = client.patch(
-        "/api/v1/setting/", json={"max_concurrent_sessions": True}, headers={"If-Match": "*"}
+        "/api/v1/setting/", json={"max_concurrent_streams": True}, headers={"If-Match": "*"}
     )
     assert resp.status_code == 422
 
 
 def test_patch_null_value_rejected(client):
     resp = client.patch(
-        "/api/v1/setting/", json={"max_concurrent_sessions": None}, headers={"If-Match": "*"}
+        "/api/v1/setting/", json={"max_concurrent_streams": None}, headers={"If-Match": "*"}
     )
     assert resp.status_code == 422
 
 
 def test_patch_constraint_violation(client):
     resp = client.patch(
-        "/api/v1/setting/", json={"max_concurrent_sessions": 0}, headers={"If-Match": "*"}
+        "/api/v1/setting/", json={"max_concurrent_streams": 0}, headers={"If-Match": "*"}
     )
     assert resp.status_code == 422
 
@@ -134,34 +115,18 @@ def test_patch_constraint_violation(client):
 def test_patch_is_atomic(client):
     resp = client.patch(
         "/api/v1/setting/",
-        json={"max_concurrent_sessions": 7, "bogus": 1},
+        json={"max_concurrent_streams": 7, "bogus": 1},
         headers={"If-Match": "*"},
     )
     assert resp.status_code == 422
-    assert client.get("/api/v1/setting/").json()["max_concurrent_sessions"] == 4
-
-
-def test_patch_events_enabled_without_transport(client):
-    resp = client.patch(
-        "/api/v1/setting/", json={"events_enabled": True}, headers={"If-Match": "*"}
-    )
-    assert resp.status_code == 422
-
-
-def test_patch_duplicate_topics_rejected(client):
-    resp = client.patch(
-        "/api/v1/setting/",
-        json={"event_topics_allowlist": ["opal.look.session.started", "opal.look.session.started"]},
-        headers={"If-Match": "*"},
-    )
-    assert resp.status_code == 422
+    assert client.get("/api/v1/setting/").json()["max_concurrent_streams"] == 4
 
 
 def test_get_single_setting(client):
-    resp = client.get("/api/v1/setting/max_concurrent_sessions")
+    resp = client.get("/api/v1/setting/max_concurrent_streams")
     assert resp.status_code == 200
     body = resp.json()
-    assert body["key"] == "max_concurrent_sessions"
+    assert body["key"] == "max_concurrent_streams"
     assert body["value"] == 4
     assert body["is_default"] is True
     assert body["default"] == 4
@@ -177,23 +142,23 @@ def test_get_unknown_setting_404(client):
 
 def test_put_single_setting(client):
     resp = client.put(
-        "/api/v1/setting/media_retention_hours",
-        json={"value": 48},
+        "/api/v1/setting/sse_replay_seconds",
+        json={"value": 90},
         headers={"If-Match": "*"},
     )
     assert resp.status_code == 200
     body = resp.json()
-    assert body["key"] == "media_retention_hours"
-    assert body["value"] == 48
+    assert body["key"] == "sse_replay_seconds"
+    assert body["value"] == 90
     assert body["is_default"] is False
     assert body["updated_at"]
     assert resp.headers["etag"].startswith('"')
-    assert client.get("/api/v1/setting/").json()["media_retention_hours"] == 48
+    assert client.get("/api/v1/setting/").json()["sse_replay_seconds"] == 90
 
 
 def test_put_single_setting_invalid_value(client):
     resp = client.put(
-        "/api/v1/setting/media_retention_hours",
+        "/api/v1/setting/sse_replay_seconds",
         json={"value": "soon"},
         headers={"If-Match": "*"},
     )
@@ -208,7 +173,7 @@ def test_put_unknown_setting_404(client):
 
 
 def test_put_requires_if_match(client):
-    resp = client.put("/api/v1/setting/media_retention_hours", json={"value": 48})
+    resp = client.put("/api/v1/setting/sse_replay_seconds", json={"value": 90})
     assert resp.status_code == 428
 
 

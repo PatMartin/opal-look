@@ -2,12 +2,8 @@
 
 from __future__ import annotations
 
-import io
-
 import pytest
 from fastapi.testclient import TestClient
-from PIL import Image
-
 from opal_look.app import create_app
 from opal_look.auth import assert_bind_allowed, is_loopback_host
 
@@ -21,12 +17,6 @@ def authed(tmp_path):
     app = create_app(data_dir=tmp_path / "data", auth_token=TOKEN)
     with TestClient(app) as c:
         yield c
-
-
-def _png_bytes() -> bytes:
-    buf = io.BytesIO()
-    Image.new("RGB", (8, 8), (9, 9, 9)).save(buf, format="PNG")
-    return buf.getvalue()
 
 
 def test_json_endpoint_requires_auth(authed):
@@ -63,27 +53,19 @@ def test_valid_token_allows_json_mutation(authed):
     assert resp.status_code == 200
 
 
-def test_binary_endpoint_auth(authed):
-    # Upload requires auth first.
-    denied = authed.post(
-        "/api/v1/media/", files={"file": ("x.png", _png_bytes(), "image/png")}
-    )
-    assert denied.status_code == 401
-    mid = authed.post(
-        "/api/v1/media/", files={"file": ("x.png", _png_bytes(), "image/png")},
-        headers=AUTH,
-    ).json()["id"]
-    assert authed.get(f"/api/v1/media/{mid}").status_code == 401
-    ok = authed.get(f"/api/v1/media/{mid}", headers=AUTH)
+def test_resource_endpoint_auth(authed):
+    # Reads require auth first.
+    assert authed.get("/api/v1/engine/").status_code == 401
+    ok = authed.get("/api/v1/engine/", headers=AUTH)
     assert ok.status_code == 200
     assert ok.headers["x-opal-transaction-id"]
 
 
 def test_streaming_endpoint_auth_gate(authed):
     """Auth is enforced before route resolution on stream paths too."""
-    assert authed.get("/api/v1/session/nope/events").status_code == 401
-    # With a valid token the same path reaches the handler (404 unknown session).
-    assert authed.get("/api/v1/session/nope/events", headers=AUTH).status_code == 404
+    assert authed.get("/api/v1/stream/nope/events").status_code == 401
+    # With a valid token the same path reaches the handler (404 unknown stream).
+    assert authed.get("/api/v1/stream/nope/events", headers=AUTH).status_code == 404
 
 
 def test_auth_precedes_resource_existence(authed):

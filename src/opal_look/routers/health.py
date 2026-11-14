@@ -11,37 +11,22 @@ from ..dependencies import StoreDep
 from ..constants import (
     API_VERSION,
     CONTRACT_VERSION,
-    DEFAULT_MAX_IMAGE_PIXELS,
-    DEFAULT_MAX_UPLOAD_BYTES,
-    IMAGE_CONTENT_TYPES,
     SERVICE_DESCRIPTION,
     SERVICE_NAME,
     SERVICE_VERSION,
 )
 from ..engines import engine_runtime
-from ..settings import effective_settings
 from ..timeutil import now_iso
 
 router = APIRouter()
 
 
 def _readiness(store) -> tuple[bool, str]:
-    """Ready: storage usable and at least one enabled model on an
-    available engine can serve an analysis task."""
+    """Ready: storage usable. Engines are optional — video-only streams
+    work with zero AI engines installed."""
     if not store.ping():
         return False, "unavailable"
-    for model in store.models.list(enabled=True):
-        if _model_available(store, model):
-            return True, "ok"
-    return False, "unavailable"
-
-
-def _model_available(store, model_row) -> bool:
-    engine_row = store.engines.get(model_row["engine_id"])
-    if engine_row is None:
-        return False
-    read = engine_runtime(store, engine_row)
-    return read["enabled"] and read["available"]
+    return True, "ok"
 
 
 def _health_read(request: Request, store) -> dict:
@@ -53,26 +38,8 @@ def _health_read(request: Request, store) -> dict:
         status = "degraded"
 
     app = request.app
-    app_settings = effective_settings(store)
-    events_enabled = bool(getattr(app_settings, "events_enabled", False))
-    transport = getattr(app.state, "event_transport", None)
-    publisher = getattr(app.state, "event_publisher", None)
-    stats = (publisher.stats() if publisher else
-             {"published": 0, "dropped": 0, "rate_limited": 0})
     started = getattr(app.state, "started_monotonic", None)
     uptime = (time.monotonic() - started) if started is not None else 0.0
-    models_available = sum(
-        1 for m in store.models.list(enabled=True) if _model_available(store, m))
-    monitors_running = sum(
-        1 for rt in getattr(app.state, "monitor_runtimes", {}).values() if rt.alive)
-    sessions_active = (store.sessions.count_nonterminal()
-                       if hasattr(store.sessions, "count_nonterminal") else 0)
-    jobs_nonterminal = (store.jobs.count_nonterminal()
-                        if hasattr(store.jobs, "count_nonterminal") else 0)
-    recordings_active = (store.recordings.count_active()
-                         if hasattr(store.recordings, "count_active") else 0)
-    obs_total = (store.observations.count()
-                 if hasattr(store.observations, "count") else 0)
     engine_state = ("ok" if all(not e["enabled"] or e["available"] for e in engines)
                     else "degraded")
     return {
@@ -96,34 +63,13 @@ def _health_read(request: Request, store) -> dict:
         ],
         "details": {
             "storage": "ok" if storage_ok else "unavailable",
-            "media_capabilities": {
-                "image_content_types": IMAGE_CONTENT_TYPES,
-                "video_content_types": [],
-                "video_codecs": [],
-                "max_upload_bytes": DEFAULT_MAX_UPLOAD_BYTES,
-                "max_image_pixels": DEFAULT_MAX_IMAGE_PIXELS,
-            },
-            "event_publication": {
-                "enabled": events_enabled,
-                "status": ("provisioned" if events_enabled and transport
-                           else "unprovisioned" if events_enabled else "disabled"),
-                "published": stats.get("published", 0),
-                "dropped": stats.get("dropped", 0),
-                "rate_limited": stats.get("rate_limited", 0),
-                "queue_depth": stats.get("queue_depth", 0),
-                "message": None,
-            },
         },
-        "broker_running": bool(events_enabled and transport),
         "database_ready": storage_ok,
         "pending_restart": False,
         "pending_restart_fields": [],
         "checks": [
             {"name": "database", "state": "ok" if storage_ok else "error"},
             {"name": "engines", "state": engine_state},
-            {"name": "event_bus",
-             "state": ("running" if events_enabled and transport
-                       else "disabled" if not events_enabled else "unprovisioned")},
         ],
         "checked_at": now_iso(),
         "uptime_seconds": max(0.0, uptime),
@@ -131,25 +77,7 @@ def _health_read(request: Request, store) -> dict:
             "database": {"state": "ok" if storage_ok else "error",
                          "detail": "sqlite"},
             "engines": {"state": engine_state},
-            "event_bus": {
-                "state": ("running" if events_enabled and transport
-                          else "disabled" if not events_enabled else "unprovisioned"),
-            },
         },
-        "metrics": {
-            "observations_persisted": obs_total,
-            "events_published": stats.get("published", 0),
-            "events_dropped": stats.get("dropped", 0),
-            "sessions_active": sessions_active,
-            "monitors_running": monitors_running,
-            "jobs_nonterminal": jobs_nonterminal,
-            "recordings_active": recordings_active,
-        },
-        "models_available": models_available,
-        "event": ("not_configured" if not events_enabled
-                  else "available" if transport else "unavailable"),
-        "active_tasks": sessions_active + monitors_running + jobs_nonterminal
-        + recordings_active,
     }
 
 

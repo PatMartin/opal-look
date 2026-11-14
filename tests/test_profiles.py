@@ -7,7 +7,7 @@ def _mk(client, name="p1", **extra):
 
 
 def test_create_and_show(client):
-    resp = _mk(client, pipeline_id=None)
+    resp = _mk(client)
     assert resp.status_code == 201, resp.text
     body = resp.json()
     assert body["id"] >= 1 and body["name"] == "p1"
@@ -71,9 +71,10 @@ def test_mutation_requires_if_match(client):
     assert client.post("/api/v1/profile/", json={"name": "x"}).status_code == 428
 
 
-def test_unknown_pipeline_422(client):
+def test_unknown_pipeline_is_opaque(client):
+    # pipeline_id is opaque data now — the pipelines resource is retired.
     resp = _mk(client, pipeline_id="ghost")
-    assert resp.status_code == 422
+    assert resp.status_code == 201
 
 
 def test_unknown_profile_404(client):

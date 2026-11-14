@@ -9,7 +9,6 @@ from ..dependencies import StoreDep
 from ..engines import ENGINE_REGISTRY, engine_read, engine_runtime
 from ..errors import ApiError
 from ..precondition import check_if_match, require_if_match
-from ..refs import nonterminal_sessions_referencing
 from ..schemas import EnginePatch, reject_null_fields
 from ..store import Store
 
@@ -56,9 +55,6 @@ def patch_api_v1_engines_engine_id(
         errors = adapter.validate_config(supplied["options"])
         if errors:
             raise ApiError(422, "Invalid engine options.", details=errors)
-    if nonterminal_sessions_referencing(store, "engine", engine_id):
-        raise ApiError(409, f"Engine {engine_id!r} is referenced by a nonterminal session.")
-
     fields = dict(supplied)
     if "options" in fields:
         fields["config"] = fields.pop("options")

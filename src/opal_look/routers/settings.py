@@ -34,14 +34,6 @@ def _known_key(key: str) -> None:
         raise ApiError(404, f"Unknown setting key: {key!r}")
 
 
-def _event_transport_check(request: Request, values: dict) -> None:
-    if values.get("events_enabled") is True and not request.app.state.event_transport:
-        raise ApiError(
-            422,
-            "Event transport is not provisioned; events_enabled cannot be set to true.",
-        )
-
-
 def _reject_nulls(values: dict) -> None:
     if any(value is None for value in values.values()):
         raise ApiError(422, "Null setting values are not allowed.")
@@ -79,7 +71,6 @@ def patch_api_v1_settings(
     if not supplied:
         raise ApiError(422, "Empty settings patches are not allowed.")
     _reject_nulls(supplied)
-    _event_transport_check(request, supplied)
 
     with store.write_txn():
         check_if_match(request, store)
@@ -110,7 +101,6 @@ def put_look_setting(
         raise ApiError(422, f"Invalid value for setting {key!r}.", details=exc.errors())
     value = validated.model_dump(exclude_unset=True)[key]
     _reject_nulls({key: value})
-    _event_transport_check(request, {key: value})
 
     with store.write_txn():
         check_if_match(request, store)

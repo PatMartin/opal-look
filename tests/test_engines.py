@@ -72,8 +72,8 @@ def test_patch_engine_config_force_unavailable(client):
     )
     assert resp.status_code == 200
     assert resp.json()["state"] == "unavailable"
-    # Readiness drops while the only engine is unavailable.
-    assert client.get("/api/v1/health/ready").status_code == 503
+    # MVP runs without AI engines: readiness does not depend on engine state.
+    assert client.get("/api/v1/health/ready").status_code == 200
 
 
 def test_patch_engine_stale_etag(client):

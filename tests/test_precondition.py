@@ -202,21 +202,14 @@ def test_import_advances_revision(client):
 
 
 def test_runtime_activity_does_not_bump_revision(client, tmp_path):
-    import io
-
-    from PIL import Image
-
+    """Managed backup files are runtime artifacts, not config writes."""
     etag = _etag(client)
-    buf = io.BytesIO()
-    Image.new("RGB", (8, 8), (1, 2, 3)).save(buf, format="JPEG")
-    resp = client.post(
-        "/api/v1/media/", files={"file": ("x.jpg", buf.getvalue(), "image/jpeg")}
-    )
+    resp = client.post("/api/v1/backup/create")
     assert resp.status_code == 201
-    media_id = resp.json()["id"]
-    assert _etag(client) == etag, "media upload must not move config ETag"
-    assert client.delete(f"/api/v1/media/{media_id}").status_code == 204
-    assert _etag(client) == etag, "media delete must not move config ETag"
+    name = resp.json()["filename"]
+    assert _etag(client) == etag, "backup create must not move config ETag"
+    assert client.delete(f"/api/v1/backup/{name}").status_code == 204
+    assert _etag(client) == etag, "backup delete must not move config ETag"
 
 
 def test_require_if_match_unit():

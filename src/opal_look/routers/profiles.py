@@ -33,9 +33,6 @@ def _get_profile_or_404(store, profile_id: int):
 def _validate_body(store, supplied: dict) -> None:
     if "name" in supplied and not supplied["name"]:
         raise ApiError(422, "Profile name must be non-empty.")
-    pid = supplied.get("pipeline_id")
-    if pid is not None and store.pipelines.get(pid) is None:
-        raise ApiError(422, f"Unknown pipeline: {pid!r}")
     for key in ("inference", "retention", "confidence_thresholds",
                 "engine_options", "model_paths"):
         if key in supplied and supplied[key] is not None \

@@ -1,4 +1,4 @@
-"""v1.7.1 SPA: static assets served at /app/, no legacy endpoints used."""
+"""MVP SPA: static assets served at /app/, no retired endpoints used."""
 
 def test_spa_served(client):
     r = client.get("/app/")
@@ -8,22 +8,28 @@ def test_spa_served(client):
 
 def test_spa_js_only_v17_paths(client):
     js = client.get("/app/app.js").text
-    # no legacy endpoints referenced
-    for legacy in ("/api/v1/results", "/api/v1/snapshots",
-                   "/api/v1/configuration", "/api/v1/sources/",
-                   "/api/v1/engines/", "/api/v1/settings/",
+    # retired endpoints never referenced
+    for legacy in ("/api/v1/source", "/api/v1/session", "/api/v1/pipeline",
+                   "/api/v1/analyze", "/api/v1/monitor", "/api/v1/persona",
+                   "/api/v1/zone", "/api/v1/rule", "/api/v1/media",
+                   "/api/v1/job", "/api/v1/observation", "/api/v1/capture",
+                   "/api/v1/artifact", "/api/v1/recording",
+                   "/api/v1/events", "/api/v1/metrics",
+                   "/api/v1/capabilities",
                    "sessionObservations"):
         assert legacy not in js, legacy
-    # v1.7.1 ops are referenced
-    for path in ("/api/v1/source/", "/api/v1/pipeline/", "/api/v1/analyze/",
-                 "/api/v1/monitor/", "/api/v1/persona/", "/api/v1/info/",
+    # v1.7.1 MVP ops are referenced
+    for path in ("/api/v1/stream/", "/api/v1/predict", "/api/v1/model/",
+                 "/api/v1/engine/", "/api/v1/hardware/", "/api/v1/info/",
                  "/api/v1/backup/export", "/api/v1/backup/list",
                  "/api/v1/backup/create", "/api/v1/backup/restore/",
-                 "/api/v1/events/status", "/api/v1/metrics/"):
+                 "/api/v1/service/log"):
         assert path in js, path
 
 
 def test_spa_no_legacy_sections(client):
     html = client.get("/app/").text
-    for legacy in ("sec-results", "sec-snapshots", "sec-config"):
+    for legacy in ("sec-sources", "sec-sessions", "sec-pipelines",
+                   "sec-analyze", "sec-monitors", "sec-personas",
+                   "sec-results", "sec-snapshots", "sec-config"):
         assert legacy not in html

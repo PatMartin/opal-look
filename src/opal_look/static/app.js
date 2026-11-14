@@ -1,4 +1,4 @@
-/* OPAL Look SPA v1.5 — thin REST client, no business logic. */
+/* OPAL Look SPA (MVP v1.7.1) — thin REST client, no business logic. */
 "use strict";
 
 const $ = (s, r = document) => r.querySelector(s);
@@ -104,90 +104,52 @@ const SCREENS = {
   async dashboard(el) {
     el.innerHTML = `<h3>Dashboard</h3>`;
     try {
-      const [health, metrics, events] = await Promise.all([
+      const [health, info] = await Promise.all([
         api("GET", "/api/v1/health/"),
-        api("GET", "/api/v1/metrics/"),
-        api("GET", "/api/v1/events/status"),
+        api("GET", "/api/v1/info/"),
       ]);
-      el.innerHTML += `<pre>${esc(JSON.stringify({ health, metrics, events }, null, 2))}</pre>`;
+      el.innerHTML += `<pre>${esc(JSON.stringify({ health, info }, null, 2))}</pre>`;
     } catch (e) {}
   },
-  async sources(el) {
-    el.innerHTML = await _list("Sources", "/api/v1/source/") +
-      `<button onclick="createSource()">add</button>` +
-      `<div id="src-form" style="display:none"></div>`;
+  async streams(el) {
+    el.innerHTML = await _list("Streams", "/api/v1/stream/") +
+      `<input id="st-src" placeholder="rtsp://camera/live" size="40">
+       <input id="st-eng" placeholder="engine_id (optional)">
+       <input id="st-mod" placeholder="model_id (with engine)">
+       <button onclick="startStream()">start</button>
+       <button onclick="stopStream()">stop</button>
+       <button onclick="streamEvents()">watch</button>
+       <button onclick="streamVideo()">video</button>
+       <button onclick="streamSnapshot()">snapshot</button>
+       <button onclick="streamMetrics()">metrics</button>
+       <pre id="st-out"></pre><p><img id="st-img" alt="live view"></p>`;
   },
-  async zones(el) {
-    el.innerHTML = await _list("Zones", "/api/v1/zone/") +
-      `<button onclick="createZone()">add</button>`;
+  async predict(el) {
+    el.innerHTML = `<h3>Predict</h3>
+      <input id="pr-eng" placeholder="engine_id">
+      <input id="pr-mod" placeholder="model_id">
+      <input id="pr-src" placeholder="image path or URI" size="40">
+      <input id="pr-conf" placeholder="confidence (0-1)">
+      <button onclick="runPredict()">predict</button>
+      <pre id="pr-out"></pre>`;
   },
-  async rules(el) {
-    el.innerHTML = await _list("Rules", "/api/v1/rule/") +
-      `<button onclick="createRule()">add</button>`;
+  async models(el) {
+    el.innerHTML = await _list("Models", "/api/v1/model/") +
+      `<button onclick="loadModel()">load</button>` +
+      `<button onclick="unloadModel()">unload</button>`;
+  },
+  async engines(el) {
+    el.innerHTML = await _list("Engines", "/api/v1/engine/") +
+      `<button onclick="discoverEngines()">discover</button>` +
+      `<button onclick="engineCaps()">capabilities</button>`;
+  },
+  async hardware(el) {
+    el.innerHTML = await _list("Hardware", "/api/v1/hardware/");
   },
   async profiles(el) {
     el.innerHTML = await _list("Profiles", "/api/v1/profile/") +
       `<button onclick="createProfile()">add</button>` +
       `<button onclick="activateProfile()">activate</button>`;
-  },
-  async personas(el) {
-    el.innerHTML = await _list("Personas", "/api/v1/persona/") +
-      `<button onclick="createPersona()">add</button>` +
-      `<button onclick="validatePersona()">validate</button>` +
-      `<button onclick="removePersona()">remove</button>`;
-  },
-  async sessions(el) {
-    el.innerHTML = await _list("Sessions", "/api/v1/session/") +
-      `<button onclick="startSession()">start</button>` +
-      `<button onclick="stopSession()">stop</button>` +
-      `<button onclick="sessionStream()">stream</button>` +
-      `<pre id="sess-out"></pre>`;
-  },
-  async captures(el) {
-    el.innerHTML = await _list("Captures", "/api/v1/capture/") +
-      `<button onclick="captureSource()">capture source</button>`;
-  },
-  async artifacts(el) {
-    el.innerHTML = await _list("Artifacts", "/api/v1/artifact/") +
-      `<button onclick="downloadArtifact()">download</button>`;
-  },
-  async pipelines(el) {
-    el.innerHTML = await _list("Pipelines", "/api/v1/pipeline/") +
-      `<button onclick="createPipeline()">add</button>` +
-      `<button onclick="validatePipeline()">validate</button>`;
-  },
-  async analyze(el) {
-    el.innerHTML = `<h3>Analyze</h3>
-      <input id="an-src" placeholder="source_id or media_id">
-      <input id="an-pipe" placeholder="pipeline_id (optional)">
-      <button onclick="runAnalyze()">run</button>
-      <button onclick="analyzeImage()">image file</button>
-      <input id="an-file" type="file" accept="image/*">
-      <pre id="an-out"></pre>`;
-  },
-  async view(el) {
-    el.innerHTML = `<h3>View</h3>
-      <input id="vw-src" placeholder="source_id">
-      <button onclick="startView()">stream</button>
-      <button onclick="stopStreams()">stop</button>
-      <p><img id="vw-img" alt="live view"></p>`;
-  },
-  async monitors(el) {
-    el.innerHTML = await _list("Monitors", "/api/v1/monitor/") +
-      `<button onclick="createMonitor()">add</button>`;
-  },
-  async observations(el) {
-    el.innerHTML = await _list("Observations", "/api/v1/observation/");
-  },
-  async media(el) {
-    el.innerHTML = await _list("Media", "/api/v1/media/") +
-      `<input id="md-file" type="file"><button onclick="uploadMedia()">upload</button>`;
-  },
-  async jobs(el) {
-    el.innerHTML = await _list("Jobs", "/api/v1/job/");
-  },
-  async recordings(el) {
-    el.innerHTML = await _list("Recordings", "/api/v1/recording/");
   },
   async settings(el) {
     el.innerHTML = await _list("Settings", "/api/v1/setting/");
@@ -206,40 +168,14 @@ const SCREENS = {
   },
   async ops(el) {
     el.innerHTML = `<h3>Operations</h3>
-      <button onclick="showCaps()">capabilities</button>
-      <button onclick="showMetrics()">metrics</button>
       <button onclick="showInfo()">info</button>
       <button onclick="pingInfo()">ping</button>
+      <button onclick="svcLog()">service log</button>
       <pre id="ops-out"></pre>`;
   },
 };
 
 /* Actions that map 1:1 to REST ops */
-async function createSource() {
-  const j = prompt("SourceCreate JSON:");
-  if (j) { await mutate("POST", "/api/v1/source/", JSON.parse(j)); render("sources"); }
-}
-async function createPipeline() {
-  const j = prompt("PipelineCreate JSON:");
-  if (j) { await mutate("POST", "/api/v1/pipeline/", JSON.parse(j)); render("pipelines"); }
-}
-async function validatePipeline() {
-  const j = prompt("PipelineCreate JSON to validate:");
-  if (j) { const r = await api("POST", "/api/v1/pipeline/validate", { body: JSON.parse(j) });
-           toast(JSON.stringify(r)); }
-}
-async function createMonitor() {
-  const j = prompt("MonitorCreate JSON:");
-  if (j) { await mutate("POST", "/api/v1/monitor/", JSON.parse(j)); render("monitors"); }
-}
-async function createZone() {
-  const j = prompt("ZoneCreate JSON:");
-  if (j) { await mutate("POST", "/api/v1/zone/", JSON.parse(j)); render("zones"); }
-}
-async function createRule() {
-  const j = prompt("RuleCreate JSON:");
-  if (j) { await mutate("POST", "/api/v1/rule/", JSON.parse(j)); render("rules"); }
-}
 async function createProfile() {
   const j = prompt("ProfileCreate JSON:");
   if (j) { await mutate("POST", "/api/v1/profile/", JSON.parse(j)); render("profiles"); }
@@ -248,61 +184,57 @@ async function activateProfile() {
   const id = prompt("Profile id to activate:");
   if (id) { await mutate("POST", `/api/v1/profile/${id}/activate`); render("profiles"); }
 }
-async function createPersona() {
-  const j = prompt("PersonaCreate JSON:");
-  if (j) { await mutate("POST", "/api/v1/persona/", JSON.parse(j)); render("personas"); }
+async function discoverEngines() {
+  toast(JSON.stringify(await api("POST", "/api/v1/engine/discover")));
+  render("engines");
 }
-async function validatePersona() {
-  const id = prompt("Persona id to validate:");
-  if (id) toast(JSON.stringify(await api("POST", `/api/v1/persona/${id}/validate`)));
+async function engineCaps() {
+  const id = prompt("Engine id:");
+  if (id) toast(JSON.stringify(await api("GET", `/api/v1/engine/${id}/capabilities`)));
 }
-async function removePersona() {
-  const id = prompt("Persona id to remove:");
-  if (id) { await mutate("DELETE", `/api/v1/persona/${id}`); render("personas"); }
+async function loadModel() {
+  const id = prompt("Model id:"); if (!id) return;
+  const eng = prompt("Engine id (optional):");
+  const q = eng ? `?engine_id=${encodeURIComponent(eng)}` : "";
+  await api("POST", `/api/v1/model/${id}/load${q}`); render("models");
 }
-async function startSession() {
-  const j = prompt("SessionCreate JSON:", '{"source_id":"cam","pipeline_id":"p1"}');
-  if (j) { await mutate("POST", "/api/v1/session/", JSON.parse(j)); render("sessions"); }
+async function unloadModel() {
+  const id = prompt("Model id:"); if (!id) return;
+  const eng = prompt("Engine id (optional):");
+  const q = eng ? `?engine_id=${encodeURIComponent(eng)}` : "";
+  await api("POST", `/api/v1/model/${id}/unload${q}`); render("models");
 }
-async function stopSession() {
-  const id = prompt("Session id to stop:");
-  if (id) { await api("POST", `/api/v1/session/${id}/stop`); render("sessions"); }
+async function runPredict() {
+  const body = {
+    engine_id: $("#pr-eng").value, model_id: $("#pr-mod").value,
+    source: $("#pr-src").value,
+  };
+  const conf = parseFloat($("#pr-conf").value);
+  if (!isNaN(conf)) body.confidence = conf;
+  $("#pr-out").textContent = JSON.stringify(
+    await api("POST", "/api/v1/predict", { body }), null, 2);
 }
-async function sessionStream() {
-  const id = prompt("Session id:");
-  if (!id) return;
-  $("#sess-out").textContent = "";
-  await stream(`/api/v1/session/${id}/stream`,
-    ev => { $("#sess-out").textContent += ev + "\n\n"; });
+async function startStream() {
+  const body = { source: $("#st-src").value };
+  if ($("#st-eng").value) body.engine_id = $("#st-eng").value;
+  if ($("#st-mod").value) body.model_id = $("#st-mod").value;
+  const r = await api("POST", "/api/v1/stream/", { body });
+  $("#st-out").textContent = JSON.stringify(r, null, 2);
 }
-async function captureSource() {
-  const id = prompt("Source id:");
-  if (id) { await mutate("POST", `/api/v1/source/${id}/capture/`,
-                          { retain: true }); render("captures"); }
+async function stopStream() {
+  const id = prompt("Stream id to stop:");
+  if (id) { await api("POST", `/api/v1/stream/${id}/stop`); render("streams"); }
 }
-async function downloadArtifact() {
-  const id = prompt("Artifact id:");
-  if (id) window.open(`/api/v1/artifact/${id}/content`, "_blank");
+async function streamEvents() {
+  const id = prompt("Stream id:"); if (!id) return;
+  $("#st-out").textContent = "";
+  await stream(`/api/v1/stream/${id}/events`,
+    ev => { $("#st-out").textContent += ev + "\n\n"; });
 }
-
-async function runAnalyze() {
-  const src = $("#an-src").value, pipe = $("#an-pipe").value;
-  const body = { source: { source_id: src } };
-  if (pipe) body.pipeline_id = pipe;
-  const r = await api("POST", "/api/v1/analyze/", { body });
-  $("#an-out").textContent = JSON.stringify(r, null, 2);
-}
-async function analyzeImage() {
-  const f = $("#an-file").files[0]; if (!f) return toast("pick a file", true);
-  const fd = new FormData(); fd.append("image", f);
-  const resp = await fetch("/api/v1/analyze/image",
-    { method: "POST", headers: _auth(), body: fd });
-  $("#an-out").textContent = JSON.stringify(await resp.json(), null, 2);
-}
-async function startView() {
-  const id = $("#vw-src").value; if (!id) return;
+async function streamVideo() {
+  const id = prompt("Stream id:"); if (!id) return;
   stopStreams();
-  const resp = await fetch(`/api/v1/source/${id}/stream`, { headers: _auth() });
+  const resp = await fetch(`/api/v1/stream/${id}/video`, { headers: _auth() });
   if (!resp.ok) { await _raise(resp); return; }
   const rd = resp.body.getReader();
   const chunks = [];
@@ -315,16 +247,19 @@ async function startView() {
         chunks.push(value);
         if (chunks.length > 2) chunks.shift();
         const blob = new Blob(chunks, { type: "image/jpeg" });
-        $("#vw-img").src = URL.createObjectURL(blob);
+        $("#st-img").src = URL.createObjectURL(blob);
       }
     } catch {}
   })();
 }
-async function uploadMedia() {
-  const f = $("#md-file").files[0]; if (!f) return toast("pick a file", true);
-  const fd = new FormData(); fd.append("file", f);
-  const resp = await fetch("/api/v1/media/", { method: "POST", headers: _auth(), body: fd });
-  if (resp.ok) render("media"); else await _raise(resp);
+async function streamSnapshot() {
+  const id = prompt("Stream id:"); if (!id) return;
+  window.open(`/api/v1/stream/${id}/snapshot`, "_blank");
+}
+async function streamMetrics() {
+  const id = prompt("Stream id:"); if (!id) return;
+  $("#st-out").textContent = JSON.stringify(
+    await api("GET", `/api/v1/stream/${id}/metrics`), null, 2);
 }
 async function exportCfg() {
   $("#cfg-out").textContent = JSON.stringify(await api("GET", "/api/v1/backup/export"), null, 2);
@@ -360,22 +295,17 @@ async function deleteBackup() {
   const name = prompt("Backup filename to remove:");
   if (name) { await api("DELETE", `/api/v1/backup/${name}`); render("backup"); }
 }
-async function showCaps() {
-  $("#ops-out").textContent = JSON.stringify(await api("GET", "/api/v1/capabilities/"), null, 2);
-}
-async function showMetrics() {
-  $("#ops-out").textContent = JSON.stringify(await api("GET", "/api/v1/metrics/"), null, 2);
-}
 async function showInfo() {
   $("#ops-out").textContent = JSON.stringify(await api("GET", "/api/v1/info/"), null, 2);
 }
 async function pingInfo() {
   $("#ops-out").textContent = JSON.stringify(await api("GET", "/api/v1/info/ping"), null, 2);
 }
-const GROUPS = ["dashboard", "sources", "zones", "rules", "profiles",
-                "personas", "sessions", "pipelines", "analyze", "view",
-                "monitors", "observations", "media", "captures", "artifacts",
-                "jobs", "recordings", "settings", "backup", "ops"];
+async function svcLog() {
+  $("#ops-out").textContent = JSON.stringify(await api("GET", "/api/v1/service/log"), null, 2);
+}
+const GROUPS = ["dashboard", "streams", "predict", "models", "engines",
+                "hardware", "profiles", "settings", "backup", "ops"];
 GROUPS.forEach(id => {
   const b = document.createElement("button");
   b.textContent = id; b.onclick = () => render(id);

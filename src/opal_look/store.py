@@ -16,25 +16,17 @@ from typing import Iterator
 
 from .repositories import (
     SqliteEngineRepository,
-    SqliteMediaRepository,
     SqliteMetaRepository,
-    SqliteModelRepository,
-    SqliteJobRepository,
-    SqliteRecordingRepository,
-    SqliteMonitorRepository,
-    SqliteObservationRepository,
-    SqlitePipelineRepository,
     SqliteProfileRepository,
-    SqliteZoneRepository,
-    SqliteRuleRepository,
-    SqliteArtifactRepository,
-    SqliteResultRepository,
-    SqliteSessionRepository,
     SqliteSettingsRepository,
-    SqliteSnapshotRepository,
-    SqliteSourceRepository,
-    SqlitePersonaRepository,
     new_revision,
+)
+
+# Tables retired by the MVP contract replacement (v1.7.1 clean cut).
+_RETIRED_TABLES = (
+    "models", "sources", "observations", "recordings", "jobs", "monitors",
+    "pipelines", "artifacts", "rules", "zones", "media", "results",
+    "snapshots", "sessions", "personas",
 )
 
 
@@ -84,22 +76,7 @@ class Store:
         self.meta = SqliteMetaRepository(self._conn)
         self.settings = SqliteSettingsRepository(self._conn)
         self.engines = SqliteEngineRepository(self._conn)
-        self.models = SqliteModelRepository(self._conn)
-        self.pipelines = SqlitePipelineRepository(self._conn)
-        self.observations = SqliteObservationRepository(self._conn)
-        self.monitors = SqliteMonitorRepository(self._conn)
-        self.jobs = SqliteJobRepository(self._conn)
-        self.recordings = SqliteRecordingRepository(self._conn)
-        self.sources = SqliteSourceRepository(self._conn)
         self.profiles = SqliteProfileRepository(self._conn)
-        self.zones = SqliteZoneRepository(self._conn)
-        self.rules = SqliteRuleRepository(self._conn)
-        self.artifacts = SqliteArtifactRepository(self._conn)
-        self.media = SqliteMediaRepository(self._conn)
-        self.results = SqliteResultRepository(self._conn)
-        self.snapshots = SqliteSnapshotRepository(self._conn)
-        self.sessions = SqliteSessionRepository(self._conn)
-        self.personas = SqlitePersonaRepository(self._conn)
 
     def _init_schema(self) -> None:
         self._conn.executescript(
@@ -120,224 +97,13 @@ class Store:
                 config TEXT NOT NULL DEFAULT '{}',
                 metadata TEXT NOT NULL DEFAULT '{}'
             );
-            CREATE TABLE IF NOT EXISTS models (
-                model_id TEXT PRIMARY KEY,
-                name TEXT NOT NULL,
-                engine_id TEXT NOT NULL,
-                resource TEXT NOT NULL,
-                enabled INTEGER NOT NULL DEFAULT 1,
-                created_at TEXT NOT NULL DEFAULT '',
-                tasks TEXT NOT NULL DEFAULT '[]',
-                options TEXT NOT NULL DEFAULT '{}',
-                resource_ref TEXT
-            );
-            CREATE TABLE IF NOT EXISTS sources (
-                source_id TEXT PRIMARY KEY,
-                name TEXT NOT NULL,
-                type TEXT NOT NULL,
-                locator TEXT NOT NULL,
-                credential_ref TEXT,
-                enabled INTEGER NOT NULL DEFAULT 1,
-                source_options TEXT NOT NULL DEFAULT '{}',
-                zones TEXT NOT NULL DEFAULT '[]'
-            );
-            CREATE TABLE IF NOT EXISTS observations (
-                observation_id TEXT PRIMARY KEY,
-                created_at TEXT NOT NULL,
-                observed_at TEXT NOT NULL,
-                source_id TEXT,
-                media_id TEXT,
-                monitor_id TEXT,
-                job_id TEXT,
-                pipeline_id TEXT,
-                stage_id TEXT,
-                task TEXT NOT NULL,
-                labels TEXT NOT NULL DEFAULT '[]',
-                expires_at TEXT,
-                body TEXT NOT NULL
-            );
-            CREATE TABLE IF NOT EXISTS recordings (
-                recording_id TEXT PRIMARY KEY,
-                source_id TEXT NOT NULL,
-                pipeline_id TEXT,
-                include_audio INTEGER NOT NULL DEFAULT 0,
-                max_duration_seconds INTEGER,
-                output_json TEXT NOT NULL DEFAULT 'null',
-                state TEXT NOT NULL DEFAULT 'starting',
-                media_id TEXT,
-                failure TEXT,
-                bytes_written INTEGER NOT NULL DEFAULT 0,
-                frames_written INTEGER NOT NULL DEFAULT 0,
-                created_at TEXT NOT NULL,
-                started_at TEXT,
-                finished_at TEXT
-            );
-            CREATE TABLE IF NOT EXISTS jobs (
-                job_id TEXT PRIMARY KEY,
-                kind TEXT NOT NULL,
-                source_id TEXT,
-                media_id TEXT,
-                payload_json TEXT NOT NULL,
-                state TEXT NOT NULL DEFAULT 'queued',
-                progress REAL NOT NULL DEFAULT 0,
-                media_ids TEXT NOT NULL DEFAULT '[]',
-                failure TEXT,
-                created_at TEXT NOT NULL,
-                started_at TEXT,
-                ended_at TEXT
-            );
-            CREATE TABLE IF NOT EXISTS monitors (
-                monitor_id TEXT PRIMARY KEY,
-                name TEXT NOT NULL,
-                source_id TEXT NOT NULL,
-                pipeline_id TEXT NOT NULL,
-                enabled INTEGER NOT NULL DEFAULT 1,
-                restart_policy TEXT NOT NULL DEFAULT 'on_failure',
-                options TEXT NOT NULL DEFAULT 'null',
-                retention TEXT NOT NULL DEFAULT 'null',
-                conditions TEXT NOT NULL DEFAULT '[]',
-                publish_events INTEGER NOT NULL DEFAULT 0,
-                created_at TEXT NOT NULL,
-                last_observation_at TEXT,
-                last_failure TEXT,
-                revision INTEGER NOT NULL DEFAULT 0
-            );
-            CREATE TABLE IF NOT EXISTS pipelines (
-                pipeline_id TEXT PRIMARY KEY,
-                name TEXT NOT NULL,
-                description TEXT,
-                model_id TEXT,
-                task TEXT,
-                stages TEXT NOT NULL DEFAULT '[]',
-                options TEXT NOT NULL DEFAULT '{}',
-                retention TEXT NOT NULL DEFAULT '{}',
-                revision INTEGER NOT NULL DEFAULT 1,
-                created_at TEXT NOT NULL
-            );
-            CREATE TABLE IF NOT EXISTS artifacts (
-                artifact_id TEXT PRIMARY KEY,
-                kind TEXT NOT NULL,
-                mime_type TEXT NOT NULL,
-                size_bytes INTEGER NOT NULL,
-                created_at TEXT NOT NULL,
-                expires_at TEXT NOT NULL,
-                source_id TEXT,
-                job_id TEXT,
-                path TEXT NOT NULL
-            );
-            CREATE TABLE IF NOT EXISTS rules (
-                rule_id TEXT PRIMARY KEY,
-                source_id TEXT NOT NULL,
-                zone_id TEXT,
-                name TEXT NOT NULL,
-                kind TEXT NOT NULL,
-                class_filters TEXT NOT NULL DEFAULT '[]',
-                threshold REAL,
-                minimum_duration_ms INTEGER,
-                cooldown_ms INTEGER,
-                enabled INTEGER NOT NULL DEFAULT 1,
-                capture_on_match INTEGER NOT NULL DEFAULT 0,
-                clip_on_match INTEGER NOT NULL DEFAULT 0,
-                last_triggered_at TEXT
-            );
-            CREATE TABLE IF NOT EXISTS zones (
-                zone_id TEXT PRIMARY KEY,
-                source_id TEXT NOT NULL,
-                name TEXT NOT NULL,
-                kind TEXT NOT NULL,
-                points TEXT NOT NULL,
-                enabled INTEGER NOT NULL DEFAULT 1
-            );
             CREATE TABLE IF NOT EXISTS profiles (
                 profile_id INTEGER PRIMARY KEY AUTOINCREMENT,
                 name TEXT NOT NULL,
-                model_id TEXT NOT NULL,
-                task TEXT NOT NULL,
+                model_id TEXT NOT NULL DEFAULT '',
+                task TEXT NOT NULL DEFAULT '',
                 settings TEXT NOT NULL DEFAULT '{}',
                 active INTEGER NOT NULL DEFAULT 0
-            );
-            CREATE TABLE IF NOT EXISTS media (
-                media_id TEXT PRIMARY KEY,
-                filename TEXT NOT NULL,
-                kind TEXT NOT NULL,
-                origin TEXT NOT NULL DEFAULT 'upload',
-                source_id TEXT,
-                job_id TEXT,
-                monitor_id TEXT,
-                annotated INTEGER NOT NULL DEFAULT 0,
-                sha256 TEXT,
-                content_type TEXT NOT NULL,
-                size_bytes INTEGER NOT NULL,
-                path TEXT NOT NULL,
-                width INTEGER,
-                height INTEGER,
-                duration_ms INTEGER,
-                created_at TEXT NOT NULL,
-                expires_at TEXT NOT NULL
-            );
-            CREATE TABLE IF NOT EXISTS results (
-                result_id TEXT PRIMARY KEY,
-                session_id TEXT,
-                source_id TEXT,
-                media_id TEXT,
-                model_id TEXT NOT NULL,
-                engine_id TEXT NOT NULL,
-                task TEXT NOT NULL,
-                profile_id INTEGER,
-                frame_index INTEGER NOT NULL,
-                tracking_epoch INTEGER NOT NULL,
-                captured_at TEXT NOT NULL,
-                analyzed_at TEXT NOT NULL,
-                position_ms INTEGER,
-                width INTEGER NOT NULL,
-                height INTEGER NOT NULL,
-                duration_ms REAL NOT NULL,
-                stored INTEGER NOT NULL DEFAULT 1,
-                expires_at TEXT,
-                payload TEXT NOT NULL,
-                engine_metadata TEXT NOT NULL DEFAULT '{}',
-                settings TEXT NOT NULL DEFAULT '{}'
-            );
-            CREATE TABLE IF NOT EXISTS snapshots (
-                snapshot_id TEXT PRIMARY KEY,
-                result_id TEXT NOT NULL,
-                annotated INTEGER NOT NULL DEFAULT 0,
-                path TEXT NOT NULL,
-                width INTEGER NOT NULL,
-                height INTEGER NOT NULL,
-                created_at TEXT NOT NULL,
-                expires_at TEXT NOT NULL
-            );
-            CREATE TABLE IF NOT EXISTS sessions (
-                session_id TEXT PRIMARY KEY,
-                source_id TEXT NOT NULL,
-                profile_id INTEGER,
-                model_id TEXT NOT NULL,
-                engine_id TEXT NOT NULL,
-                task TEXT NOT NULL,
-                settings TEXT NOT NULL,
-                reconnect TEXT,
-                store_results INTEGER NOT NULL,
-                state TEXT NOT NULL,
-                created_at TEXT NOT NULL,
-                started_at TEXT,
-                finished_at TEXT,
-                start_position_ms INTEGER,
-                end_position_ms INTEGER,
-                frames_analyzed INTEGER NOT NULL DEFAULT 0,
-                frames_dropped INTEGER NOT NULL DEFAULT 0,
-                tracking_epoch INTEGER NOT NULL DEFAULT 0,
-                last_result_id TEXT,
-                error TEXT
-            );
-            CREATE TABLE IF NOT EXISTS personas (
-                persona_id TEXT PRIMARY KEY,
-                name TEXT NOT NULL,
-                description TEXT,
-                voice_id TEXT,
-                enabled INTEGER NOT NULL DEFAULT 1,
-                created_at TEXT NOT NULL,
-                updated_at TEXT NOT NULL
             );
             CREATE TABLE IF NOT EXISTS idempotency_keys (
                 key TEXT PRIMARY KEY,
@@ -358,22 +124,9 @@ class Store:
             )
 
     def _migrate(self) -> None:
-        """Idempotent column adds for pre-v1.5 databases."""
-        import json as _json
-
-        from .timeutil import now_iso
-
-        cols = {r["name"] for r in self._conn.execute("PRAGMA table_info(models)")}
-        for col, ddl in (
-            ("created_at", "TEXT NOT NULL DEFAULT ''"),
-            ("tasks", "TEXT NOT NULL DEFAULT '[]'"),
-            ("options", "TEXT NOT NULL DEFAULT '{}'"),
-            ("resource_ref", "TEXT"),
-        ):
-            if col not in cols:
-                self._conn.execute(f"ALTER TABLE models ADD COLUMN {col} {ddl}")
-        self._conn.execute("UPDATE models SET created_at = ? WHERE created_at = ''",
-                           (now_iso(),))
+        """Drop retired tables and apply idempotent column adds."""
+        for table in _RETIRED_TABLES:
+            self._conn.execute(f"DROP TABLE IF EXISTS {table}")
         ocols = {r["name"] for r in self._conn.execute(
             "PRAGMA table_info(setting_overrides)")}
         if "updated_at" not in ocols:
@@ -384,125 +137,6 @@ class Store:
         if "data" not in pcols:
             self._conn.execute(
                 "ALTER TABLE profiles ADD COLUMN data TEXT NOT NULL DEFAULT '{}'")
-        scols = {r["name"] for r in self._conn.execute("PRAGMA table_info(sources)")}
-        if "zones" not in scols:
-            self._conn.execute("ALTER TABLE sources ADD COLUMN zones TEXT NOT NULL DEFAULT '[]'")
-        self._conn.execute("UPDATE sources SET type = 'file' WHERE type = 'host_video'")
-        self._conn.execute("UPDATE sources SET type = 'http_mjpeg' WHERE type = 'http'")
-        self._conn.execute("UPDATE sources SET type = 'usb' WHERE type = 'camera'")
-        self._conn.execute("UPDATE sources SET type = 'file' WHERE type = 'image'")
-        rcols = {r["name"] for r in self._conn.execute(
-            "PRAGMA table_info(recordings)")}
-        if "artifact_id" not in rcols:
-            self._conn.execute(
-                "ALTER TABLE recordings ADD COLUMN artifact_id TEXT")
-        mcols = {r["name"] for r in self._conn.execute(
-            "PRAGMA table_info(monitors)")}
-        if "profile_id" not in mcols:
-            self._conn.execute(
-                "ALTER TABLE monitors ADD COLUMN profile_id INTEGER")
-        scols2 = {r["name"] for r in self._conn.execute(
-            "PRAGMA table_info(sessions)")}
-        for col in ("pipeline_id TEXT", "options TEXT", "retention TEXT",
-                    "last_observation_at TEXT"):
-            if col.split()[0] not in scols2:
-                self._conn.execute(f"ALTER TABLE sessions ADD COLUMN {col}")
-        obcols = {r["name"] for r in self._conn.execute(
-            "PRAGMA table_info(observations)")}
-        if "session_id" not in obcols:
-            self._conn.execute(
-                "ALTER TABLE observations ADD COLUMN session_id TEXT")
-        snpcols = {r["name"] for r in self._conn.execute(
-            "PRAGMA table_info(snapshots)")}
-        for col in ("source_id TEXT", "session_id TEXT",
-                    "observation_id TEXT", "frame_time TEXT",
-                    "mime_type TEXT"):
-            if col.split()[0] not in snpcols:
-                self._conn.execute(f"ALTER TABLE snapshots ADD COLUMN {col}")
-        self._migrate_embedded_zones()
-        self._migrate_profiles_to_pipelines()
-        for row in self._conn.execute(
-            "SELECT model_id, resource FROM models WHERE resource_ref IS NULL"
-        ).fetchall():
-            res = _json.loads(row["resource"])
-            ref = res.get("ref") or res.get("path") or _json.dumps(res)
-            self._conn.execute(
-                "UPDATE models SET resource_ref = ? WHERE model_id = ?",
-                (ref, row["model_id"]),
-            )
-
-    def _migrate_embedded_zones(self) -> None:
-        """One-shot: embedded sources.zones -> standalone zones rows.
-
-        Harvested ids keep the original source-local id when free; on
-        collision they gain a {source_id}:{id} prefix so references in
-        monitor conditions stay resolvable.
-        """
-        import json as _json
-
-        if self._conn.execute(
-            "SELECT value FROM meta WHERE key = 'zones_migrated'"
-        ).fetchone():
-            return
-        seen: set[str] = set()
-        for row in self._conn.execute("SELECT source_id, zones FROM sources"):
-            for z in _json.loads(row["zones"] or "[]"):
-                if not isinstance(z, dict):
-                    continue
-                zid = z.get("id")
-                if not zid:
-                    continue
-                if zid in seen:
-                    zid = f"{row['source_id']}:{zid}"
-                seen.add(zid)
-                self._conn.execute(
-                    "INSERT OR IGNORE INTO zones "
-                    "(zone_id, source_id, name, kind, points, enabled) "
-                    "VALUES (?, ?, ?, ?, ?, ?)",
-                    (zid, row["source_id"], z.get("name", zid),
-                     z.get("kind", "polygon"), _json.dumps(z.get("points") or []),
-                     int(bool(z.get("enabled", True)))),
-                )
-        self._conn.execute(
-            "INSERT INTO meta (key, value) VALUES ('zones_migrated', '1')")
-
-    def _migrate_profiles_to_pipelines(self) -> None:
-        """One-shot: profiles with model_id+task become simple pipelines.
-
-        Not all profile data maps onto pipelines (activation state, resolved
-        profile settings); only model_id/task/name plus engine options are
-        carried. Guarded by a meta flag so it runs exactly once.
-        """
-        import json as _json
-
-        from .timeutil import now_iso
-
-        row = self._conn.execute(
-            "SELECT value FROM meta WHERE key = 'profiles_migrated'"
-        ).fetchone()
-        if row is not None:
-            return
-        self._conn.execute(
-            "INSERT INTO meta (key, value) VALUES ('profiles_migrated', '1')"
-        )
-        for p in self._conn.execute(
-            "SELECT * FROM profiles WHERE model_id IS NOT NULL AND task IS NOT NULL"
-        ).fetchall():
-            pid = f"profile-{p['profile_id']}"
-            settings = _json.loads(p["settings"]) if p["settings"] else {}
-            opts = {k: v for k, v in {
-                "target_fps": settings.get("max_fps"),
-                "confidence_threshold": settings.get("confidence_threshold"),
-                "classes": settings.get("class_labels"),
-                "engine_options": settings.get("engine_options"),
-            }.items() if v is not None}
-            self._conn.execute(
-                "INSERT OR IGNORE INTO pipelines (pipeline_id, name, description, "
-                "model_id, task, stages, options, retention, revision, created_at) "
-                "VALUES (?, ?, ?, ?, ?, '[]', ?, '{}', 1, ?)",
-                (pid, p["name"], "migrated from profile", p["model_id"], p["task"],
-                 _json.dumps(opts), now_iso()),
-            )
 
     def ping(self) -> bool:
         try:
@@ -564,18 +198,9 @@ class Store:
 
 
 def sweep_expired(store: "Store") -> dict[str, int]:
-    """Purge rows past their expires_at (media/results/snapshots/idempotency).
-    Returns per-table delete counts. Call on startup and periodically."""
+    """Purge expired idempotency keys. Returns per-table delete counts."""
     from .timeutil import now_iso
-    counts = {}
-    now = now_iso()
-    for table, col in (("media", "expires_at"), ("results", "expires_at"),
-                       ("snapshots", "expires_at"), ("idempotency_keys", "expires_at"),
-                       ("observations", "expires_at")):
-        cur = store._conn.execute(
-            f"DELETE FROM {table} WHERE {col} IS NOT NULL AND {col} <= ?", (now,))
-        counts[table] = cur.rowcount
-    store._conn.execute(
-        "DELETE FROM sessions WHERE state IN ('stopped','completed','failed') "
-        "AND finished_at < datetime('now', '-30 days')")
-    return counts
+    cur = store._conn.execute(
+        "DELETE FROM idempotency_keys WHERE expires_at IS NOT NULL "
+        "AND expires_at <= ?", (now_iso(),))
+    return {"idempotency_keys": cur.rowcount}

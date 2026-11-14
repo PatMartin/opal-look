@@ -70,68 +70,25 @@ def test_unhandled_error_keeps_correlation_ids(tmp_path):
 
 
 def test_binary_response_carries_correlation_headers(client):
-    import io
-
-    from PIL import Image
-
-    buf = io.BytesIO()
-    Image.new("RGB", (8, 8), (5, 5, 5)).save(buf, format="PNG")
-    mid = client.post(
-        "/api/v1/media/", files={"file": ("x.png", buf.getvalue(), "image/png")}
-    ).json()["id"]
-    client.post("/api/v1/source/", json={
-        "id": "ms", "name": "M", "kind": "media", "locator": mid},
-        headers={"If-Match": "*"})
-    cap = client.post("/api/v1/source/ms/capture/",
-                      json={"retain": True}, headers={"If-Match": "*"}).json()
     resp = client.get(
-        f"/api/v1/capture/{cap['id']}/content",
+        "/api/v1/backup/download/missing.json",
         headers={"X-Opal-Transaction-Id": "txn-bin"},
     )
-    assert resp.status_code == 200
+    assert resp.status_code == 404
     assert resp.headers["x-opal-transaction-id"] == "txn-bin"
     assert TOKEN.match(resp.headers["x-opal-request-id"])
 
 
-def test_internal_session_ids_never_leak_into_x_opal_header(client):
+def test_internal_ids_never_leak_into_x_opal_header(client):
     """X-Opal-Session-Id is the caller's logical context only; internal
-    worker/session identities stay in the body, never in the header."""
-    import io
-
-    from PIL import Image
-
-    buf = io.BytesIO()
-    Image.new("RGB", (8, 8), (4, 4, 4)).save(buf, format="JPEG")
-    mid = client.post(
-        "/api/v1/media/", files={"file": ("x.jpg", buf.getvalue(), "image/jpeg")}
-    ).json()["id"]
-    client.post(
-        "/api/v1/source/",
-        json={"id": "ms", "name": "M", "kind": "media", "locator": mid},
-        headers={"If-Match": "*"},
-    )
-    client.post("/api/v1/pipeline/", json={
-        "id": "p", "name": "P", "stages": [
-            {"id": "s1", "kind": "inference",
-             "model_id": "synthetic-vision", "task": "detection"}]},
-        headers={"If-Match": "*"})
+    resource identities stay in the body, never in the header."""
     resp = client.post(
-        "/api/v1/session/",
-        json={"source_id": "ms", "pipeline_id": "p"},
-        headers={"X-Opal-Session-Id": "caller-logical-ctx"},
+        "/api/v1/profile/",
+        json={"name": "ctx-probe"},
+        headers={"X-Opal-Session-Id": "caller-logical-ctx",
+                 "If-Match": "*"},
     )
     assert resp.status_code == 201
     internal = resp.json()["id"]
-    assert internal.startswith("session-")
     assert resp.headers["x-opal-session-id"] == "caller-logical-ctx"
-    assert resp.headers["x-opal-session-id"] != internal
-
-    # Let the worker finish before the store closes underneath it.
-    import time
-
-    deadline = time.monotonic() + 5.0
-    while time.monotonic() < deadline:
-        row = client.get(f"/api/v1/session/{internal}").json()
-        if row["state"] in ("stopped", "completed", "failed"):
-            break
-        time.sleep(0.05)
+    assert resp.headers["x-opal-session-id"] != str(internal)

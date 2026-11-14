@@ -345,17 +345,6 @@ def ensure_engines(store: Store, registry: EngineRegistry = ENGINE_REGISTRY) -> 
             store.engines.seed(adapter.engine_id, adapter.name, adapter.execution)
 
 
-def ensure_default_model(store: Store) -> None:
-    """Seed one usable synthetic model so the service is ready out of the box."""
-    with store.write_txn():
-        store.models.seed(
-            "synthetic-vision",
-            "Synthetic vision model",
-            "synthetic",
-            {"ref": "builtin"},
-        )
-
-
 def engine_runtime(store: Store, row: sqlite3.Row) -> dict[str, Any]:
     """Internal rich engine view (probe, config, capabilities) for services."""
     adapter = ENGINE_REGISTRY.get(row["engine_id"])
@@ -372,31 +361,6 @@ def engine_runtime(store: Store, row: sqlite3.Row) -> dict[str, Any]:
         "capabilities": adapter.capabilities(),
         "config": config,
         "metadata": adapter.metadata(),
-    }
-
-
-def model_runtime(store: Store, row: sqlite3.Row) -> dict[str, Any]:
-    """Internal rich model view (adapter description + availability)."""
-    adapter = ENGINE_REGISTRY.get(row["engine_id"])
-    engine_row = store.engines.get(row["engine_id"])
-    config = json.loads(engine_row["config"])
-    engine_enabled = bool(engine_row["enabled"])
-    engine_available, _ = adapter.probe(config, engine_enabled)
-    description = adapter.describe_model(json.loads(row["resource"]))
-    enabled = bool(row["enabled"])
-    return {
-        "model_id": row["model_id"],
-        "name": row["name"],
-        "engine_id": row["engine_id"],
-        "resource": json.loads(row["resource"]),
-        "enabled": enabled,
-        "available": enabled and engine_enabled and engine_available,
-        "tasks": description["tasks"],
-        "tracking": description["tracking"],
-        "classes": description["classes"],
-        "keypoints": description["keypoints"],
-        "skeleton": description["skeleton"],
-        "metadata": description["metadata"],
     }
 
 
@@ -424,28 +388,4 @@ def engine_read(store: Store, row: sqlite3.Row) -> dict[str, Any]:
     }
 
 
-def model_read(store: Store, row: sqlite3.Row) -> dict[str, Any]:
-    """Contract Model resource (v1.5 shape)."""
-    adapter = ENGINE_REGISTRY.get(row["engine_id"])
-    engine_row = store.engines.get(row["engine_id"])
-    engine_enabled = bool(engine_row["enabled"]) if engine_row is not None else False
-    engine_available = False
-    if adapter is not None and engine_row is not None:
-        engine_available, _ = adapter.probe(json.loads(engine_row["config"]), engine_enabled)
-    enabled = bool(row["enabled"])
-    declared = json.loads(row["tasks"]) if row["tasks"] else []
-    if not declared and adapter is not None:
-        declared = adapter.describe_model(json.loads(row["resource"]))["tasks"]
-    return {
-        "id": row["model_id"],
-        "engine_id": row["engine_id"],
-        "display_name": row["name"],
-        "tasks": declared,
-        "state": (
-            "registered" if not enabled
-            else "unavailable" if not engine_available
-            else "ready"
-        ),
-        "resource_label": row["resource_ref"],
-        "created_at": row["created_at"],
-    }
+

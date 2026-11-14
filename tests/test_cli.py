@@ -240,3 +240,60 @@ def test_cli_tree_ascii(cli):
         and "\x1b[" not in out
     out.encode("ascii")
     assert "tree [--ascii]" in out and "start source" in out
+
+
+def _fake_rtsp(monkeypatch):
+    import time
+
+    from PIL import Image
+
+    from opal_look.capture import CAPTURE_REGISTRY
+
+    class _Frames:
+        def read(self):
+            time.sleep(0.005)
+            return Image.new("RGB", (16, 16), (9, 9, 9))
+
+        def close(self):
+            pass
+
+    class _Rtsp:
+        source_type = "rtsp"
+
+        def open_stream(self, locator, options, cred):
+            return _Frames()
+
+    monkeypatch.setitem(CAPTURE_REGISTRY._adapters, "rtsp", _Rtsp())
+
+
+def test_cli_hardware_and_discover(cli):
+    assert cli.invoke(cli_app, ["engine", "discover"]).exit_code == 0
+    r = cli.invoke(cli_app, ["engine", "capabilities", "synthetic"])
+    assert r.exit_code == 0 and "detection" in r.output
+    r = cli.invoke(cli_app, ["--json", "hardware", "list"])
+    assert r.exit_code == 0 and "cpu" in r.output
+    r = cli.invoke(cli_app, ["hardware", "show", "cpu"])
+    assert r.exit_code == 0
+
+
+def test_cli_model_predict_stream(cli, tmp_path, monkeypatch):
+    _fake_rtsp(monkeypatch)
+    r = cli.invoke(cli_app, ["model", "load", "synthetic-det"])
+    assert r.exit_code == 0, r.output
+    img = tmp_path / "img.jpg"
+    from PIL import Image
+    Image.new("RGB", (16, 16)).save(img)
+    r = cli.invoke(cli_app, ["predict", "image", "--engine", "synthetic",
+                             "--model", "synthetic-det", "--source", str(img)])
+    assert r.exit_code == 0, r.output
+    r = cli.invoke(cli_app, ["--json", "stream", "start", "rtsp://cam/x"])
+    assert r.exit_code == 0, r.output
+    sid = json.loads(r.output)["stream_id"]
+    assert cli.invoke(cli_app, ["stream", "list"]).exit_code == 0
+    assert cli.invoke(cli_app, ["stream", "metrics", sid]).exit_code == 0
+    r = cli.invoke(cli_app, ["stream", "snapshot", sid,
+                             "--out", str(tmp_path / "s.jpg")])
+    assert r.exit_code == 0 and (tmp_path / "s.jpg").is_file()
+    assert cli.invoke(cli_app, ["stream", "stop", sid]).exit_code == 0
+    assert cli.invoke(cli_app, ["model", "unload",
+                                "synthetic-det"]).exit_code == 0

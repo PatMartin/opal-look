@@ -81,3 +81,43 @@ Record of the v1.6.0 → v1.7.1 migration on `main` (7 steps, one commit each).
   CONFORMANT (70 paths / 105 operations, no legacy routes, service
   surface `GET /` + `GET /health` informational only).
 - `.venv/Scripts/pytest` — full suite green.
+
+---
+
+# MVP contract replacement (v1.7.1, second cut)
+
+The contract was replaced in place with a leaner MVP surface: 39 paths /
+47 operations (was 70/105). Engine-free RTSP video streaming is the core;
+inference engines are optional discoverable adapters.
+
+## Domain delta
+
+- Kept (kernel): health/info, settings, profiles, backup, service, engine
+  collection/item.
+- New: engine/discover + capabilities, hardware (engine-local), model
+  (federated catalog + load/unload), predict (single image), stream
+  (ephemeral RTSP lifecycle + MJPEG/snapshot/metrics/SSE).
+- Retired: sources, sessions, analyze, jobs, observations, media,
+  captures, artifacts, recordings, monitors, zones, rules, pipelines,
+  personas, metrics, events, info/capabilities.
+
+## Step commits
+
+| Step | Commit | Content |
+|---|---|---|
+| M01 | `c265db0` | pin MVP contract + audit baseline (39/47) |
+| M02 | `fff1aa3` | retire removed domains (0 legacy routes) |
+| M03 | `85fa2ed` | adapter protocol refit + discover/capabilities |
+| M04 | `47c010c` | engine-local hardware list/show |
+| M05 | `5b91d1c` | federated model catalog + load/unload |
+| M06 | `3deb623` | POST /predict single-image inference |
+| M07-09 | `c130c32` | stream runtime: lifecycle + MJPEG/snapshot/metrics + SSE |
+| M10 | `c8da467` | inference-mode stream coverage |
+| M11 | `26feb1d` | CLI verification end to end |
+| M12 | this | SPA mutations + AGENTS/ledger certification |
+
+## Conformance
+
+- `.venv/Scripts/python -m opal_look.contract_audit --strict` →
+  CONFORMANT (39 paths / 47 operations, no legacy routes).
+- `.venv/Scripts/pytest` — full suite green.

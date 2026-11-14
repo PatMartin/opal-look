@@ -141,7 +141,8 @@ const SCREENS = {
   async engines(el) {
     el.innerHTML = await _list("Engines", "/api/v1/engine/") +
       `<button onclick="discoverEngines()">discover</button>` +
-      `<button onclick="engineCaps()">capabilities</button>`;
+      `<button onclick="engineCaps()">capabilities</button>` +
+      `<button onclick="updateEngine()">update</button>`;
   },
   async hardware(el) {
     el.innerHTML = await _list("Hardware", "/api/v1/hardware/");
@@ -152,7 +153,8 @@ const SCREENS = {
       `<button onclick="activateProfile()">activate</button>`;
   },
   async settings(el) {
-    el.innerHTML = await _list("Settings", "/api/v1/setting/");
+    el.innerHTML = await _list("Settings", "/api/v1/setting/") +
+      `<button onclick="updateSettings()">update</button>`;
   },
   async backup(el) {
     el.innerHTML = `<h3>Backup</h3>
@@ -191,6 +193,17 @@ async function discoverEngines() {
 async function engineCaps() {
   const id = prompt("Engine id:");
   if (id) toast(JSON.stringify(await api("GET", `/api/v1/engine/${id}/capabilities`)));
+}
+async function updateEngine() {
+  const id = prompt("Engine id:"); if (!id) return;
+  const j = prompt("EnginePatch JSON (enabled/options):");
+  if (j) { await mutate("PATCH", `/api/v1/engine/${id}`, JSON.parse(j));
+           render("engines"); }
+}
+async function updateSettings() {
+  const j = prompt("ServiceSettingsPatch JSON:");
+  if (j) { await mutate("PATCH", "/api/v1/setting/", JSON.parse(j));
+           render("settings"); }
 }
 async function loadModel() {
   const id = prompt("Model id:"); if (!id) return;

@@ -5,14 +5,13 @@ opal_kernel.yaml` (OPAL Suite Kernel 1.7.1) as the authoritative contract
 (do not serve a generated spec; do not edit the contract files — amendments
 go upstream first). Python 3.12+ / FastAPI / SQLite.
 
-v1.7.1 highlights vs v1.6.0: server-managed backup archives under
-`/api/v1/backup/*` replace `/api/v1/configuration/*`; `/api/v1/service/*`
-exposes pidfile-managed process lifecycle (start/stop/log tail);
-`/api/v1/session/{id}/observation/` is retired; x-opal-cli gains `parent`
-super-groups (`config`, `data`), singular group names, `info` absorbs
-health/metrics/events/capabilities, and `aliases`. Migration record:
-`specs/OPAL_LOOK_V1_7_LEDGER.md`; v1.4.0-era upstream contract copies live
-under `vendor/opal-api/`.
+MVP contract (replaced in place at v1.7.1): engine-free video streaming
+plus optional discoverable inference adapters. RTSP streams run with zero
+AI engines installed; engines (e.g. YOLO/RF-DETR/RT-DETR/D-FINE, or the
+built-in `synthetic` adapter) add predict + inference-mode streams.
+Migration record: `specs/OPAL_LOOK_V1_7_LEDGER.md`; design reference
+package under `docs/redesign/vision_contracts/`; v1.4.0-era upstream
+contract copies live under `vendor/opal-api/`.
 
 ## Commands
 
@@ -20,37 +19,41 @@ under `vendor/opal-api/`.
 - Test: `.venv/Scripts/pytest`
 - Run: `.venv/Scripts/opal serve` or `.venv/Scripts/python -m opal_look` or `uvicorn opal_look.app:create_app --factory`
 - Contract audit: `.venv/Scripts/python -m opal_look.contract_audit`
-  (`--strict` = Step-28 pass/fail gate, `--json` = machine-readable)
+  (`--strict` = conformance gate, `--json` = machine-readable)
 - Data dir: `OPAL_LOOK_DATA_DIR` (default `./data`)
 
 ## Conventions / design patterns
 
 - Persistence: per-aggregate repositories behind Protocols under
   `src/opal_look/repositories/`; `Store` owns the connection + schema and
-  exposes `store.meta/settings/engines/models/…/personas`.
-  `store.write_txn()` is the unit-of-work context manager for atomic
-  check-and-mutate.
+  exposes `store.meta/settings/engines/profiles` plus the
+  `idempotency_keys` table. `store.write_txn()` is the unit-of-work
+  context manager for atomic check-and-mutate.
 - DI: FastAPI `Depends` providers in `src/opal_look/dependencies.py`
   (`StoreDep`); handlers inject the store rather than reaching app.state.
 - Engines: `EngineAdapter` Protocol + `ENGINE_REGISTRY` (factory/registry,
   `opal_look.engines` entry-point hook via `load_plugin_adapters()`).
+  Adapter surface: `capabilities/probe/options_schema/validate_config/
+  metadata/validate_engine_options` plus the MVP ops `hardware()`,
+  `models()`, `load_model()`, `unload_model()`, `predict(image, ...)`.
+  The `synthetic` adapter gives deterministic detections with no ML deps.
+  Models are engine-federated metadata (no central table); hardware is
+  engine-local. `engine_gate(store, adapter)` -> 503 for disabled engines.
+- Streams: `StreamRuntime` in `src/opal_look/streams.py` — in-memory only,
+  state machine starting->running->stopping->stopped|failed, observer hub
+  (bounded replay buffer + subscriber queues) feeding SSE and MJPEG.
+  One decode pump per stream; viewers never start a second decode.
 - Capture: `CaptureAdapter` Protocol + `CAPTURE_REGISTRY` in
-  `src/opal_look/capture.py` (`opal_look.capture` entry-point hook via
-  `load_capture_plugins()`). `RtspAvAdapter` (`capture_rtsp.py`) decodes
-  via PyAV. `credential_ref` resolves to env `OPAL_LOOK_CRED_<REF>`
-  ("user:pass") and is injected into the connect URL only — never stored
-  or echoed. Session workers consume frames through a drop-oldest
-  `LiveFramePump` (fresh-frame priority; evictions -> frames_dropped).
+  `src/opal_look/capture.py` (`opal_look.capture` entry-point hook).
+  `RtspAvAdapter` (`capture_rtsp.py`) decodes via PyAV (optional; absent
+  -> 503 at admission). `LiveFramePump` honors the contract
+  `buffer_policy` (drop-oldest/drop-newest/block). Credentials embedded
+  in the RTSP URI are never echoed — `streams.redact_source` strips
+  userinfo for `source_redacted`.
 - SQLite: single connection shared by loop + threadpool threads; all
   statements serialize through `Store._lock` (`_LockedConnection` proxy),
   and `write_txn()` holds it for the whole transaction.
 - DTOs: pydantic models in `src/opal_look/schemas.py` + `settings.py`.
-- Contract resource reads vs internals: `engine_read`/`model_read`/
-  `persona_read` return the contract shapes; `engine_runtime`/
-  `model_runtime` are the richer internal views (probe/config/adapter
-  description) used by services. Models store
-  `created_at/tasks/options/resource_ref` columns (auto-migrated in
-  `Store._migrate`).
 - Middleware: `CorrelationMiddleware` (outer correlation/validation),
   `AccessLogMiddleware` (outermost, logs all requests).
 - All errors use the OpalError envelope (`src/opal_look/errors.py`,
@@ -63,9 +66,9 @@ under `vendor/opal-api/`.
   atomic with the write; src/opal_look/precondition.py). All config writes
   bump the revision; runtime activity must not. `write_txn()` nests via
   SAVEPOINT. Idempotency-Key admissions use
-  `idempotency.request_idempotency_key` (contract bounds 1..128).
-- `events_enabled=true` requires `OPAL_LOOK_EVENT_TRANSPORT` env
-  (provisioned out of band); otherwise 422.
+  `idempotency.request_idempotency_key` (contract bounds 1..128) backed by
+  the durable `idempotency_keys` table (fingerprint replay -> same
+  admission; mismatched body -> 409; 24h TTL).
 - Bearer auth: `OPAL_LOOK_TOKEN` (env, opaque). Set -> all `/api/v1`
   requests need `Authorization: Bearer <token>` (401 +
   `WWW-Authenticate: Bearer`, enforced by `BearerAuthMiddleware` inside
@@ -73,14 +76,13 @@ under `vendor/opal-api/`.
   `main.py` refuses non-loopback binds without it. Never log/export/echo
   the token or accept it in query strings. CLI sends it automatically.
 - Clients: `opal-look` Typer CLI + `opal look` umbrella (REST-only via
-  httpx; suite verb taxonomy add/remove/update/list/show + operational
-  verbs per upstream x-opal-cli conventions) and a full-coverage SPA
-  (static assets at /app/ calling REST, no business logic).
-- Event bus: real two-frame ZeroMQ publisher via pyzmq, enabled through
-  provisioned transport config.
+  httpx; x-opal-cli taxonomy — engine/model/hardware/predict/stream/
+  backup/service/info + `config` parent group, `tree` retained) and a
+  full-coverage SPA (static assets at /app/ calling REST, no business
+  logic).
 - vendor/opal-api/ holds local-only reference copies of the sibling
   contracts (opal_event/listen/talk + upstream opal_look — note upstream
-  Look is a different API; our opal_look_v1.4.0.yaml is authoritative).
+  Look is a different API; our opal_look_v1.7.1.yaml is authoritative).
 
 ## Contract coverage (verified)
 
@@ -89,37 +91,24 @@ under `vendor/opal-api/`.
 | errors/correlation envelope | verified |
 | health/info (/, /health, /info/, /info/ping, live, ready, suite health) | verified |
 | settings (map GET/PATCH + per-key GET/PUT/DELETE, If-Match/ETag) | verified |
-| engines (list/get/patch; kernel shapes; synthetic adapter) | verified |
-| models (list+filters/create/get/patch/delete) | verified |
-| sources (CRUD+status/probe/frame/stream, per-type adapters, rtsp live probe) | verified |
+| engines (list/get/patch, discover -> EngineDiscovery{engines,errors}, capabilities) | verified |
+| hardware (engine-local list/show, ?engine_id filter/disambiguation) | verified |
+| models (engine-federated list/show/load/unload; 404/409/422/503) | verified |
+| predict (path/URI source, size/pixel caps, engine+model+device+options gates, native opt-in) | verified |
 | profiles (CRUD+activate, kernel shapes) | verified |
-| zones (standalone CRUD, source-scoped geometry) | verified |
-| rules (standalone CRUD, monitor-time evaluation) | verified |
-| personas (CRUD+enabled filter+validate, export/import section) | verified |
-| pipelines (CRUD+validate, DAG stages, executor) | verified |
-| media (upload JPEG/PNG+EXIF, cursor list, get/delete/content, expiry) | verified |
-| analyze (selection resolution, media/source/capture inputs, tasks, filters) | verified |
-| observations (list/show, retained immutable records) | verified |
-| captures (exact-frame capture, annotate, retain, CRUD+content) | verified |
-| artifacts (list/show/delete/content, job/recording outputs) | verified |
-| sessions (admission/state machine/worker/stop/observations/stream/preview) | verified |
-| jobs (submit/list/show/cancel, idempotency-key admission) | verified |
-| monitors (CRUD, durable workers, rule evaluation, SSE) | verified |
-| recordings (start/list/show/stop, artifact on finalize) | verified |
-| backup (export/validate/import + managed create/list/download/restore/delete, personas section) | verified |
+| backup (export/validate/import + managed create/list/download/restore/delete) | verified |
 | service (pidfile-managed start/stop/log; restart via OPAL_LOOK_WAIT_PID) | verified |
-| metrics + events status | verified |
-| SSE session stream (heartbeat), MJPEG preview, source MJPEG view | verified |
-| event bus (pyzmq PUSH two-frame, allowlist+rate+drop counters) | verified |
-| CLI (opal look / opal-look, all verbs incl. persona+info, REST-only) | verified |
-| SPA (/app/ static client, all sections incl. personas) | verified |
-
+| streams (202+Location admission, mode rules, idempotency-key, stop 409) | verified |
+| stream video (MJPEG) + snapshot (JPEG) + metrics + annotated rules | verified |
+| stream SSE (frame/detection/status/terminal, heartbeat, Last-Event-ID replay, 409 stale) | verified |
+| inference-mode streams (detection events, annotate overlays, engine gates) | verified |
 | idempotency (durable keys, fingerprint replay, 409s) | verified |
-| retention sweep (startup purge of expired rows) | verified |
-| conformance (strict audit rc=0 CONFORMANT: 63 paths / 98 ops) | verified |
-| CI (GitHub Actions pytest) | verified |
+| retention sweep (startup purge of expired idempotency rows) | verified |
+| CLI (opal look / opal-look, all verbs incl. stream/predict, REST-only) | verified |
+| SPA (/app/ static client, all MVP sections) | verified |
+| conformance (strict audit rc=0 CONFORMANT: 39 paths / 47 ops) | verified |
 
-Deferred (documented): video decoder (media/host_video -> 415/503 until
-installed), camera/http capture adapters (rtsp implemented), SSE
-replay-window edge cases (replay_expired/stream_overflow), health
-event-publication counter surface.
+Deferred (documented): real RTSP decode needs PyAV (`pip install av`)
+else stream admission -> 503; ZeroMQ event bus retired with the old
+contract (no bus surface in the MVP); MJPEG viewer count is not capped;
+SSE `heartbeat` is emitted as comments, not typed events.

@@ -5,6 +5,19 @@ const $ = (s, r = document) => r.querySelector(s);
 const sec = id => $(`#sec-${id}`);
 let _abort = null;            // AbortController for open streams
 let _bearer = sessionStorage.getItem("opal_token") || "";
+let _sid = "";                // last stream id seen (list or start)
+
+function _streamPrompt() {
+  return prompt("Stream id:", _sid || "");
+}
+async function _rememberStreams() {
+  try {
+    const list = await api("GET", "/api/v1/stream/");
+    const running = (list || []).filter(s => s.status === "running");
+    if (running.length) _sid = running[running.length - 1].stream_id;
+    else if (list && list.length) _sid = list[list.length - 1].stream_id;
+  } catch {}
+}
 
 function toast(msg, err = false) {
   const d = document.createElement("div");
@@ -117,6 +130,7 @@ const SCREENS = {
     } catch (e) {}
   },
   async streams(el) {
+    await _rememberStreams();
     el.innerHTML = await _list("Streams", "/api/v1/stream/") +
       `<input id="st-src" placeholder="rtsp://camera/live" size="40">
        <input id="st-eng" placeholder="engine_id (optional)">
@@ -251,25 +265,26 @@ async function startStream() {
   if ($("#st-eng").value) body.engine_id = $("#st-eng").value;
   if ($("#st-mod").value) body.model_id = $("#st-mod").value;
   const r = await api("POST", "/api/v1/stream/", { body });
+  _sid = r.stream_id || _sid;
   $("#st-out").textContent = JSON.stringify(r, null, 2);
 }
 async function showStream() {
-  const id = prompt("Stream id:"); if (!id) return;
+  const id = _streamPrompt(); if (!id) return;
   $("#st-out").textContent = JSON.stringify(
     await api("GET", `/api/v1/stream/${id}`), null, 2);
 }
 async function stopStream() {
-  const id = prompt("Stream id to stop:");
-  if (id) { await api("POST", `/api/v1/stream/${id}/stop`); render("streams"); }
+  const id = _streamPrompt(); if (!id) return;
+  await api("POST", `/api/v1/stream/${id}/stop`); render("streams");
 }
 async function streamEvents() {
-  const id = prompt("Stream id:"); if (!id) return;
+  const id = _streamPrompt(); if (!id) return;
   $("#st-out").textContent = "";
   await stream(`/api/v1/stream/${id}/events`,
     ev => { $("#st-out").textContent += ev + "\n\n"; });
 }
 async function streamVideo() {
-  const id = prompt("Stream id:"); if (!id) return;
+  const id = _streamPrompt(); if (!id) return;
   stopStreams();
   const resp = await fetch(`/api/v1/stream/${id}/video`, { headers: _auth() });
   if (!resp.ok) { await _raise(resp); return; }
@@ -327,11 +342,11 @@ async function streamVideo() {
   })();
 }
 async function streamSnapshot() {
-  const id = prompt("Stream id:"); if (!id) return;
+  const id = _streamPrompt(); if (!id) return;
   window.open(`/api/v1/stream/${id}/snapshot`, "_blank");
 }
 async function streamMetrics() {
-  const id = prompt("Stream id:"); if (!id) return;
+  const id = _streamPrompt(); if (!id) return;
   $("#st-out").textContent = JSON.stringify(
     await api("GET", `/api/v1/stream/${id}/metrics`), null, 2);
 }

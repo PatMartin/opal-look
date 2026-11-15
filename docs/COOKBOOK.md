@@ -18,7 +18,7 @@ opal serve            # or: python -m opal_look
 In another terminal, set the alias (and `--url` if not on the default):
 
 ```bash
-export LOOK=http://127.0.0.1:8000
+export LOOK=http://127.0.0.1:8002
 alias look='opal-look --url "$LOOK"'
 
 look info ready
@@ -104,11 +104,11 @@ MJPEG plays in any multipart-aware viewer — no second camera connection.
 look stream watch-video front --out front.mjpeg --max-bytes 5000000
 
 # Or point a player at the URL directly:
-vlc http://127.0.0.1:8000/api/v1/stream/front/video
-ffplay -f mpjpeg http://127.0.0.1:8000/api/v1/stream/front/video
+vlc http://127.0.0.1:8002/api/v1/stream/front/video
+ffplay -f mpjpeg http://127.0.0.1:8002/api/v1/stream/front/video
 ```
 
-The SPA at `http://127.0.0.1:8000/app/` shows the same feed in-browser.
+The SPA at `http://127.0.0.1:8002/app/` shows the same feed in-browser.
 
 ### 8. Grab a single frame
 
@@ -146,7 +146,7 @@ look stream start rtsp://camera.example.invalid:554/stream1 \
   --name front-ai --engine synthetic --model synthetic-det --annotate
 
 look stream watch front-ai          # `detection` events now flow
-vlc "http://127.0.0.1:8000/api/v1/stream/front-ai/video?annotated=true"
+vlc "http://127.0.0.1:8002/api/v1/stream/front-ai/video?annotated=true"
 look stream snapshot front-ai --annotated --out front-boxes.jpg
 ```
 
@@ -180,6 +180,13 @@ look config setting show max_concurrent_streams
 look config setting set max_concurrent_streams 8
 look config setting update --body '{"sse_buffer_events":512}'
 ```
+
+Alternatively, pin settings declaratively in `.env` — any
+`OPAL_LOOK_<SETTING_KEY>` (e.g. `OPAL_LOOK_MAX_CONCURRENT_STREAMS=8`) is
+seeded as an override at startup and is authoritative over API-set values.
+`.env` is loaded per process at every boot, so it also survives managed
+restarts; shell-exported vars do not propagate through a REST `service
+start` (the new process inherits the old server's environment).
 
 ### 15. Record deployment posture with profiles
 

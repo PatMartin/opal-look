@@ -70,8 +70,13 @@ contract copies live under `vendor/opal-api/`.
   the durable `idempotency_keys` table (fingerprint replay -> same
   admission; mismatched body -> 409; 24h TTL).
 - Environment: `python-dotenv` loads a repo-root `.env` at `main()` and
-  `create_app()` (never overrides real env vars; `.env` is gitignored).
-  Covers `OPAL_LOOK_HOST/PORT/DATA_DIR/TOKEN` + `OPAL_LOOK_CRED_*`.
+  `create_app()` (never overrides real env vars; `.env` is gitignored;
+  `.env.example` documents the set). Covers `OPAL_LOOK_HOST/PORT
+  (default 127.0.0.1:8002)/DATA_DIR/TOKEN` + `OPAL_LOOK_CRED_*`. Any
+  `OPAL_LOOK_<SETTING_KEY>` matching a `/api/v1/setting/` key is seeded
+  into `setting_overrides` at startup — authoritative over API-set
+  overrides, re-applied every boot, invalid values warned-and-skipped
+  (`settings.apply_env_settings`; bumps config revision only on change).
 - Bearer auth: `OPAL_LOOK_TOKEN` (env or `.env`, opaque). Set -> all
   `/api/v1` requests need `Authorization: Bearer <token>` (401 +
   `WWW-Authenticate: Bearer`, enforced by `BearerAuthMiddleware` inside

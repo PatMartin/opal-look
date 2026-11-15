@@ -33,7 +33,7 @@ app = typer.Typer(
         "  opal-look tree                    # print the full command tree"),
 )
 
-_state: dict = {"url": "http://127.0.0.1:8000", "json_out": False,
+_state: dict = {"url": "http://127.0.0.1:8002", "json_out": False,
                 "transport": None, "inner": None}
 
 
@@ -41,7 +41,7 @@ _state: dict = {"url": "http://127.0.0.1:8000", "json_out": False,
 def _opts(
     url: Optional[str] = typer.Option(
         None, "--url",
-        help="Service base URL (default http://127.0.0.1:8000)"),
+        help="Service base URL (default http://127.0.0.1:8002)"),
     json_out: bool = typer.Option(False, "--json", help="Raw JSON output"),
 ) -> None:
     # Only an explicit --url overrides _state — a default would clobber

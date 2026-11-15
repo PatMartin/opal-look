@@ -1,4 +1,8 @@
 import pytest
+from fastapi.testclient import TestClient
+
+from opal_look.app import create_app
+from opal_look.settings import env_setting_overrides
 
 DEFAULTS = {
     "frame_cache_seconds": 30,
@@ -215,3 +219,73 @@ def test_stale_override_keys_ignored(client):
     resp = client.get("/api/v1/setting/")
     assert resp.status_code == 200
     assert resp.json() == DEFAULTS
+
+
+# -- OPAL_LOOK_<key> env seeding ----------------------------------------------
+
+_SETTING_ENV = [f"OPAL_LOOK_{k.upper()}" for k in DEFAULTS]
+
+
+@pytest.fixture()
+def clean_setting_env(monkeypatch):
+    for var in _SETTING_ENV:
+        monkeypatch.delenv(var, raising=False)
+
+
+def _new_client(tmp_path):
+    return TestClient(create_app(data_dir=tmp_path / "data"))
+
+
+def test_env_seeds_setting_on_startup(tmp_path, monkeypatch, clean_setting_env):
+    monkeypatch.setenv("OPAL_LOOK_MAX_CONCURRENT_STREAMS", "9")
+    with _new_client(tmp_path) as c:
+        assert c.get("/api/v1/setting/").json()["max_concurrent_streams"] == 9
+        body = c.get("/api/v1/setting/max_concurrent_streams").json()
+        assert body["value"] == 9 and body["is_default"] is False
+
+
+def test_env_invalid_value_skipped(tmp_path, monkeypatch, clean_setting_env):
+    monkeypatch.setenv("OPAL_LOOK_MAX_CONCURRENT_STREAMS", "banana")
+    monkeypatch.setenv("OPAL_LOOK_SSE_BUFFER_EVENTS", "0")
+    with _new_client(tmp_path) as c:
+        body = c.get("/api/v1/setting/").json()
+        assert body["max_concurrent_streams"] == 4
+        assert body["sse_buffer_events"] == 256
+
+
+def test_env_authoritative_over_api_override(
+        tmp_path, monkeypatch, clean_setting_env):
+    with _new_client(tmp_path) as c:
+        assert c.put("/api/v1/setting/max_concurrent_streams",
+                     json={"value": 2},
+                     headers={"If-Match": "*"}).status_code == 200
+    # Same data dir, env now defines the key -> env wins on next startup.
+    monkeypatch.setenv("OPAL_LOOK_MAX_CONCURRENT_STREAMS", "7")
+    with _new_client(tmp_path) as c:
+        assert c.get("/api/v1/setting/").json()["max_concurrent_streams"] == 7
+
+
+def test_env_reserved_vars_ignored(tmp_path, monkeypatch, clean_setting_env):
+    monkeypatch.setenv("OPAL_LOOK_PORT", "9999")
+    monkeypatch.setenv("OPAL_LOOK_CRED_CAM", "u:p")
+    monkeypatch.setenv("OPAL_LOOK_NOT_A_SETTING", "5")
+    with _new_client(tmp_path) as c:
+        assert c.get("/api/v1/setting/").json() == DEFAULTS
+
+
+def test_env_unchanged_no_revision_bump(tmp_path, monkeypatch,
+                                        clean_setting_env):
+    monkeypatch.setenv("OPAL_LOOK_MAX_CONCURRENT_STREAMS", "9")
+    with _new_client(tmp_path) as c:
+        rev1 = c.app.state.store.config_revision()
+    with _new_client(tmp_path) as c:
+        assert c.app.state.store.config_revision() == rev1
+
+
+def test_env_setting_overrides_parsing():
+    out = env_setting_overrides({
+        "OPAL_LOOK_MAX_CONCURRENT_STREAMS": "6",
+        "OPAL_LOOK_PORT": "8002",
+        "PATH": "x",
+    })
+    assert out == {"max_concurrent_streams": 6}

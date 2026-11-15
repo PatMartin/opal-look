@@ -28,7 +28,7 @@ def main() -> None:
             "opal_look.app:create_app",
             factory=True,
             host=host,
-            port=int(os.environ.get("OPAL_LOOK_PORT", "8000")),
+            port=int(os.environ.get("OPAL_LOOK_PORT", "8002")),
         )
     finally:
         service_control.release_pidfile()

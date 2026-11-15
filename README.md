@@ -53,7 +53,7 @@ python -m pip install -e ".[dev]"
 opal serve            # or: python -m opal_look
 ~~~
 
-Look listens at **http://127.0.0.1:8000** on loopback by default. In a second terminal (same venv):
+Look listens at **http://127.0.0.1:8002** on loopback by default. In a second terminal (same venv):
 
 ~~~bash
 opal-look info health
@@ -61,7 +61,7 @@ opal-look engine list
 opal-look model list
 ~~~
 
-`opal` and `opal-look` are the same REST client — `opal look info health` works identically. The browser console lives at **http://127.0.0.1:8000/app/**. To use another port: `OPAL_LOOK_PORT=8002 opal serve`, then `opal-look --url http://127.0.0.1:8002 info health`.
+`opal` and `opal-look` are the same REST client — `opal look info health` works identically. The browser console lives at **http://127.0.0.1:8002/app/**. To use another port: `OPAL_LOOK_PORT=8000 opal serve`, then `opal-look --url http://127.0.0.1:8000 info health`.
 
 ### 3. Detect objects in a still image
 
@@ -123,7 +123,7 @@ opal-look config profile add --file profile.json
 
 | Flag | Usage |
 |---|---|
-| `--url URL` | Server base URL; default `http://127.0.0.1:8000` |
+| `--url URL` | Server base URL; default `http://127.0.0.1:8002` |
 | `--json` | JSON output for scripts and `jq` |
 | `--body 'JSON'` | Inline request object |
 | `--file FILE` | Load a JSON request object from disk |
@@ -212,9 +212,9 @@ opal-look [--url] [--json]
 
 `GET /api/v1/stream/{id}/video` serves `multipart/x-mixed-replace` MJPEG, decoded **once per stream** and fanned out — viewers never open a second camera connection.
 
-- **Browser / SPA:** open `http://127.0.0.1:8000/app/` (streams → video), or hit the video URL directly in a tab.
-- **VLC:** `vlc http://127.0.0.1:8000/api/v1/stream/front/video`
-- **ffplay/ffmpeg:** `ffplay -f mpjpeg http://127.0.0.1:8000/api/v1/stream/front/video`
+- **Browser / SPA:** open `http://127.0.0.1:8002/app/` (streams → video), or hit the video URL directly in a tab.
+- **VLC:** `vlc http://127.0.0.1:8002/api/v1/stream/front/video`
+- **ffplay/ffmpeg:** `ffplay -f mpjpeg http://127.0.0.1:8002/api/v1/stream/front/video`
 
 Add `?annotated=true` on an inference stream started with `annotate=true` for the bounding-box overlay feed.
 
@@ -226,12 +226,13 @@ Environment variables (a repo-root `.env` is loaded automatically; real env vars
 
 | Variable | Purpose |
 |---|---|
-| `OPAL_LOOK_HOST` / `OPAL_LOOK_PORT` | Bind address (default `127.0.0.1:8000`) |
+| `OPAL_LOOK_HOST` / `OPAL_LOOK_PORT` | Bind address (default `127.0.0.1:8002`) |
 | `OPAL_LOOK_DATA_DIR` | Data directory (default `./data`) |
 | `OPAL_LOOK_TOKEN` | Bearer token. **Set** → every `/api/v1` call needs `Authorization: Bearer <token>`. **Unset** → loopback dev mode; non-loopback binds are refused |
 | `OPAL_LOOK_CRED_<REF>` | RTSP credentials (`user:pass`) injected at connect time; never stored, logged, or echoed |
+| `OPAL_LOOK_<SETTING>` | Any `/api/v1/setting/` key in uppercase (`OPAL_LOOK_MAX_CONCURRENT_STREAMS=8`, …). Seeded into the overrides table at startup — **authoritative**: it supersedes API-set values and is re-applied every boot |
 
-The CLI picks up `OPAL_LOOK_TOKEN` automatically. RTSP URIs with embedded credentials are always redacted in API output (`source_redacted`).
+Real environment variables always win over `.env` (`load_dotenv` never overrides). The CLI picks up `OPAL_LOOK_TOKEN` automatically. RTSP URIs with embedded credentials are always redacted in API output (`source_redacted`). See `.env.example` for the full set.
 
 ### Engine plugins
 

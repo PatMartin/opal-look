@@ -2,17 +2,38 @@
 
 from __future__ import annotations
 
+import argparse
 import os
 
 
-def main() -> None:
-    import uvicorn
-    from dotenv import load_dotenv
+def _baseline() -> dict[str, object]:
+    from .settings import ServiceSettings
 
-    # .env supplies OPAL_LOOK_* env vars (never overrides real env).
-    load_dotenv()
+    values = {
+        "OPAL_LOOK_HOST": "127.0.0.1",
+        "OPAL_LOOK_PORT": 8002,
+        "OPAL_LOOK_DATA_DIR": "data",
+        "OPAL_LOOK_TOKEN": "<set-a-token>",
+    }
+    values.update({f"OPAL_LOOK_{key.upper()}": value for key, value in ServiceSettings().model_dump().items()})
+    return values
+
+
+def main(argv: list[str] | None = None) -> None:
+    parser = argparse.ArgumentParser(prog="opal-look service")
+    parser.add_argument("--env-file")
+    parser.add_argument("--no-env-file", action="store_true")
+    args = parser.parse_args(argv)
+
+    import uvicorn
 
     from . import service_control
+    from .dotenv import DotenvError, prepare
+
+    try:
+        prepare(env_file=args.env_file, no_env_file=args.no_env_file, baseline=_baseline())
+    except DotenvError as exc:
+        parser.error(str(exc))
     from .auth import assert_bind_allowed, env_token
 
     host = os.environ.get("OPAL_LOOK_HOST", "127.0.0.1")

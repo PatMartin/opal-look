@@ -279,3 +279,7 @@ python -m opal_look.contract_audit --strict            # conformance gate (47 op
 ~~~
 
 The audit diffs implemented routes against the pinned `openapi/opal_look_v1.7.1.yaml` and reports missing ops, legacy-only routes, and contract-structure problems. The contract files are authoritative — **don't edit them in-tree**; amendments go upstream first (`specs/` holds the ledger and drafts). `AGENTS.md` documents architecture, conventions, and per-area conformance status for contributors.
+
+## Dotenv configuration
+
+See [docs/DOTENV.md](docs/DOTENV.md) for `.env` loading, initialization, precedence, and `--env-file` / `--no-env-file` behavior.

@@ -13,6 +13,7 @@ answer REST.
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 from typing import Optional
 
@@ -43,11 +44,19 @@ def _opts(
         None, "--url",
         help="Service base URL (default http://127.0.0.1:8002)"),
     json_out: bool = typer.Option(False, "--json", help="Raw JSON output"),
+    env_file: Optional[Path] = typer.Option(None, "--env-file", help="Load this dotenv file instead of ./.env"),
+    no_env_file: bool = typer.Option(False, "--no-env-file", help="Disable dotenv loading and .env initialization"),
 ) -> None:
-    # Only an explicit --url overrides _state — a default would clobber
-    # the URL tests inject via _state["url"].
-    if url is not None:
-        _state["url"] = url
+    from opal_look.dotenv import DotenvError, prepare
+    from opal_look.main import _baseline
+
+    try:
+        prepare(env_file=env_file, no_env_file=no_env_file, baseline=_baseline())
+    except DotenvError as exc:
+        raise typer.BadParameter(str(exc)) from exc
+    configured_url = url if url is not None else os.environ.get("OPAL_LOOK_URL")
+    if configured_url is not None:
+        _state["url"] = configured_url
     _state["json_out"] = json_out
 
 

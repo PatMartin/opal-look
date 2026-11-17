@@ -95,20 +95,38 @@ look stream show front
 curl -s "$LOOK/api/v1/stream/front"            # same record over REST
 ```
 
-### 7. Watch the live view
+### 7. Watch and record the live feed end to end
 
-MJPEG plays in any multipart-aware viewer — no second camera connection.
+Full flow: start a named stream, verify it, watch it live, record it.
 
 ```bash
-# Save a bounded capture to disk:
-look stream watch-video front --out front.mjpeg --max-bytes 5000000
+# 1. Start the stream under a name you choose:
+look stream start rtsp://192.168.1.220:554/stream1 --name front-hi
+look stream list                # -> stream_id "front-hi", status running
 
-# Or point a player at the URL directly:
-vlc http://127.0.0.1:8002/api/v1/stream/front/video
-ffplay -f mpjpeg http://127.0.0.1:8002/api/v1/stream/front/video
+# 2. Watch it live — MJPEG plays in any multipart-aware viewer,
+#    no second camera connection:
+ffplay -fflags nobuffer http://127.0.0.1:8002/api/v1/stream/front-hi/video
+vlc    http://127.0.0.1:8002/api/v1/stream/front-hi/video
+#    (add `-f mpjpeg` before the URL if ffplay's probe stalls)
+
+# 3. Record it — either bounded via the CLI:
+look stream watch-video front-hi --out front-hi.mjpeg --max-bytes 50000000
+
+#    or unbounded with ffmpeg itself (Ctrl-C to stop):
+ffmpeg -fflags nobuffer -i http://127.0.0.1:8002/api/v1/stream/front-hi/video -c:v copy front-hi.mjpeg
+
+# 4. Play the recording back / remux to mp4:
+ffplay -f mpjpeg front-hi.mjpeg
+ffmpeg -f mpjpeg -i front-hi.mjpeg -c:v libx264 front-hi.mp4
+
+# 5. Stop when done:
+look stream stop front-hi
 ```
 
 The SPA at `http://127.0.0.1:8002/app/` shows the same feed in-browser.
+When `OPAL_LOOK_TOKEN` is set, pass
+`-headers "Authorization: Bearer <token>\r\n"` to ffplay/ffmpeg.
 
 ### 8. Grab a single frame
 

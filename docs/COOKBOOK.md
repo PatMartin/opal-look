@@ -45,8 +45,10 @@ look info version
 
 ### 2. Inventory the inference engine catalog
 
-Engines are discovered adapters; an empty catalog is healthy (video streams
-don't need one).
+Engines are adapters: `synthetic` is built in, remote adapters register
+from env (`OPAL_LOOK_ENGINE_YOLO_BASE_URL` → `yolo`; see recipe 11), and
+third-party plugins register via the `opal_look.engines` entry-point
+group.
 
 ```bash
 look engine list
@@ -54,6 +56,10 @@ look engine show synthetic
 look engine capabilities synthetic
 look engine discover   # re-scan entry points -> {engines, errors}
 ```
+
+Each row shows `enabled` (your flag) and `state` (live probe) — an
+enabled-but-`unavailable` engine fails inference calls with `503`; the
+`engine show` `message` says why.
 
 ### 3. Load a model and run detection on a photo
 
@@ -153,22 +159,53 @@ look stream metrics front
 # uptime, input/output fps, queue depth, dropped frames, inference latency
 ```
 
-### 11. Run an inference stream with annotated overlays
+### 11. Wire a real detector — the remote YOLO engine
 
-Requires a loaded model; `annotate` adds the box-drawing overlay on top of
-detections.
+`synthetic` proves the workflow; `yolo` gives real detections. It runs as
+a separate service ([opal-look-yolo](https://github.com/PatMartin/opal-look-yolo),
+typically on `:8086` — see [YOLO_INSTALL.md](YOLO_INSTALL.md)); look
+proxies to it over HTTP. Wiring is one `.env` line + restart:
 
 ```bash
+# .env
+OPAL_LOOK_ENGINE_YOLO_BASE_URL=http://127.0.0.1:8086
+
+look service stop && look service start
+
+look engine list                       # yolo: enabled, state ready
+look model list --engine yolo          # real models from the service
+look model load yolo26n --engine yolo  # smallest/fastest for CPU
+```
+
+Predictions are a remote round-trip per frame — measured ~250 ms on
+`yolo26n`/CPU, so inference streams run at single-digit fps (expected;
+`stream metrics` shows `inference_latency_ms`). What the model can
+identify: [yolo26n_classes.md](yolo26n_classes.md).
+
+### 12. Run an inference stream with annotated overlays
+
+Requires an enabled+available engine and a loaded model; `annotate` draws
+boxes from each frame's detections.
+
+```bash
+# quick path — bundled test engine:
 look model load synthetic-det --engine synthetic
 look stream start rtsp://camera.example.invalid:554/stream1 \
   --name front-ai --engine synthetic --model synthetic-det --annotate
+
+# real path — remote yolo (recipe 11), credentialed camera (recipe 20):
+look model load yolo26n --engine yolo
+look stream start rtsp://camera.example.invalid:554/stream1 \
+  --name front-ai --credential front \
+  --engine yolo --model yolo26n --annotate \
+  --options '{"classes": [0]}'     # persons only
 
 look stream watch front-ai          # `detection` events now flow
 vlc "http://127.0.0.1:8002/api/v1/stream/front-ai/video?annotated=true"
 look stream snapshot front-ai --annotated --out front-boxes.jpg
 ```
 
-### 12. Retry-safe admission with Idempotency-Key
+### 13. Retry-safe admission with Idempotency-Key
 
 Same key + same body replays the original admission instead of starting a
 second stream; a different body under a reused key → `409`.
@@ -180,7 +217,7 @@ curl -si -X POST "$LOOK/api/v1/stream/" \
   -d '{"source":"rtsp://camera.example.invalid:554/stream1","name":"front"}'
 ```
 
-### 13. Stop a stream and free its name
+### 14. Stop a stream and free its name
 
 ```bash
 look stream stop front
@@ -188,7 +225,7 @@ look stream stop front      # -> 409, already stopped
 look stream start rtsp://camera.example.invalid:554/stream1 --name front
 ```
 
-### 14. Tune global settings
+### 15. Tune global settings
 
 Mutations send `If-Match` automatically; a stale revision → `412`.
 
@@ -206,7 +243,7 @@ seeded as an override at startup and is authoritative over API-set values.
 restarts; shell-exported vars do not propagate through a REST `service
 start` (the new process inherits the old server's environment).
 
-### 15. Record deployment posture with profiles
+### 16. Record deployment posture with profiles
 
 Profiles are named bundles — extra fields are stored verbatim (kernel
 `OpalProfile`); exactly one is active at a time. Look records which is
@@ -220,7 +257,7 @@ look config profile activate PROFILE_ID
 look config profile show PROFILE_ID
 ```
 
-### 16. Export, validate, and restore configuration
+### 17. Export, validate, and restore configuration
 
 ```bash
 look backup export > look-config.json
@@ -228,7 +265,7 @@ look backup validate --file look-config.json
 look backup import --file look-config.json
 ```
 
-### 17. Managed backup archives
+### 18. Managed backup archives
 
 Server-side archives under `<data_dir>/backups/`.
 
@@ -240,7 +277,7 @@ look backup restore opal-look-YYYYMMDDTHHMMSSZ.json
 look backup remove opal-look-YYYYMMDDTHHMMSSZ.json
 ```
 
-### 18. Operate the service lifecycle
+### 19. Operate the service lifecycle
 
 REST-first, with a pidfile fallback when the API is unreachable.
 
@@ -250,18 +287,27 @@ look service stop            # managed process exits after responding
 look service start           # respawns (restarts if one is running)
 ```
 
-### 19. Provision RTSP credentials without leaking them
+### 20. Provision RTSP credentials without leaking them
 
-Credentials live in `OPAL_LOOK_CRED_<REF>` env vars, injected only at
-connect time — never stored, logged, or echoed in `source_redacted`.
+Credentials live in `OPAL_LOOK_CRED_<REF>` env vars holding `user:pass`.
+Name one per stream with `credential_ref` — the credential is injected
+into the locator only at connect time and never stored, logged, or echoed
+(`source_redacted` strips userinfo).
 
 ```bash
-export OPAL_LOOK_CRED_DRIVEWAY='user:password'
-# then use the locator normally; the URI itself stays redacted:
-look stream start rtsp://camera.example.invalid/stream --name driveway
+# .env (preferred — picked up at service startup)
+OPAL_LOOK_CRED_DRIVEWAY=opallook:secret
+
+look stream start rtsp://camera.example.invalid/stream \
+    --name driveway --credential driveway
 ```
 
-### 20. Gate conformance before shipping
+An unprovisioned or malformed (`user:pass` required) ref is rejected at
+admission with 422 — the error names the expected env var. You can also
+embed `user:pass@` in the source URI directly (still redacted in API
+output, but it lands in your shell history).
+
+### 21. Gate conformance before shipping
 
 ```bash
 opal-look-audit --strict     # or: python -m opal_look.contract_audit --strict
@@ -273,6 +319,9 @@ opal-look-audit --strict     # or: python -m opal_look.contract_audit --strict
 The v1.7.1 contract is deliberately small; sibling modules integrate over
 the stream/predict/backup surface:
 
+- **opal-look-yolo** is the working example — a remote engine service
+  wired via `OPAL_LOOK_ENGINE_YOLO_BASE_URL` (recipe 11); full guide in
+  [YOLO_INSTALL.md](YOLO_INSTALL.md).
 - **OPAL Event** can fan `detection` SSE events from `…/events` out to
   automations — subscribe with `curl -N` or a small SSE client and publish
   onward.

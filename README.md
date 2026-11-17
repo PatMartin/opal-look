@@ -1,285 +1,221 @@
 ![OPAL Look — machine vision for the OPAL ecosystem](opal-look.png)
 
 # OPAL Look
-### Give your software eyes. Keep the decisions yours.
 
-A camera sees a driveway. A photo lands in a folder. A robot wonders whether the path ahead is clear. In each case, the interesting question is not *where are the pixels?* but **what can we observe, and what should happen next?**
+OPAL's goal is computing and intelligence that can perceive, respond, and
+help through natural interaction. **OPAL Look** is the suite's visual
+observation service: it turns RTSP camera feeds into live video (MJPEG),
+snapshots, and per-frame detection events (SSE), and adds object detection
+through pluggable inference engines — all behind one REST API, a CLI
+(`opal-look` / `opal look`), and a browser console at `/app/`.
 
-**OPAL Look** is the visual observation service in [OPAL](https://github.com/PatMartin/opal). It decodes RTSP camera feeds into live video (MJPEG), single-frame snapshots, and per-frame detection events (SSE) — with optional pluggable inference engines for object detection — through a REST API, a Typer command-line client, and a browser console.
+Use it when software needs to *see*: watch a driveway, feed detections to
+automation, or put a camera feed in a local player. It works standalone
+(any RTSP camera or image file) and grows into the suite when other OPAL
+modules want a shared source of visual events.
 
-~~~text
-              RTSP camera / still image
-                        |
-                        v
-                EPHEMERAL STREAM
-             (one decode, fanned out)
-             |          |          |
-             v          v          v
-          MJPEG      snapshot    SSE events
-          video      (JPEG)     (frame/detection/status)
-                        |
-                  ENGINE (optional)
-              synthetic / plugin adapters
-                        |
-                        v
-             detections + annotated overlays
-~~~
+> **Work in progress.** I'm actively building OPAL and will break things
+> often. Expect breaking changes to commands, configuration, and
+> interfaces. No stability or backward-compatibility guarantees are made.
 
-**Engine-free core.** Video streams run with zero AI engines installed. An engine — the built-in `synthetic` adapter or a plugin registered via the `opal_look.engines` entry point — adds `predict` for still images and inference-mode streams with detection events and bounding-box overlays.
+Material limitations today: the bundled `synthetic` engine produces
+**deterministic test detections, not real recognition** — real object
+detection needs a remote engine adapter (a working YOLO path exists; see
+[docs/YOLO_INSTALL.md](docs/YOLO_INSTALL.md)). Streams are ephemeral (gone
+on restart) and RTSP-only.
 
-> **What is real today?** OPAL Look includes a deterministic **synthetic inference engine** for testing the API, not a trained object detector. It **does not identify people, cars, or animals in actual photographs**. Real RTSP decode is implemented with PyAV (`av`, installed by default — without it, stream admission answers `503`). A real detector needs an engine adapter (e.g. Ultralytics YOLO, RF-DETR); see [Engine plugins](#engine-plugins).
-
-**Explore:** [Quickstart](#quickstart-in-five-minutes) · [Building blocks](#understand-the-building-blocks) · [CLI reference](#complete-cli-reference) · [Watching live video](#watching-live-video) · [REST map](#rest-map) · [Configuration](#configuration-and-security) · [Limitations](#current-capabilities-and-known-limitations) · [Contributing](#tests-contract-and-contributing)
+**Contents:** [What you can do](#what-you-can-do) · [Quickstart](#quickstart) · [Core concepts](#core-concepts) · [Common tasks](#common-tasks) · [Configuration](#configuration) · [Troubleshooting](#troubleshooting) · [Documentation](#further-documentation) · [Contributing](#contributing)
 
 ---
 
-## Quickstart in five minutes
+## What you can do
 
-### 1. Install from a checkout
+- **Watch any RTSP camera in a local player** — one command starts a
+  named stream; ffplay/VLC reads the MJPEG URL directly.
+  → [Watch a live feed](#watch-a-live-feed)
+- **Detect objects on camera** — point a stream at the YOLO adapter and
+  get detection events plus bounding-box video overlays.
+  → [Detect objects on a live feed](#detect-objects-on-a-live-feed)
+- **Predict on a still image** — test the full inference path on any
+  JPG/PNG with the bundled `synthetic` engine, no ML dependencies.
+  → [Predict on a still image](#predict-on-a-still-image)
 
-You need **Python 3.12+**. The commands below use Bash. Windows users can create a venv with `py -3.12 -m venv .venv` and run `.venv/Scripts/pip` and `.venv/Scripts/python` directly.
+## Quickstart
 
-~~~bash
+**Verified** against Python 3.12/3.13 on Windows and Linux.
+
+Prerequisites: Python 3.12+, an RTSP camera or a JPG/PNG file.
+
+```bash
 git clone https://github.com/PatMartin/opal-look.git
 cd opal-look
-python -m venv .venv
-source .venv/bin/activate
+python -m venv .venv && source .venv/bin/activate   # Windows: .venv\Scripts\activate
 python -m pip install -e ".[dev]"
-~~~
+opal serve                       # service on http://127.0.0.1:8002
+```
 
-### 2. Start the service
+Second terminal, same venv:
 
-~~~bash
-opal serve            # or: python -m opal_look
-~~~
-
-Look listens at **http://127.0.0.1:8002** on loopback by default. In a second terminal (same venv):
-
-~~~bash
-opal-look info health
-opal-look engine list
-opal-look model list
-~~~
-
-`opal` and `opal-look` are the same REST client — `opal look info health` works identically. The browser console lives at **http://127.0.0.1:8002/app/**. To use another port: `OPAL_LOOK_PORT=8000 opal serve`, then `opal-look --url http://127.0.0.1:8000 info health`.
-
-### 3. Detect objects in a still image
-
-The bundled `synthetic` engine ships one model, `synthetic-det`. Load it, then predict against any local JPG/PNG:
-
-~~~bash
+```bash
+opal-look info health            # -> "ok"
 opal-look model load synthetic-det --engine synthetic
 opal-look predict image --engine synthetic --model synthetic-det --source sample.jpg
-~~~
+```
 
-The result is **structured, deterministic detection-shaped output** — synthetic labels, not facts about the photo. That's intentional: you can exercise the whole REST/CLI surface before committing to a model provider.
+Success looks like a JSON result with `detections` (synthetic labels —
+deterministic test data, proving the path works before you attach a real
+detector). Stop the service with `opal-look service stop` or Ctrl-C.
 
-### 4. Watch a live camera
+## Core concepts
 
-~~~bash
-opal-look stream start rtsp://192.168.1.20:554/stream1 --name front
-opal-look stream watch front          # SSE: frame/status events, Ctrl-C to detach
-opal-look stream snapshot front --out front.jpg
-opal-look stream metrics front
-opal-look stream stop front
-~~~
+- **Streams** — ephemeral RTSP sessions. One decode, fanned out to MJPEG
+  video, JPEG snapshots, and SSE events. `--name` pins the stream id so
+  every URL is predictable.
+- **Engines** — optional inference adapters. `synthetic` is built in;
+  remote engines (e.g. YOLO) are declared in `.env`. An engine adds
+  `predict` and inference-mode streams.
+- **Models** — owned by engines, not by Look. Load a model before
+  inference (`model load`); streams refuse an unloaded model with 409.
+- **`credential_ref`** — names an `OPAL_LOOK_CRED_<REF>` env var holding
+  `user:pass`, injected into the RTSP URI at connect time only. Never
+  stored, logged, or echoed.
+- **Contract** — `openapi/opal_look_v1.7.1.yaml` is authoritative and
+  pinned; `opal-look-audit` verifies conformance offline.
 
-`--name` pins the stream id so every URL is predictable (`/api/v1/stream/front/...`). Omit it and the server generates a `strm_*` id. A name conflict with a *live* stream gets a `409`; once the holder stops, the name is free to reuse.
+## Common tasks
 
----
+### With this module
 
-## Understand the building blocks
+#### Watch a live feed
 
-| Resource | What it represents | Why you care |
+**Outcome:** a named stream you can open in any player.
+**Requirements:** an RTSP source; PyAV (`av`, installed by default).
+
+```bash
+opal-look stream start rtsp://192.168.1.20:554/stream1 --name front --credential front
+opal-look stream list              # status running, frames flowing
+```
+
+**Result:** live video at `http://127.0.0.1:8002/api/v1/stream/front/video`
+— open it with `ffplay -fflags nobuffer <url>` or VLC. `OPAL_LOOK_CRED_FRONT`
+must hold `user:pass` for the `--credential front` ref. Stop with
+`opal-look stream stop front`.
+
+#### Predict on a still image
+
+**Outcome:** detection-shaped JSON from a local file or image URL.
+**Requirements:** an enabled engine + loaded model.
+
+```bash
+opal-look model load synthetic-det --engine synthetic
+opal-look predict image --engine synthetic --model synthetic-det --source photo.jpg
+```
+
+**Result:** `{detections: [{class_id, class_name, confidence, box}], …}`.
+With `synthetic` the labels are deterministic test data; use YOLO for real
+detections.
+
+#### Detect objects on a live feed
+
+**Outcome:** a stream that emits detection events and draws boxes.
+**Requirements:** a running remote engine (see
+[docs/YOLO_INSTALL.md](docs/YOLO_INSTALL.md)), a loaded model.
+
+```bash
+opal-look model load yolo26n --engine yolo
+opal-look stream start rtsp://cam/feed --name front-ai \
+    --credential front --engine yolo --model yolo26n --annotate
+look stream watch front-ai         # live detection events
+```
+
+**Result:** SSE `detection` events per frame and an annotated MJPEG feed
+at `…/front-ai/video?annotated=true`. What `yolo26n` can identify:
+[docs/yolo26n_classes.md](docs/yolo26n_classes.md).
+
+#### Inspect and tune the service
+
+**Outcome:** check health, adjust runtime knobs, take a backup.
+
+```bash
+opal-look info show                       # service info
+opal-look config setting list             # effective settings
+opal-look backup create                  # portable config archive
+```
+
+**Result:** JSON output (`--json` for raw bodies). Config mutations need
+`If-Match` on the config revision — the CLI handles it.
+
+### With the OPAL suite
+
+- **YOLO engine service** ([`opal-look-yolo`](https://github.com/PatMartin/opal-look-yolo))
+  — real object detection. Look registers it via
+  `OPAL_LOOK_ENGINE_YOLO_BASE_URL` and proxies engine/model/predict calls
+  over HTTP. Full guide: [docs/YOLO_INSTALL.md](docs/YOLO_INSTALL.md).
+- **opal-event / opal-listen / opal-talk** — stream events are designed
+  to feed suite-wide automation and speech, but no integration guide
+  exists yet. Contract references are vendored under `vendor/opal-api/`.
+
+## Configuration
+
+Configuration is environment-first, via `.env` at the repo root
+(`python-dotenv`, loaded at startup; real env vars win over `.env`).
+See `.env.example` for the full set.
+
+| Setting | Purpose | Default |
 |---|---|---|
-| **Streams** | Ephemeral RTSP sessions: one decode, fanned to MJPEG/SSE/snapshot consumers | Live video and detection events; gone on restart |
-| **Engines** | Inference adapters (`synthetic` built-in; plugins via entry points) | Optional AI: predict + inference-mode streams |
-| **Models** | Engine-federated metadata (`synthetic-det`, …) | Load/unload per engine before inference |
-| **Hardware** | Engine-local execution devices | Choose a device for inference |
-| **Profiles** | Named config bundles stored verbatim; one active at a time | Record the deployment posture clients should honor |
-| **Settings** | Global service knobs (limits, buffers, caps) | Tune admission limits, upload sizes |
-| **Backup** | Portable config export/validate/import + managed archives | Move or restore a deployment |
+| `OPAL_LOOK_HOST` / `OPAL_LOOK_PORT` | bind address | `127.0.0.1:8002` |
+| `OPAL_LOOK_DATA_DIR` | SQLite + logs | `./data` |
+| `OPAL_LOOK_TOKEN` | bearer auth for all `/api/v1` | unset = loopback dev mode |
+| `OPAL_LOOK_CRED_<REF>` | RTSP `user:pass`, named by `credential_ref` | unset |
+| `OPAL_LOOK_ENGINE_YOLO_*` | remote engine wiring (`BASE_URL` registers) | unset |
+| `OPAL_LOOK_<SETTING>` | any `/api/v1/setting/` key, uppercase | seeded at boot, authoritative |
 
-**Contract:** `openapi/opal_look_v1.7.1.yaml` (+ `openapi/shared/opal_kernel.yaml`) is the authoritative contract — pinned, never generated. Amendments go upstream first; see `specs/` for the migration ledger and pending amendments.
+Precedence: environment variable > `.env` > built-in default. Engine and
+setting seeds are **authoritative** — re-applied every boot, superseding
+API changes. Non-loopback binds require `OPAL_LOOK_TOKEN`.
 
----
+## Troubleshooting
 
-## Complete CLI reference
+**`401 Unauthorized` on every call** — `OPAL_LOOK_TOKEN` is set; send
+`Authorization: Bearer <token>` (the CLI does automatically) or unset it
+and restart.
 
-There are **three executables**:
+**Stream admission `503`: "No RTSP capture backend is installed"** —
+PyAV missing: `pip install av`, restart.
 
-- `opal` — OPAL suite umbrella: `opal serve` starts the service, `opal look …` runs client commands.
-- `opal-look` — the same REST client directly.
-- `opal-look-audit` — offline contract audit (see [Tests & contract](#tests-contract-and-contributing)).
+**Stream `failed`: "Server returned 401"** — camera credentials didn't
+reach the URI. Pass `--credential <ref>` and set
+`OPAL_LOOK_CRED_<REF>=user:pass`.
 
-### Global flags and common patterns
+**`409: Model '<id>' is not loaded`** — load it first:
+`opal-look model load <id> --engine <e>`.
 
-~~~bash
-opal-look --help
-opal-look --url http://127.0.0.1:8002 --json stream list
-opal-look stream --help
-opal-look config profile add --file profile.json
-~~~
+**Engine `yolo` absent or `unavailable`** —
+`OPAL_LOOK_ENGINE_YOLO_BASE_URL` unset (engine not registered) or the
+adapter service is down; check `opal-look engine show yolo` for the probe
+message.
 
-| Flag | Usage |
-|---|---|
-| `--url URL` | Server base URL; default `http://127.0.0.1:8002` |
-| `--json` | JSON output for scripts and `jq` |
-| `--body 'JSON'` | Inline request object |
-| `--file FILE` | Load a JSON request object from disk |
-| `--out FILE` | Save returned binary data |
-| `--name NAME` | Client-chosen stream id on `stream start` |
+**`service start` keeps your exported env?** — managed restarts inherit
+the *server's* environment, not your shell's. Use `.env` for durable
+config.
 
-Put global flags **before the command group**. The CLI fetches ETags and sends `If-Match` automatically on config mutations.
+## Further documentation
 
-### The command tree
+- [docs/COOKBOOK.md](docs/COOKBOOK.md) — task recipes (SSE, idempotency,
+  backups, MJPEG capture, credentials)
+- [docs/YOLO_INSTALL.md](docs/YOLO_INSTALL.md) — engine contract detail +
+  remote adapter setup
+- [docs/yolo26n_classes.md](docs/yolo26n_classes.md) — what the YOLO
+  models detect
+- [openapi/opal_look_v1.7.1.yaml](openapi/opal_look_v1.7.1.yaml) —
+  authoritative REST contract; [specs/](specs/) holds the migration
+  ledger and pending amendments (`name`, `credential_ref`)
+- [AGENTS.md](AGENTS.md) — architecture, conventions, coverage status
 
-~~~text
-opal-look [--url] [--json]
-|-- tree [--ascii]
-|-- engine
-|   |-- list
-|   |-- show ENGINE_ID
-|   |-- discover
-|   `-- capabilities ENGINE_ID
-|-- model
-|   |-- list [--engine]
-|   |-- show MODEL_ID [--engine]
-|   |-- load MODEL_ID [--engine]
-|   `-- unload MODEL_ID [--engine]
-|-- predict
-|   `-- image --engine --model --source [--confidence] [--device] [--options] [--include-native]
-|-- hardware
-|   |-- list [--engine]
-|   `-- show DEVICE_ID [--engine]
-|-- stream
-|   |-- start SOURCE [--name] [--engine] [--model] [--confidence] [--device]
-|   |           [--options] [--annotate] [--buffer-policy] [--buffer-size]
-|   |-- list
-|   |-- show STREAM_ID
-|   |-- stop STREAM_ID
-|   |-- watch STREAM_ID
-|   |-- watch-video STREAM_ID [--out] [--annotated] [--max-bytes]
-|   |-- snapshot STREAM_ID [--out] [--annotated]
-|   `-- metrics STREAM_ID
-|-- info
-|   |-- health
-|   |-- live
-|   |-- ready
-|   |-- version
-|   `-- ping
-|-- backup
-|   |-- list
-|   |-- create
-|   |-- download FILENAME [--out]
-|   |-- restore FILENAME
-|   |-- remove FILENAME
-|   |-- export
-|   |-- import [--file] [--body]
-|   `-- validate [--body] [--file]
-|-- service
-|   |-- start [--append] [--port] [--host] [--data-dir]
-|   |-- stop
-|   `-- log [--lines]
-|-- config
-|   |-- engine update ENGINE_ID [--body] [--file]
-|   |-- profile list|show|add|update|remove|activate
-|   `-- setting list|show|update|patch|set|remove
-`-- setting
-    |-- get KEY
-    `-- delete KEY
-~~~
+## Contributing
 
-### Quick task lookup
-
-| Your goal | CLI command |
-|---|---|
-| Is Look running? | `info ready` |
-| What engines are installed? | `engine list` |
-| What models can I load? | `model list` |
-| Detect in a photo | `predict image --engine E --model M --source img.jpg` |
-| Start a camera stream | `stream start rtsp://cam/feed --name front` |
-| Live detection events | `stream watch front` |
-| Save a frame | `stream snapshot front --out frame.jpg` |
-| Capture video to a file | `stream watch-video front --out front.mjpeg --max-bytes 5000000` |
-| Change a setting | `config setting set max_concurrent_streams 8` |
-| Export configuration | `backup export` |
-| Tail the service log | `service log --lines 20` |
-
----
-
-## Watching live video
-
-`GET /api/v1/stream/{id}/video` serves `multipart/x-mixed-replace` MJPEG, decoded **once per stream** and fanned out — viewers never open a second camera connection.
-
-- **Browser / SPA:** open `http://127.0.0.1:8002/app/` (streams → video), or hit the video URL directly in a tab.
-- **VLC:** `vlc http://127.0.0.1:8002/api/v1/stream/front/video`
-- **ffplay/ffmpeg:** `ffplay -f mpjpeg http://127.0.0.1:8002/api/v1/stream/front/video`
-
-Add `?annotated=true` on an inference stream started with `annotate=true` for the bounding-box overlay feed.
-
----
-
-## Configuration and security
-
-Environment variables (a repo-root `.env` is loaded automatically; real env vars win):
-
-| Variable | Purpose |
-|---|---|
-| `OPAL_LOOK_HOST` / `OPAL_LOOK_PORT` | Bind address (default `127.0.0.1:8002`) |
-| `OPAL_LOOK_DATA_DIR` | Data directory (default `./data`) |
-| `OPAL_LOOK_TOKEN` | Bearer token. **Set** → every `/api/v1` call needs `Authorization: Bearer <token>`. **Unset** → loopback dev mode; non-loopback binds are refused |
-| `OPAL_LOOK_CRED_<REF>` | RTSP credentials (`user:pass`) injected at connect time; never stored, logged, or echoed |
-| `OPAL_LOOK_<SETTING>` | Any `/api/v1/setting/` key in uppercase (`OPAL_LOOK_MAX_CONCURRENT_STREAMS=8`, …). Seeded into the overrides table at startup — **authoritative**: it supersedes API-set values and is re-applied every boot |
-
-Real environment variables always win over `.env` (`load_dotenv` never overrides). The CLI picks up `OPAL_LOOK_TOKEN` automatically. RTSP URIs with embedded credentials are always redacted in API output (`source_redacted`). See `.env.example` for the full set.
-
-### Engine plugins
-
-Engines self-register through the `opal_look.engines` Python entry-point group by implementing the `EngineAdapter` protocol (`capabilities`, `models`, `load_model`, `predict`, `hardware`, …). The `synthetic` adapter is the reference implementation — deterministic detections with no ML dependencies. Capture backends similarly plug into `opal_look.capture` (`RtspAvAdapter` decodes via PyAV).
-
-For a real detector, see [docs/YOLO_INSTALL.md](docs/YOLO_INSTALL.md) — the full `EngineAdapter` contract and how to run the standalone [`opal-look-yolo`](https://github.com/PatMartin/opal-look-yolo) service alongside (remote-adapter integration planned, not yet wired).
-
----
-
-## REST map
-
-| Surface | Endpoint |
-|---|---|
-| Health / info | `GET /`, `/health`, `/api/v1/health/`, `/api/v1/info/*` |
-| Settings | `GET/PATCH /api/v1/setting/`, per-key `GET/PUT/DELETE /api/v1/setting/{key}` |
-| Engines | `GET /api/v1/engine/`, `PATCH /api/v1/engine/{id}`, `POST …/discover`, `GET …/capabilities` |
-| Hardware | `GET /api/v1/hardware/`, `/api/v1/hardware/{id}` |
-| Models | `GET /api/v1/model/`, `/api/v1/model/{id}`, `POST …/load`, `…/unload` |
-| Predict | `POST /api/v1/predict` |
-| Profiles | `GET/POST /api/v1/profile/`, `{id}` CRUD, `POST …/activate` |
-| Streams | `POST/GET /api/v1/stream/`, `{id}`, `…/stop`, `…/events` (SSE), `…/video` (MJPEG), `…/snapshot`, `…/metrics` |
-| Backup | `POST /api/v1/backup/export|validate|import`, `create`, `list`, `download`, `restore`, `delete` |
-| Service | `POST /api/v1/service/start|stop`, `GET /api/v1/service/log` |
-
-Config mutations require `If-Match` on the global config revision (the CLI handles it); `POST /api/v1/stream/` accepts `Idempotency-Key` for safe admission retries.
-
----
-
-## Current capabilities and known limitations
-
-- **Streams are ephemeral and in-memory** — a restart clears them; nothing about them is persisted.
-- **Real RTSP decode needs PyAV** (`pip install av`, a default dependency). Without it stream admission → `503`.
-- **`synthetic` detections are fixtures**, not real inference. Production detection requires an engine plugin adapter.
-- **MJPEG viewer count is not capped** (`max_viewers` is reserved), and SSE heartbeats are comment lines, not typed events.
-- The old contract's sources/pipelines/sessions/monitors/media/jobs/recordings/zones/rules/personas/event-bus surface was **retired at v1.7.1** — the ledger in `specs/OPAL_LOOK_V1_7_LEDGER.md` records the migration.
-
----
-
-## Tests, contract, and contributing
-
-~~~bash
-.venv/Scripts/pytest                                   # full suite
-python -m opal_look.contract_audit --strict            # conformance gate (47 ops)
-~~~
-
-The audit diffs implemented routes against the pinned `openapi/opal_look_v1.7.1.yaml` and reports missing ops, legacy-only routes, and contract-structure problems. The contract files are authoritative — **don't edit them in-tree**; amendments go upstream first (`specs/` holds the ledger and drafts). `AGENTS.md` documents architecture, conventions, and per-area conformance status for contributors.
-
-## Dotenv configuration
-
-See [docs/DOTENV.md](docs/DOTENV.md) for `.env` loading, initialization, precedence, and `--env-file` / `--no-env-file` behavior.
+Run the test suite (`.venv/Scripts/pytest`) and the strict contract audit
+(`.venv/Scripts/python -m opal_look.contract_audit --strict`) before
+sending changes — `CONFORMANT` is the gate. Conventions live in
+[AGENTS.md](AGENTS.md). Contract files are pinned: propose changes as
+amendments under `specs/` first rather than editing `openapi/` directly.

@@ -11,7 +11,8 @@ from typing import Any
 from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse, Response, StreamingResponse
 
-from ..capture import capture_adapter_for
+from ..capture import (CredentialUnavailable, capture_adapter_for,
+                       resolve_credentials)
 from ..dependencies import StoreDep
 from ..engines import ENGINE_REGISTRY, engine_gate
 from ..errors import ApiError
@@ -94,6 +95,10 @@ def post_api_v1_stream(request: Request, store: StoreDep,
     adapter = _admit_engine(store, body)
     if capture_adapter_for("rtsp") is None:
         raise ApiError(503, "No RTSP capture backend is installed.")
+    try:
+        resolve_credentials(body.credential_ref)
+    except CredentialUnavailable as exc:
+        raise ApiError(422, str(exc)) from exc
 
     with _ADMISSION_LOCK:
         active = sum(1 for rt in runtimes.values()
@@ -110,7 +115,8 @@ def post_api_v1_stream(request: Request, store: StoreDep,
                 del runtimes[body.name]
         rt = StreamRuntime(
             stream_id=body.name,
-            source=body.source, engine=adapter, model_id=body.model_id,
+            source=body.source, credential_ref=body.credential_ref,
+            engine=adapter, model_id=body.model_id,
             confidence=body.confidence, device_id=body.device_id,
             engine_options=body.engine_options, annotate=body.annotate,
             buffer_policy=body.buffer_policy, buffer_size=body.buffer_size,

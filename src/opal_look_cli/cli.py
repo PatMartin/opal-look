@@ -281,6 +281,8 @@ def _stream_start(
         source: str = typer.Argument(..., help="rtsp:// or rtsps:// URI"),
         name: str = typer.Option(None, "--name",
                                  help="client-chosen stream id"),
+        credential_ref: str = typer.Option(None, "--credential",
+                                 help="OPAL_LOOK_CRED_<ref> env var name"),
         engine_id: str = typer.Option(None, "--engine"),
         model_id: str = typer.Option(None, "--model"),
         confidence: float = typer.Option(None, "--confidence"),
@@ -293,6 +295,8 @@ def _stream_start(
     body: dict = {"source": source}
     if name is not None:
         body["name"] = name
+    if credential_ref is not None:
+        body["credential_ref"] = credential_ref
     if engine_id is not None:
         body["engine_id"] = engine_id
     if model_id is not None:

@@ -34,8 +34,10 @@ class _FakeRtsp:
     def __init__(self, count=0, fail=None):
         self.count = count
         self.fail = fail
+        self.open_locators = []
 
     def open_stream(self, locator, options, credentialed_locator):
+        self.open_locators.append(credentialed_locator)
         if self.fail:
             raise self.fail
         return _FakeFrames(count=self.count)
@@ -44,14 +46,16 @@ class _FakeRtsp:
 @pytest.fixture()
 def rtsp(monkeypatch):
     """Install a fake rtsp capture adapter with an endless frame feed."""
-    monkeypatch.setitem(CAPTURE_REGISTRY._adapters, "rtsp",
-                        _FakeRtsp(count=0))
+    fake = _FakeRtsp(count=0)
+    monkeypatch.setitem(CAPTURE_REGISTRY._adapters, "rtsp", fake)
+    return fake
 
 
 @pytest.fixture()
 def rtsp_frames(monkeypatch):
-    monkeypatch.setitem(CAPTURE_REGISTRY._adapters, "rtsp",
-                        _FakeRtsp(count=100))
+    fake = _FakeRtsp(count=100)
+    monkeypatch.setitem(CAPTURE_REGISTRY._adapters, "rtsp", fake)
+    return fake
 
 
 @pytest.fixture()
@@ -443,3 +447,41 @@ def test_unload_model_in_use_409(loaded, rtsp_frames):
     loaded.post(f"/api/v1/stream/{sid}/stop")
     assert loaded.post(
         "/api/v1/model/synthetic-det/unload").status_code == 200
+
+
+def test_credential_ref_injects_locator(client, rtsp, monkeypatch):
+    monkeypatch.setenv("OPAL_LOOK_CRED_FRONT", "opallook:helloworld")
+    resp = client.post("/api/v1/stream/", json={
+        "source": "rtsp://cam/x", "credential_ref": "front",
+        "name": "cred"})
+    assert resp.status_code == 202
+    _wait(client, "cred", lambda b: b["status"] != "starting")
+    assert rtsp.open_locators == [
+        "rtsp://opallook:helloworld@cam/x"]
+    shown = client.get("/api/v1/stream/cred").json()
+    assert shown["source_redacted"] == "rtsp://cam/x"
+
+
+def test_credential_ref_unprovisioned_422(client, rtsp, monkeypatch):
+    monkeypatch.delenv("OPAL_LOOK_CRED_MISSING", raising=False)
+    resp = client.post("/api/v1/stream/", json={
+        "source": "rtsp://cam/x", "credential_ref": "missing"})
+    assert resp.status_code == 422
+    assert "OPAL_LOOK_CRED_MISSING" in resp.json()["error"]["message"]
+
+
+def test_credential_ref_malformed_env_422(client, rtsp, monkeypatch):
+    monkeypatch.setenv("OPAL_LOOK_CRED_BROKEN", "no-colon-here")
+    resp = client.post("/api/v1/stream/", json={
+        "source": "rtsp://cam/x", "credential_ref": "broken"})
+    assert resp.status_code == 422
+    assert "user:pass" in resp.json()["error"]["message"]
+
+
+def test_embedded_userinfo_redacted(client, rtsp):
+    resp = client.post("/api/v1/stream/", json={
+        "source": "rtsp://u:pw@cam/x", "name": "redact"})
+    assert resp.status_code == 202
+    shown = client.get("/api/v1/stream/redact").json()
+    assert shown["source_redacted"] == "rtsp://cam/x"
+    client.post("/api/v1/stream/redact/stop")

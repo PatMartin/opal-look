@@ -1,3 +1,4 @@
+import os
 import time
 
 import pytest
@@ -10,6 +11,17 @@ from opal_look.capture import (
     CaptureError,
     StreamEnded,
 )
+
+
+@pytest.fixture(autouse=True)
+def _isolate_environ():
+    """Restore os.environ after each test — the CLI callback's dotenv
+    prepare() loads .env into the process env and would otherwise leak
+    OPAL_LOOK_* vars into later tests."""
+    snapshot = dict(os.environ)
+    yield
+    os.environ.clear()
+    os.environ.update(snapshot)
 
 
 @pytest.fixture()

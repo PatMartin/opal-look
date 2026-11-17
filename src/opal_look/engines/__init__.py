@@ -17,7 +17,7 @@ import random
 import sqlite3
 from typing import Any, Protocol
 
-from .store import Store
+from ..store import Store
 
 
 class EngineUnavailable(Exception):
@@ -253,6 +253,23 @@ def load_plugin_adapters(registry: EngineRegistry = ENGINE_REGISTRY) -> None:
             logging.getLogger(__name__).warning("failed to load engine plugin %s", ep.name)
 
 
+def register_env_adapters(registry: EngineRegistry = ENGINE_REGISTRY) -> None:
+    """Register built-in remote adapters declared via OPAL_LOOK_ENGINE_* env.
+
+    Runs after load_dotenv inside create_app so .env is visible; idempotent.
+    """
+    from .yolo import register_if_configured
+
+    register_if_configured(registry)
+
+
+def apply_env_engines(store: Store) -> None:
+    """Seed env-declared engine config/enabled (authoritative, every boot)."""
+    from .yolo import apply_env
+
+    apply_env(store)
+
+
 def ensure_engines(store: Store, registry: EngineRegistry = ENGINE_REGISTRY) -> None:
     """Seed registry rows for installed adapters; idempotent."""
     with store.write_txn():
@@ -262,7 +279,7 @@ def ensure_engines(store: Store, registry: EngineRegistry = ENGINE_REGISTRY) -> 
 
 def engine_gate(store: Store, adapter: EngineAdapter) -> None:
     """Disabled/unavailable engines cannot serve inference (503)."""
-    from .errors import ApiError
+    from ..errors import ApiError
 
     row = store.engines.get(adapter.engine_id)
     if row is None:

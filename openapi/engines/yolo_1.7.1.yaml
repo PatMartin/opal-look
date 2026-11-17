@@ -1,0 +1,1128 @@
+openapi: 3.1.0
+jsonSchemaDialect: https://json-schema.org/draft/2020-12/schema
+info:
+  title: OPAL YOLO — Simplified Inference Adapter API
+  version: 2.0.0-mvp-plus
+  description: Standalone Ultralytics YOLO engine adapter for the OPAL Look MVP Plus. This engine owns YOLO model
+    discovery, loading, local compute-device discovery, and image/frame inference. OPAL Look owns RTSP decoding,
+    stream lifecycle, SSE, MJPEG rendering, snapshots and stream metrics. No opal-devices dependency. Native YOLO
+    options must be declared in the capability schema; unknown options are rejected. Image input is either a server-accessible
+    source URI or uploaded image bytes. No implicit model downloading or remote-file access.
+servers:
+- url: http://127.0.0.1:8086
+  description: Example local adapter; the port is configurable
+security:
+- BearerAuth: []
+tags:
+- name: info
+- name: health
+- name: engines
+- name: models
+- name: hardware
+- name: predict
+paths:
+  /api/v1/info/:
+    get:
+      tags:
+      - info
+      operationId: yolo_info_show
+      summary: Show adapter information
+      x-opal-cli:
+        group: info
+        command: show
+      responses:
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '200':
+          description: Adapter information
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ServiceInfo'
+          headers:
+            X-Opal-Session-Id:
+              $ref: '#/components/headers/SessionIdHeader'
+            X-Opal-Transaction-Id:
+              $ref: '#/components/headers/TransactionIdHeader'
+            X-Opal-Request-Id:
+              $ref: '#/components/headers/RequestIdHeader'
+            X-Opal-Causation-Id:
+              $ref: '#/components/headers/CausationIdHeader'
+      parameters:
+      - $ref: '#/components/parameters/SessionIdParameter'
+      - $ref: '#/components/parameters/TransactionIdParameter'
+      - $ref: '#/components/parameters/RequestIdParameter'
+      - $ref: '#/components/parameters/CausationIdParameter'
+  /api/v1/health/:
+    get:
+      tags:
+      - health
+      operationId: yolo_info_health
+      summary: Check adapter health (no model must be loaded)
+      x-opal-cli:
+        group: info
+        command: health
+      responses:
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '200':
+          description: Healthy adapter
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthStatus'
+          headers:
+            X-Opal-Session-Id:
+              $ref: '#/components/headers/SessionIdHeader'
+            X-Opal-Transaction-Id:
+              $ref: '#/components/headers/TransactionIdHeader'
+            X-Opal-Request-Id:
+              $ref: '#/components/headers/RequestIdHeader'
+            X-Opal-Causation-Id:
+              $ref: '#/components/headers/CausationIdHeader'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+      parameters:
+      - $ref: '#/components/parameters/SessionIdParameter'
+      - $ref: '#/components/parameters/TransactionIdParameter'
+      - $ref: '#/components/parameters/RequestIdParameter'
+      - $ref: '#/components/parameters/CausationIdParameter'
+  /api/v1/engine/:
+    get:
+      tags:
+      - engines
+      operationId: yolo_engines_list
+      summary: List known engine implementations
+      x-opal-cli:
+        group: engines
+        command: list
+      responses:
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '200':
+          description: Engine catalog
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Engine'
+          headers:
+            X-Opal-Session-Id:
+              $ref: '#/components/headers/SessionIdHeader'
+            X-Opal-Transaction-Id:
+              $ref: '#/components/headers/TransactionIdHeader'
+            X-Opal-Request-Id:
+              $ref: '#/components/headers/RequestIdHeader'
+            X-Opal-Causation-Id:
+              $ref: '#/components/headers/CausationIdHeader'
+      parameters:
+      - $ref: '#/components/parameters/SessionIdParameter'
+      - $ref: '#/components/parameters/TransactionIdParameter'
+      - $ref: '#/components/parameters/RequestIdParameter'
+      - $ref: '#/components/parameters/CausationIdParameter'
+  /api/v1/engine/discover:
+    post:
+      tags:
+      - engines
+      operationId: yolo_engines_discover
+      summary: Refresh installed-engine availability
+      description: Does not install software, download weights, or mutate persistent configuration.
+      x-opal-cli:
+        group: engines
+        command: discover
+      responses:
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '200':
+          description: Discovery result
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Engine'
+          headers:
+            X-Opal-Session-Id:
+              $ref: '#/components/headers/SessionIdHeader'
+            X-Opal-Transaction-Id:
+              $ref: '#/components/headers/TransactionIdHeader'
+            X-Opal-Request-Id:
+              $ref: '#/components/headers/RequestIdHeader'
+            X-Opal-Causation-Id:
+              $ref: '#/components/headers/CausationIdHeader'
+      parameters:
+      - $ref: '#/components/parameters/SessionIdParameter'
+      - $ref: '#/components/parameters/TransactionIdParameter'
+      - $ref: '#/components/parameters/RequestIdParameter'
+      - $ref: '#/components/parameters/CausationIdParameter'
+  /api/v1/engine/{engine_id}:
+    parameters:
+    - $ref: '#/components/parameters/EngineId'
+    get:
+      tags:
+      - engines
+      operationId: yolo_engines_show
+      summary: Show an engine
+      x-opal-cli:
+        group: engines
+        command: show
+      responses:
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '200':
+          description: Engine
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Engine'
+          headers:
+            X-Opal-Session-Id:
+              $ref: '#/components/headers/SessionIdHeader'
+            X-Opal-Transaction-Id:
+              $ref: '#/components/headers/TransactionIdHeader'
+            X-Opal-Request-Id:
+              $ref: '#/components/headers/RequestIdHeader'
+            X-Opal-Causation-Id:
+              $ref: '#/components/headers/CausationIdHeader'
+        '404':
+          $ref: '#/components/responses/NotFound'
+      parameters:
+      - $ref: '#/components/parameters/SessionIdParameter'
+      - $ref: '#/components/parameters/TransactionIdParameter'
+      - $ref: '#/components/parameters/RequestIdParameter'
+      - $ref: '#/components/parameters/CausationIdParameter'
+  /api/v1/engine/{engine_id}/capabilities:
+    parameters:
+    - $ref: '#/components/parameters/EngineId'
+    get:
+      tags:
+      - engines
+      operationId: yolo_engines_capabilities
+      summary: Discover supported tasks and options
+      x-opal-cli:
+        group: engines
+        command: capabilities
+      responses:
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '200':
+          description: Capability catalog
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Capabilities'
+          headers:
+            X-Opal-Session-Id:
+              $ref: '#/components/headers/SessionIdHeader'
+            X-Opal-Transaction-Id:
+              $ref: '#/components/headers/TransactionIdHeader'
+            X-Opal-Request-Id:
+              $ref: '#/components/headers/RequestIdHeader'
+            X-Opal-Causation-Id:
+              $ref: '#/components/headers/CausationIdHeader'
+        '404':
+          $ref: '#/components/responses/NotFound'
+      parameters:
+      - $ref: '#/components/parameters/SessionIdParameter'
+      - $ref: '#/components/parameters/TransactionIdParameter'
+      - $ref: '#/components/parameters/RequestIdParameter'
+      - $ref: '#/components/parameters/CausationIdParameter'
+  /api/v1/model/:
+    get:
+      tags:
+      - models
+      operationId: yolo_models_list
+      summary: List locally registered models
+      x-opal-cli:
+        group: models
+        command: list
+      responses:
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '200':
+          description: Model catalog
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Model'
+          headers:
+            X-Opal-Session-Id:
+              $ref: '#/components/headers/SessionIdHeader'
+            X-Opal-Transaction-Id:
+              $ref: '#/components/headers/TransactionIdHeader'
+            X-Opal-Request-Id:
+              $ref: '#/components/headers/RequestIdHeader'
+            X-Opal-Causation-Id:
+              $ref: '#/components/headers/CausationIdHeader'
+      parameters:
+      - $ref: '#/components/parameters/SessionIdParameter'
+      - $ref: '#/components/parameters/TransactionIdParameter'
+      - $ref: '#/components/parameters/RequestIdParameter'
+      - $ref: '#/components/parameters/CausationIdParameter'
+  /api/v1/model/{model_id}:
+    parameters:
+    - $ref: '#/components/parameters/ModelId'
+    get:
+      tags:
+      - models
+      operationId: yolo_models_show
+      summary: Show a registered model
+      x-opal-cli:
+        group: models
+        command: show
+      responses:
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '200':
+          description: Model metadata
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Model'
+          headers:
+            X-Opal-Session-Id:
+              $ref: '#/components/headers/SessionIdHeader'
+            X-Opal-Transaction-Id:
+              $ref: '#/components/headers/TransactionIdHeader'
+            X-Opal-Request-Id:
+              $ref: '#/components/headers/RequestIdHeader'
+            X-Opal-Causation-Id:
+              $ref: '#/components/headers/CausationIdHeader'
+        '404':
+          $ref: '#/components/responses/NotFound'
+      parameters:
+      - $ref: '#/components/parameters/SessionIdParameter'
+      - $ref: '#/components/parameters/TransactionIdParameter'
+      - $ref: '#/components/parameters/RequestIdParameter'
+      - $ref: '#/components/parameters/CausationIdParameter'
+  /api/v1/model/{model_id}/load:
+    parameters:
+    - $ref: '#/components/parameters/ModelId'
+    post:
+      tags:
+      - models
+      operationId: yolo_models_load
+      summary: Load already-installed model weights into memory
+      description: No automatic downloads. Safe repeated load returns current loaded state.
+      x-opal-cli:
+        group: models
+        command: load
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LoadRequest'
+      responses:
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '200':
+          description: Current model state
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Model'
+          headers:
+            X-Opal-Session-Id:
+              $ref: '#/components/headers/SessionIdHeader'
+            X-Opal-Transaction-Id:
+              $ref: '#/components/headers/TransactionIdHeader'
+            X-Opal-Request-Id:
+              $ref: '#/components/headers/RequestIdHeader'
+            X-Opal-Causation-Id:
+              $ref: '#/components/headers/CausationIdHeader'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/UnprocessableEntity'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+      parameters:
+      - $ref: '#/components/parameters/SessionIdParameter'
+      - $ref: '#/components/parameters/TransactionIdParameter'
+      - $ref: '#/components/parameters/RequestIdParameter'
+      - $ref: '#/components/parameters/CausationIdParameter'
+  /api/v1/model/{model_id}/unload:
+    parameters:
+    - $ref: '#/components/parameters/ModelId'
+    post:
+      tags:
+      - models
+      operationId: yolo_models_unload
+      summary: Unload idle model from memory
+      description: Reject with 409 if in active use; no deletion of weights.
+      x-opal-cli:
+        group: models
+        command: unload
+      responses:
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '200':
+          description: Model state
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Model'
+          headers:
+            X-Opal-Session-Id:
+              $ref: '#/components/headers/SessionIdHeader'
+            X-Opal-Transaction-Id:
+              $ref: '#/components/headers/TransactionIdHeader'
+            X-Opal-Request-Id:
+              $ref: '#/components/headers/RequestIdHeader'
+            X-Opal-Causation-Id:
+              $ref: '#/components/headers/CausationIdHeader'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+      parameters:
+      - $ref: '#/components/parameters/SessionIdParameter'
+      - $ref: '#/components/parameters/TransactionIdParameter'
+      - $ref: '#/components/parameters/RequestIdParameter'
+      - $ref: '#/components/parameters/CausationIdParameter'
+  /api/v1/hardware/:
+    get:
+      tags:
+      - hardware
+      operationId: yolo_hardware_list
+      summary: List engine-local CPU/GPU/accelerators
+      x-opal-cli:
+        group: hardware
+        command: list
+      responses:
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '200':
+          description: Available devices
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Hardware'
+          headers:
+            X-Opal-Session-Id:
+              $ref: '#/components/headers/SessionIdHeader'
+            X-Opal-Transaction-Id:
+              $ref: '#/components/headers/TransactionIdHeader'
+            X-Opal-Request-Id:
+              $ref: '#/components/headers/RequestIdHeader'
+            X-Opal-Causation-Id:
+              $ref: '#/components/headers/CausationIdHeader'
+      parameters:
+      - $ref: '#/components/parameters/SessionIdParameter'
+      - $ref: '#/components/parameters/TransactionIdParameter'
+      - $ref: '#/components/parameters/RequestIdParameter'
+      - $ref: '#/components/parameters/CausationIdParameter'
+  /api/v1/hardware/{device_id}:
+    parameters:
+    - $ref: '#/components/parameters/DeviceId'
+    get:
+      tags:
+      - hardware
+      operationId: yolo_hardware_show
+      summary: Show an engine-local compute device
+      x-opal-cli:
+        group: hardware
+        command: show
+      responses:
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '200':
+          description: Device metadata
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Hardware'
+          headers:
+            X-Opal-Session-Id:
+              $ref: '#/components/headers/SessionIdHeader'
+            X-Opal-Transaction-Id:
+              $ref: '#/components/headers/TransactionIdHeader'
+            X-Opal-Request-Id:
+              $ref: '#/components/headers/RequestIdHeader'
+            X-Opal-Causation-Id:
+              $ref: '#/components/headers/CausationIdHeader'
+        '404':
+          $ref: '#/components/responses/NotFound'
+      parameters:
+      - $ref: '#/components/parameters/SessionIdParameter'
+      - $ref: '#/components/parameters/TransactionIdParameter'
+      - $ref: '#/components/parameters/RequestIdParameter'
+      - $ref: '#/components/parameters/CausationIdParameter'
+  /api/v1/predict:
+    post:
+      tags:
+      - predict
+      operationId: yolo_predict
+      summary: Predict on a service-accessible image
+      description: Compatible with OPAL Look MVP Plus prediction semantics. This standalone engine accepts engine=yolo
+        only. The source must be a reachable, explicitly allowed URI or local path on the YOLO host; no remote path
+        assumption. Prediction is synchronous, and the model must be installed.
+      x-opal-cli:
+        command: predict
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PredictRequest'
+      responses:
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '200':
+          description: Normalized detections
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PredictResult'
+          headers:
+            X-Opal-Session-Id:
+              $ref: '#/components/headers/SessionIdHeader'
+            X-Opal-Transaction-Id:
+              $ref: '#/components/headers/TransactionIdHeader'
+            X-Opal-Request-Id:
+              $ref: '#/components/headers/RequestIdHeader'
+            X-Opal-Causation-Id:
+              $ref: '#/components/headers/CausationIdHeader'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '413':
+          $ref: '#/components/responses/PayloadTooLarge'
+        '422':
+          $ref: '#/components/responses/UnprocessableEntity'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+      parameters:
+      - $ref: '#/components/parameters/SessionIdParameter'
+      - $ref: '#/components/parameters/TransactionIdParameter'
+      - $ref: '#/components/parameters/RequestIdParameter'
+      - $ref: '#/components/parameters/CausationIdParameter'
+  /api/v1/predict/frame:
+    post:
+      tags:
+      - predict
+      operationId: yolo_predict_frame
+      summary: Predict on one uploaded decoded frame
+      description: Frame transport for OPAL Look streaming. OPAL Look performs RTSP acquisition/decode; YOLO receives
+        one JPEG/PNG frame per request. Frame metadata is echoed unchanged, and frame results are aligned using
+        stream_id/frame_id/sequence. This is NOT a YOLO stream service. Requests are synchronous with bounded concurrent
+        capacity and no unbounded queues. Model selection must name an installed model.
+      x-opal-cli:
+        group: predict
+        command: frame
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/FrameRequest'
+            encoding:
+              image:
+                contentType: image/jpeg, image/png
+              frame:
+                contentType: application/json
+      responses:
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '200':
+          description: Normalized frame detections
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FrameResult'
+          headers:
+            X-Opal-Session-Id:
+              $ref: '#/components/headers/SessionIdHeader'
+            X-Opal-Transaction-Id:
+              $ref: '#/components/headers/TransactionIdHeader'
+            X-Opal-Request-Id:
+              $ref: '#/components/headers/RequestIdHeader'
+            X-Opal-Causation-Id:
+              $ref: '#/components/headers/CausationIdHeader'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '413':
+          $ref: '#/components/responses/PayloadTooLarge'
+        '422':
+          $ref: '#/components/responses/UnprocessableEntity'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+      parameters:
+      - $ref: '#/components/parameters/SessionIdParameter'
+      - $ref: '#/components/parameters/TransactionIdParameter'
+      - $ref: '#/components/parameters/RequestIdParameter'
+      - $ref: '#/components/parameters/CausationIdParameter'
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      description: Required for non-loopback deployments; loopback-only instances may explicitly disable authentication.
+  parameters:
+    EngineId:
+      name: engine_id
+      in: path
+      required: true
+      schema:
+        type: string
+        const: yolo
+    ModelId:
+      name: model_id
+      in: path
+      required: true
+      schema:
+        type: string
+        minLength: 1
+    DeviceId:
+      name: device_id
+      in: path
+      required: true
+      schema:
+        type: string
+        minLength: 1
+    SessionIdParameter:
+      name: X-Opal-Session-Id
+      in: header
+      required: false
+      schema:
+        type: string
+        minLength: 1
+        maxLength: 128
+      description: Opaque correlation context, not authentication
+    TransactionIdParameter:
+      name: X-Opal-Transaction-Id
+      in: header
+      required: false
+      schema:
+        type: string
+        minLength: 1
+        maxLength: 128
+      description: Opaque correlation context, not authentication
+    RequestIdParameter:
+      name: X-Opal-Request-Id
+      in: header
+      required: false
+      schema:
+        type: string
+        minLength: 1
+        maxLength: 128
+      description: Opaque correlation context, not authentication
+    CausationIdParameter:
+      name: X-Opal-Causation-Id
+      in: header
+      required: false
+      schema:
+        type: string
+        minLength: 1
+        maxLength: 128
+      description: Opaque correlation context, not authentication
+  schemas:
+    ServiceInfo:
+      type: object
+      required:
+      - name
+      - version
+      - engine_id
+      properties:
+        name:
+          type: string
+          const: opal-yolo
+        version:
+          type: string
+        engine_id:
+          type: string
+          const: yolo
+    HealthStatus:
+      type: object
+      required:
+      - status
+      - engine_available
+      properties:
+        status:
+          type: string
+          enum:
+          - ok
+          - degraded
+        engine_available:
+          type: boolean
+        detail:
+          type: string
+    Engine:
+      type: object
+      required:
+      - engine_id
+      - available
+      - tasks
+      properties:
+        engine_id:
+          type: string
+          const: yolo
+        name:
+          type: string
+          example: Ultralytics YOLO
+        available:
+          type: boolean
+        enabled:
+          type: boolean
+        tasks:
+          type: array
+          items:
+            type: string
+          example:
+          - detect
+        options_schema:
+          type: object
+          additionalProperties: true
+        version:
+          type: string
+    Capabilities:
+      type: object
+      required:
+      - engine_id
+      - tasks
+      - options_schema
+      properties:
+        engine_id:
+          type: string
+          const: yolo
+        tasks:
+          type: array
+          items:
+            type: string
+          example:
+          - detect
+        options_schema:
+          type: object
+          additionalProperties: true
+          description: JSON Schema for allowed YOLO engine_options; unknown values rejected.
+        formats:
+          type: array
+          items:
+            type: string
+          example:
+          - jpg
+          - png
+        supported_devices:
+          type: array
+          items:
+            type: string
+    Model:
+      type: object
+      required:
+      - model_id
+      - engine_id
+      - tasks
+      - loaded
+      properties:
+        model_id:
+          type: string
+          minLength: 1
+        engine_id:
+          type: string
+          const: yolo
+        tasks:
+          type: array
+          items:
+            type: string
+        loaded:
+          type: boolean
+        available:
+          type: boolean
+        weights_sha256:
+          type: string
+          pattern: ^[a-fA-F0-9]{64}$
+        metadata:
+          type: object
+          additionalProperties: true
+    Hardware:
+      type: object
+      required:
+      - device_id
+      - type
+      - available
+      properties:
+        device_id:
+          type: string
+          example: cuda:0
+        type:
+          type: string
+          enum:
+          - cpu
+          - gpu
+          - accelerator
+        available:
+          type: boolean
+        memory_mb:
+          type: integer
+          minimum: 0
+        name:
+          type: string
+    LoadRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        device:
+          type: string
+          description: Engine-local device identifier
+    ImageInfo:
+      type: object
+      required:
+      - width
+      - height
+      properties:
+        width:
+          type: integer
+          minimum: 1
+        height:
+          type: integer
+          minimum: 1
+    Detection:
+      type: object
+      required:
+      - class_id
+      - class_name
+      - confidence
+      - box
+      properties:
+        class_id:
+          type: integer
+          minimum: 0
+        class_name:
+          type: string
+        confidence:
+          type: number
+          minimum: 0
+          maximum: 1
+        box:
+          type: array
+          minItems: 4
+          maxItems: 4
+          items:
+            type: number
+          description: Original-image pixel xyxy [x1,y1,x2,y2], after orientation correction.
+    PredictOptions:
+      type: object
+      properties:
+        confidence:
+          type: number
+          minimum: 0
+          maximum: 1
+          default: 0.25
+        device:
+          type: string
+        engine_options:
+          type: object
+          additionalProperties: true
+          description: Engine-specific options validated using advertised options_schema; unknown names rejected.
+        include_native:
+          type: boolean
+          default: false
+    PredictRequest:
+      type: object
+      additionalProperties: false
+      required:
+      - engine
+      - model_id
+      - source
+      properties:
+        engine:
+          type: string
+          const: yolo
+        model_id:
+          type: string
+          minLength: 1
+        source:
+          type: string
+          minLength: 1
+          description: Service-accessible local image path or permitted URI, never an assumed path on another host.
+        confidence:
+          type: number
+          minimum: 0
+          maximum: 1
+          default: 0.25
+        device:
+          type: string
+        engine_options:
+          type: object
+          additionalProperties: true
+        include_native:
+          type: boolean
+          default: false
+    PredictResult:
+      type: object
+      required:
+      - engine
+      - model_id
+      - image
+      - detections
+      properties:
+        engine:
+          type: string
+          const: yolo
+        model_id:
+          type: string
+        image:
+          $ref: '#/components/schemas/ImageInfo'
+        detections:
+          type: array
+          items:
+            $ref: '#/components/schemas/Detection'
+        native:
+          type: object
+          additionalProperties: true
+          description: Sanitized engine-native output; only present when requested
+        execution_id:
+          type: string
+    FrameEnvelope:
+      type: object
+      additionalProperties: true
+      required:
+      - stream_id
+      - frame_id
+      - sequence
+      - captured_at
+      - image
+      properties:
+        stream_id:
+          type: string
+        frame_id:
+          type: string
+        sequence:
+          type: integer
+          minimum: 0
+        captured_at:
+          type: string
+          format: date-time
+        image:
+          $ref: '#/components/schemas/ImageInfo'
+        transaction_id:
+          type: string
+        request_id:
+          type: string
+        causation_id:
+          type: string
+    FrameRequest:
+      type: object
+      additionalProperties: false
+      required:
+      - image
+      - frame
+      - model_id
+      properties:
+        image:
+          type: string
+          format: binary
+          description: JPEG or PNG bytes; maximum size configured by service
+        frame:
+          $ref: '#/components/schemas/FrameEnvelope'
+        model_id:
+          type: string
+          minLength: 1
+        confidence:
+          type: number
+          minimum: 0
+          maximum: 1
+          default: 0.25
+        device:
+          type: string
+        include_native:
+          type: boolean
+          default: false
+        engine_options:
+          type: string
+          description: JSON-encoded object serialized as a multipart text field; validated against options_schema.
+    FrameResult:
+      allOf:
+      - $ref: '#/components/schemas/PredictResult'
+      - type: object
+        required:
+        - frame
+        properties:
+          frame:
+            $ref: '#/components/schemas/FrameEnvelope'
+    ErrorBody:
+      type: object
+      required:
+      - code
+      - message
+      properties:
+        code:
+          type: string
+        message:
+          type: string
+        details:
+          type: object
+          additionalProperties: true
+    OpalError:
+      type: object
+      required:
+      - error
+      additionalProperties: false
+      properties:
+        error:
+          $ref: '#/components/schemas/ErrorBody'
+  responses:
+    Unauthorized:
+      description: Missing or invalid bearer token
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/OpalError'
+      headers:
+        X-Opal-Session-Id:
+          $ref: '#/components/headers/SessionIdHeader'
+        X-Opal-Transaction-Id:
+          $ref: '#/components/headers/TransactionIdHeader'
+        X-Opal-Request-Id:
+          $ref: '#/components/headers/RequestIdHeader'
+        X-Opal-Causation-Id:
+          $ref: '#/components/headers/CausationIdHeader'
+    BadRequest:
+      description: Bad request
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/OpalError'
+      headers:
+        X-Opal-Session-Id:
+          $ref: '#/components/headers/SessionIdHeader'
+        X-Opal-Transaction-Id:
+          $ref: '#/components/headers/TransactionIdHeader'
+        X-Opal-Request-Id:
+          $ref: '#/components/headers/RequestIdHeader'
+        X-Opal-Causation-Id:
+          $ref: '#/components/headers/CausationIdHeader'
+    NotFound:
+      description: Model, engine, or device not found
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/OpalError'
+      headers:
+        X-Opal-Session-Id:
+          $ref: '#/components/headers/SessionIdHeader'
+        X-Opal-Transaction-Id:
+          $ref: '#/components/headers/TransactionIdHeader'
+        X-Opal-Request-Id:
+          $ref: '#/components/headers/RequestIdHeader'
+        X-Opal-Causation-Id:
+          $ref: '#/components/headers/CausationIdHeader'
+    Conflict:
+      description: Resource busy
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/OpalError'
+      headers:
+        X-Opal-Session-Id:
+          $ref: '#/components/headers/SessionIdHeader'
+        X-Opal-Transaction-Id:
+          $ref: '#/components/headers/TransactionIdHeader'
+        X-Opal-Request-Id:
+          $ref: '#/components/headers/RequestIdHeader'
+        X-Opal-Causation-Id:
+          $ref: '#/components/headers/CausationIdHeader'
+    PayloadTooLarge:
+      description: Frame/image too large
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/OpalError'
+      headers:
+        X-Opal-Session-Id:
+          $ref: '#/components/headers/SessionIdHeader'
+        X-Opal-Transaction-Id:
+          $ref: '#/components/headers/TransactionIdHeader'
+        X-Opal-Request-Id:
+          $ref: '#/components/headers/RequestIdHeader'
+        X-Opal-Causation-Id:
+          $ref: '#/components/headers/CausationIdHeader'
+    UnprocessableEntity:
+      description: Unsupported task or invalid option
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/OpalError'
+      headers:
+        X-Opal-Session-Id:
+          $ref: '#/components/headers/SessionIdHeader'
+        X-Opal-Transaction-Id:
+          $ref: '#/components/headers/TransactionIdHeader'
+        X-Opal-Request-Id:
+          $ref: '#/components/headers/RequestIdHeader'
+        X-Opal-Causation-Id:
+          $ref: '#/components/headers/CausationIdHeader'
+    TooManyRequests:
+      description: Bounded inference capacity exhausted
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/OpalError'
+      headers:
+        X-Opal-Session-Id:
+          $ref: '#/components/headers/SessionIdHeader'
+        X-Opal-Transaction-Id:
+          $ref: '#/components/headers/TransactionIdHeader'
+        X-Opal-Request-Id:
+          $ref: '#/components/headers/RequestIdHeader'
+        X-Opal-Causation-Id:
+          $ref: '#/components/headers/CausationIdHeader'
+    ServiceUnavailable:
+      description: Engine unavailable
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/OpalError'
+      headers:
+        X-Opal-Session-Id:
+          $ref: '#/components/headers/SessionIdHeader'
+        X-Opal-Transaction-Id:
+          $ref: '#/components/headers/TransactionIdHeader'
+        X-Opal-Request-Id:
+          $ref: '#/components/headers/RequestIdHeader'
+        X-Opal-Causation-Id:
+          $ref: '#/components/headers/CausationIdHeader'
+  headers:
+    SessionIdHeader:
+      description: OPAL correlation identifier
+      required: false
+      schema:
+        type: string
+        minLength: 1
+        maxLength: 128
+    TransactionIdHeader:
+      description: OPAL correlation identifier
+      required: true
+      schema:
+        type: string
+        minLength: 1
+        maxLength: 128
+    RequestIdHeader:
+      description: OPAL correlation identifier
+      required: true
+      schema:
+        type: string
+        minLength: 1
+        maxLength: 128
+    CausationIdHeader:
+      description: OPAL correlation identifier
+      required: false
+      schema:
+        type: string
+        minLength: 1
+        maxLength: 128

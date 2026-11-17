@@ -22,7 +22,8 @@ from collections import deque
 from typing import Any
 from urllib.parse import urlsplit, urlunsplit
 
-from .capture import LiveFramePump, capture_adapter_for
+from .capture import (LiveFramePump, capture_adapter_for,
+                      credentialed_locator)
 from .timeutil import now_iso
 
 TERMINAL_STATES = ("stopped", "failed")
@@ -55,6 +56,7 @@ class StreamRuntime:
         *,
         stream_id: str | None = None,
         source: str,
+        credential_ref: str | None = None,
         engine=None,
         model_id: str | None = None,
         confidence: float = 0.25,
@@ -68,6 +70,7 @@ class StreamRuntime:
         self.stream_id = stream_id or f"strm_{uuid.uuid4().hex[:16]}"
         self.mode = "inference" if engine is not None else "video"
         self._source = source
+        self._credential_ref = credential_ref
         self.source_redacted = redact_source(source)
         self._engine = engine
         self.engine_id = engine.engine_id if engine else None
@@ -127,7 +130,9 @@ class StreamRuntime:
             adapter = capture_adapter_for("rtsp")
             if adapter is None:
                 raise RuntimeError("no rtsp capture adapter installed")
-            frames = adapter.open_stream(self._source, {}, self._source)
+            frames = adapter.open_stream(
+                self._source, {},
+                credentialed_locator(self._source, self._credential_ref))
             self._pump = LiveFramePump(
                 frames, capacity=self.buffer_size,
                 policy=self.buffer_policy).start()

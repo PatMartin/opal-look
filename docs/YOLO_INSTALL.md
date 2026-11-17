@@ -1,19 +1,20 @@
 # OPAL Look — YOLO engine integration
 
-Status: **not yet integrated.** [`opal-look-yolo`](https://github.com/PatMartin/opal-look-yolo)
-is a **standalone REST microservice** (its own contract, port `:8086`, CLI
-`opal-yolo`, SPA). It is *not* an in-process engine plugin — it declares no
-`opal_look.engines` entry point and its internal adapter protocol is a
-different, narrower surface. The recommended integration is a **remote
-engine adapter** inside opal-look that implements the `EngineAdapter`
-protocol by proxying to the YOLO service over HTTP.
+Status: **integrated (remote adapter).** OPAL Look ships a built-in remote
+adapter for [`opal-look-yolo`](https://github.com/PatMartin/opal-look-yolo)
+— a standalone REST microservice (contract:
+`openapi/engines/yolo_1.7.1.yaml`, port `:8086`, CLI `opal-yolo`). The
+adapter (`src/opal_look/engines/yolo/`) implements look's `EngineAdapter`
+protocol by proxying to the service over HTTP, and is wired entirely
+through `.env` — `OPAL_LOOK_ENGINE_YOLO_BASE_URL` registers it.
 
 This document covers:
 
 1. The `EngineAdapter` contract opal-look expects, in detail.
-2. What `opal-look-yolo` provides today and how the surfaces map.
+2. What `opal-look-yolo` provides and how the remote adapter maps to it.
 3. Install/run instructions for the YOLO service.
-4. The two integration paths and the remaining work in each repo.
+4. Configuring the integration via `.env`.
+5. Remaining gaps and next steps for both repos.
 
 ---
 
@@ -21,28 +22,27 @@ This document covers:
 
 Engines are *optional* in opal-look: video streams work with zero engines;
 an engine adds `predict` and inference-mode streams. The contract is an
-in-process Python `Protocol` — see `src/opal_look/engines.py`.
+in-process Python `Protocol` — see `src/opal_look/engines/__init__.py`.
 
 ### Registration
 
+Two paths land an adapter in `ENGINE_REGISTRY`:
+
 ```python
-# opal_look.engines.load_plugin_adapters()
+# 1. Entry-point plugins (third-party packages)
 for ep in entry_points(group="opal_look.engines"):
-    registry.register(ep.load()())   # factory called with no args
+    registry.register(ep.load()())
+
+# 2. Built-in remote adapters declared via env (register_env_adapters)
+#    OPAL_LOOK_ENGINE_YOLO_BASE_URL -> registers YoloRemoteAdapter
 ```
 
-A plugin registers by declaring an entry point in its own `pyproject.toml`:
-
-```toml
-[project.entry-points."opal_look.engines"]
-yolo = "some_package:adapter_factory"   # called -> EngineAdapter instance
-```
-
-The built-in `synthetic` adapter is registered unconditionally at import
-time (`ENGINE_REGISTRY.register(SyntheticAdapter())`). At startup,
-`ensure_engines(store)` seeds a row per registered adapter (enabled flag +
-non-secret config); `engine_gate()` rejects inference calls on disabled or
-unavailable engines with 503.
+Both run inside the app lifespan, after `dotenv.prepare()` in `main()`
+loads `.env`. At startup `ensure_engines(store)` seeds a row per registered adapter
+(enabled flag + non-secret config), then `apply_env_engines(store)`
+rewrites env-declared config/enabled — authoritative over `PATCH` changes,
+same rule as `OPAL_LOOK_<SETTING>`. `engine_gate()` rejects inference
+calls on disabled or unavailable engines with 503.
 
 ### Protocol surface
 
@@ -90,36 +90,33 @@ class EngineAdapter(Protocol):
   else surfaces as a generic 500, so adapters should translate their own
   failures into these two.
 - **`predict` runs on the stream decode-pump thread** for inference-mode
-  streams — a slow or blocking call directly throttles that stream's
-  frame rate.
+  streams — a blocking call bounds that stream's frame rate, and a raised
+  exception fails the stream (`status: failed`, terminal SSE event).
 - **Idempotent load:** `load_model` on an already-loaded model is a
   success no-op. `unload_model` on a model still in use by an inference
   stream is rejected with 409 by the router's own usage check —
   adapters don't raise it themselves.
 
-## 2. What `opal-look-yolo` provides today
+## 2. What `opal-look-yolo` provides
 
 A standalone FastAPI service implementing `openapi/opal_look_yolo.yaml`
-(14 ops — engine/model/hardware/predict + `/predict/frame`). Key facts:
+(identical to the vendored `openapi/engines/yolo_1.7.1.yaml` here —
+14 ops). Key facts:
 
 - Own CLI (`opal-yolo`), own auth (`OPAL_YOLO_*` env), own SPA at `/app`,
   filesystem model discovery via `OPAL_YOLO_MODEL_DIRS`.
 - `/predict/frame` accepts **multipart image bytes** + a `FrameEnvelope`
-  (`stream_id`, `frame_id`, `sequence`, `captured_at`, `image{w,h}`) —
-  exactly what a stream-side adapter needs.
-- `/predict` accepts `{"engine":"yolo","model_id","source","confidence",
-  "device","engine_options","include_native"}` where `source` is a local
-  path or allowlisted remote URI.
-- Detection payloads are already shape-compatible:
+  (`stream_id`, `frame_id`, `sequence`, `captured_at`, `image{w,h}`).
+- `/predict` accepts `{"engine","model_id","source","confidence","device",
+  "engine_options","include_native"}` where `source` is a local path or
+  allowlisted remote URI.
+- Detection payloads are shape-compatible with look's:
   `class_id / class_name / confidence / box[4]` xyxy floats.
-- Model records carry `model_id, tasks, loaded, available,
-  weights_sha256, metadata` — a superset of look's needs.
-- Its internal `UltralyticsYoloEngine` wraps `ultralytics.YOLO`:
-  `load_model(path) -> handle`, `predict(handle, image=..., conf=...)`
-  — reusable for an in-process shim, but its method surface differs from
-  look's protocol.
-- No `opal_look.engines` entry point — `importlib.metadata` sees nothing
-  when look calls `load_plugin_adapters()`.
+- Its internal `UltralyticsYoloEngine` is a different, narrower protocol —
+  not usable as an in-process plugin (no `opal_look.engines` entry point).
+- `GET /api/v1/health/` means "healthy *and* idle (no model loaded)" —
+  the remote adapter probes `GET /api/v1/engine/yolo` → `available`
+  instead.
 
 ## 3. Install and run the YOLO service
 
@@ -151,103 +148,94 @@ Verify:
 Auth: `OPAL_YOLO_AUTH_DISABLED=false` + `OPAL_YOLO_AUTH_TOKEN=…` enables
 bearer auth (required for non-loopback binds).
 
-## 4. Integration paths
+## 4. Configure the integration (`.env`)
 
-### A. Remote adapter (recommended)
+All wiring is environment-driven — see `.env.example`:
 
-Add `RemoteEngineAdapter` to opal-look (`engine_id="yolo"`,
-`execution="remote"`) that proxies the protocol over HTTP to the running
-service. Registers the `yolo` engine unconditionally — it simply probes
-unavailable until `base_url` is configured, which matches how optional
-engines already surface in `/api/v1/engine/`.
+```dotenv
+OPAL_LOOK_ENGINE_YOLO_BASE_URL=http://127.0.0.1:8086
+OPAL_LOOK_ENGINE_YOLO_ENABLED=true          # default true
+OPAL_LOOK_ENGINE_YOLO_TIMEOUT_SECONDS=30    # default 30
+# OPAL_LOOK_ENGINE_YOLO_TOKEN=              # bearer for the adapter service
+```
 
-| Adapter call | YOLO service call |
-|---|---|
-| `probe(config, enabled)` | `GET /api/v1/engine/yolo` → `available` |
-| `capabilities()` | `GET /api/v1/engine/yolo/capabilities` → map `supported_devices`→`device_types`, plus `tasks`/`annotation`/`engine_options`/`source_types` |
-| `options_schema()` | adapter config schema: `{base_url, timeout_seconds}` — **not** the predict options schema |
-| `validate_engine_options()` | validate against `capabilities.options_schema` (imgsz/iou/max_det/classes/half/agnostic_nms/augment/verbose) |
-| `hardware()` | `GET /api/v1/hardware/` → pass through `{device_id,type,available}` |
-| `models()` | `GET /api/v1/model/` → keep `model_id/tasks/loaded/available`, add `engine_id:"yolo"`, pack `weights_sha256` into `metadata` |
-| `load_model(id, device)` | `POST /api/v1/model/{id}/load` `{"device": device}` |
-| `unload_model(id)` | `POST /api/v1/model/{id}/unload` |
-| `predict(image,…)` | encode PIL→JPEG → `POST /api/v1/predict/frame` multipart with synthesized `FrameEnvelope` (`stream_id:"opal-look"`, `sequence` counter, `captured_at` now, `image:{width,height}`) → return `{"detections", "native"?}` |
+- `BASE_URL` presence **registers** the engine at startup; remove it and
+  restart to unregister. `ENABLED` seeds the `engines.enabled` flag;
+  `TIMEOUT_SECONDS` lands in engine config. Both are re-applied every boot
+  (authoritative over `PATCH /api/v1/engine/yolo`).
+- `TOKEN` is env-only (like `OPAL_LOOK_CRED_*`) — never written to
+  `engines.config`, logged, or echoed.
+- If the YOLO service has auth enabled, its token goes in
+  `OPAL_YOLO_AUTH_TOKEN` (yolo side) and `OPAL_LOOK_ENGINE_YOLO_TOKEN`
+  (look side).
 
-Details:
-
-- Engine config: `{"base_url": "http://127.0.0.1:8086",
-  "timeout_seconds": 30}` — set via
-  `opal-look config engine update yolo --body '{"options":{…}}'`.
-- Bearer token for the YOLO service comes from an **env var**
-  (`OPAL_LOOK_YOLO_TOKEN`), never from engine config (config is stored
-  plaintext and echoed in `options`).
-- Error mapping: `httpx.ConnectError/Timeout` → `EngineUnavailable`;
-  404 → `ModelNotFound`; 503/429 → `EngineUnavailable`. 429 arises under
-  YOLO's bounded-prediction semaphore — for stream loops, treat as a
-  transient failure (log + drop the frame rather than failing the stream
-  is a reasonable refinement).
-- Every `predict` is a blocking HTTP call on the decode-pump thread —
-  the inference stream's effective fps is bounded by round-trip +
-  inference latency. That's inherent to remote execution; document it.
-
-### B. In-process plugin (alternative)
-
-Skip the service: install `ultralytics` into look's venv and register a
-shim adapter that wraps `UltralyticsYoloEngine` and exposes look's
-protocol directly (`engine_id="yolo"`, `execution="local"`).
-
-- `pip install ultralytics` (large: torch + optional CUDA).
-- The shim owns a model-dir scan or config `{"model_dirs":[…]}`,
-  synthesizes `models()` records, and translates `predict(image,…)` into
-  `model.predict(source=image, conf=…)`.
-- Entry point in the shim package:
-  `[project.entry-points."opal_look.engines"] yolo = "pkg:make_adapter"`.
-- Trade-off: simpler topology, but heavy ML deps inside look's process
-  and no GPU-host offload. Inference blocks the pump thread identically.
-
-## 5. Next steps
-
-### In opal-look (this repo)
-
-- [ ] `src/opal_look/remote_engine.py`: httpx-backed `EngineAdapter` per
-      the mapping table (config `{base_url, timeout_seconds}`, token via
-      `OPAL_LOOK_YOLO_TOKEN` env, JPEG encode for `/predict/frame`,
-      error → `ModelNotFound`/`EngineUnavailable` mapping).
-- [ ] Register it alongside `synthetic` (probe reports unavailable until
-      `base_url` is configured — mirrors the optional-engine model).
-- [ ] Config schema + `validate_engine_options` driven by the remote
-      `capabilities.options_schema`.
-- [ ] Tests: fake httpx transport covering probe/models/load/predict,
-      error mapping, and a `predict` round-trip through
-      `POST /api/v1/stream/` inference admission.
-- [ ] Docs: README engine-plugins paragraph + this file's status line.
-
-### In opal-look-yolo
-
-- [ ] Nothing required for remote mode — the REST surface already covers
-      every adapter call.
-- [ ] Optional for in-process mode: ship a small adapter package (or a
-      `look_plugin.py` module) implementing look's `EngineAdapter`
-      protocol + the `opal_look.engines` entry point.
-- [ ] Cosmetic: task naming `detect` (yolo) vs `detection` (look) — the
-      remote adapter can translate, but aligning the vocab avoids the
-      shim.
-- [ ] `GET /api/v1/info/` already exposes service version → feed
-      `metadata().version`.
-
-## 6. Verify the integration (remote mode)
+Then:
 
 ```bash
-# terminal 1 — yolo service
-cd ../opal-look-yolo && .venv/Scripts/uvicorn opal_look_yolo.main:app --port 8086
-
-# terminal 2 — look
 opal serve
-opal-look config engine update yolo --body '{"options":{"base_url":"http://127.0.0.1:8086"}}'
-opal-look engine list                     # yolo: enabled, available
+opal-look engine list                      # yolo: enabled, available
 opal-look model list --engine yolo
 opal-look model load <model_id> --engine yolo
 opal-look predict image --engine yolo --model <model_id> --source sample.jpg
-opal-look stream start rtsp://cam/feed --name front-ai --engine yolo --model <model_id> --annotate
-look stream watch front-ai                # detection events
+opal-look stream start rtsp://cam/feed --name front-ai \
+    --credential front --engine yolo --model <model_id> --annotate
+opal-look stream watch front-ai            # live detection events
+ffplay -fflags nobuffer \
+    "http://127.0.0.1:8002/api/v1/stream/front-ai/video?annotated=true"
 ```
+
+`--credential front` names `OPAL_LOOK_CRED_FRONT` (`user:pass`), injected
+at connect time — skip it only if the camera is truly open.
+
+**Verified live** (yolo26n on CPU): inference latency ~250 ms/frame,
+effective ~3 fps on the stream pump; `frames_dropped` climbs per
+`buffer_policy` — expected, not an error.
+
+## 5. Adapter mapping (implementation)
+
+`src/opal_look/engines/yolo/adapter.py` (`execution="remote"`):
+
+| Adapter call | YOLO service call |
+|---|---|
+| `probe(config, enabled)` | `GET {base_url}/api/v1/engine/yolo` → `available`; `(False, "disabled")` when the row's flag is off |
+| `capabilities()` | `GET …/engine/yolo/capabilities` → `supported_devices`→`device_types`, remote `options_schema` keys→`engine_options`; `annotation: true` (look draws overlays) |
+| `options_schema()` / `validate_config()` | look-side `{base_url, timeout_seconds}` — engine *config*, not predict options |
+| `validate_engine_options()` | static known-key set (imgsz/iou/max_det/classes/half/agnostic_nms/augment/verbose) |
+| `hardware()` | `GET …/hardware/` → passthrough |
+| `models()` | `GET …/model/` → `weights_sha256` folded into `metadata` |
+| `load_model(id, device)` | `POST …/model/{id}/load` `{"device": device}` |
+| `unload_model(id)` | `POST …/model/{id}/unload` |
+| `predict(image,…)` | PIL→JPEG → `POST …/predict/frame` multipart with synthesized `FrameEnvelope` (`stream_id: "opal-look"`, `frame_id: uuid`, `sequence` counter, `captured_at` now) |
+
+Error mapping: connect/timeout/5xx → `EngineUnavailable` (503); model 404
+→ `ModelNotFound` (404); 401/403 → `EngineUnavailable` (check TOKEN).
+One cached `httpx.Client` per (url, timeout, token).
+
+## 6. Remaining gaps and next steps
+
+### In opal-look (this repo)
+
+- [ ] Per-call predict failures propagate to the stream pump → the whole
+      inference stream fails. Consider treating transient remote errors
+      (timeout/429/5xx) as dropped frames instead — likely a stream-side
+      policy, not adapter-side.
+- [ ] `predict`'s synthesized `FrameEnvelope.stream_id` is the constant
+      `"opal-look"` — the protocol doesn't pass stream identity into
+      `predict`. If the yolo side needs real stream provenance, that's an
+      upstream adapter-signature amendment.
+- [ ] `capabilities()`/`models()`/`hardware()` hit the remote service on
+      every call (no caching). Fine at MVP scale; cache if latency shows.
+- [ ] Additional remote engines (rfdetr/rtdetr/dfine share the same
+      adapter contract): generalize `env.py` + registration loop when a
+      second one is actually wired — deliberately not done yet.
+
+### In opal-look-yolo
+
+- [ ] Nothing required — remote integration works against the current
+      service.
+- [ ] Optional in-process plugin: a `look_plugin.py` shim implementing
+      look's `EngineAdapter` over `UltralyticsYoloEngine` + an
+      `opal_look.engines` entry point — only if co-process execution is
+      ever wanted (pulls torch/ultralytics into look's venv).
+- [ ] Cosmetic: task naming `detect` (yolo) vs `detection` (look's
+      `TASKS`); the adapter currently returns the remote vocab verbatim.

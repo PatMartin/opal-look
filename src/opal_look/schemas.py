@@ -44,6 +44,8 @@ class StreamStartRequest(BaseModel):
 
     source: str = Field(min_length=8, pattern=r"^rtsps?://")
     name: str | None = Field(default=None, pattern=IDENTIFIER_PATTERN)
+    credential_ref: str | None = Field(default=None,
+                                       pattern=IDENTIFIER_PATTERN)
     engine_id: str | None = None
     model_id: str | None = None
     confidence: float = Field(default=0.25, ge=0.0, le=1.0)

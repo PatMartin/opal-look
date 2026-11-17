@@ -13,7 +13,8 @@ from .access_log import AccessLogMiddleware
 from .auth import BearerAuthMiddleware, env_token
 from .correlation import CorrelationMiddleware
 from .capture import load_capture_plugins
-from .engines import ensure_engines, load_plugin_adapters
+from .engines import (apply_env_engines, ensure_engines,
+                        load_plugin_adapters, register_env_adapters)
 from .errors import register_error_handlers
 from .framecache import FrameCache
 from .routers import (
@@ -69,8 +70,10 @@ def create_app(
     from .store import sweep_expired
     app.state.swept = sweep_expired(app.state.store)
     load_plugin_adapters()
+    register_env_adapters()
     load_capture_plugins()
     ensure_engines(app.state.store)
+    apply_env_engines(app.state.store)
 
     # Outermost first: access log -> correlation -> bearer gate -> routes.
     app.add_middleware(BearerAuthMiddleware)

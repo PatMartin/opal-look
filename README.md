@@ -238,6 +238,8 @@ Real environment variables always win over `.env` (`load_dotenv` never overrides
 
 Engines self-register through the `opal_look.engines` Python entry-point group by implementing the `EngineAdapter` protocol (`capabilities`, `models`, `load_model`, `predict`, `hardware`, …). The `synthetic` adapter is the reference implementation — deterministic detections with no ML dependencies. Capture backends similarly plug into `opal_look.capture` (`RtspAvAdapter` decodes via PyAV).
 
+For a real detector, see [docs/YOLO_INSTALL.md](docs/YOLO_INSTALL.md) — the full `EngineAdapter` contract and how to run the standalone [`opal-look-yolo`](https://github.com/PatMartin/opal-look-yolo) service alongside (remote-adapter integration planned, not yet wired).
+
 ---
 
 ## REST map

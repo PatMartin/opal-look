@@ -190,16 +190,22 @@ def test_idempotent_start(client, rtsp_frames):
     assert c.status_code == 409
 
 
-def test_named_stream(client, rtsp_frames):
+def test_named_stream(client, fake_rtsp):
+    fake_rtsp.frames_per_open = [None]  # endless feed keeps the name held
     resp = client.post("/api/v1/stream/", json={
         "source": "rtsp://cam/x", "name": "front-door"})
     assert resp.status_code == 202
-    assert resp.headers["location"] == "/api/v1/stream/front-door"
     body = resp.json()
-    assert body["stream_id"] == "front-door"
-    assert body["events_url"] == "/api/v1/stream/front-door/events"
+    assert body["stream_id"] != "front-door"
+    assert body["name"] == "front-door"
+    assert resp.headers["location"] == \
+        f"/api/v1/stream/{body['stream_id']}"
+    assert body["events_url"] == \
+        f"/api/v1/stream/{body['stream_id']}/events"
+    # the name resolves as an alias while the stream holds it
     shown = client.get("/api/v1/stream/front-door").json()
-    assert shown["stream_id"] == "front-door"
+    assert shown["stream_id"] == body["stream_id"]
+    assert shown["name"] == "front-door"
 
 
 def test_named_stream_conflict(client, fake_rtsp):
@@ -213,17 +219,36 @@ def test_named_stream_conflict(client, fake_rtsp):
 
 
 def test_named_stream_reuse_after_stop(client, fake_rtsp):
-    fake_rtsp.frames_per_open = [None]
+    fake_rtsp.frames_per_open = [None, None]
     fake_rtsp.frame_delay = 0.01
-    sid = client.post("/api/v1/stream/", json={
-        "source": "rtsp://cam/x", "name": "front-door"}).json()["stream_id"]
-    assert client.post(f"/api/v1/stream/{sid}/stop").status_code == 200
+    first = client.post("/api/v1/stream/", json={
+        "source": "rtsp://cam/x", "name": "front-door"}).json()
+    assert client.post(
+        f"/api/v1/stream/{first['stream_id']}/stop").status_code == 200
     resp = client.post("/api/v1/stream/", json={
         "source": "rtsp://cam/y", "name": "front-door"})
     assert resp.status_code == 202
     body = resp.json()
-    assert body["stream_id"] == "front-door"
+    assert body["name"] == "front-door"
+    assert body["stream_id"] != first["stream_id"]  # a new run every time
     assert body["source_redacted"] == "rtsp://cam/y"
+    # the old run remains addressable by run id; the alias moved on
+    old = client.get(f"/api/v1/stream/{first['stream_id']}").json()
+    assert old["status"] == "stopped"
+    assert client.get("/api/v1/stream/front-door").json()[
+        "stream_id"] == body["stream_id"]
+
+
+def test_name_alias_released_at_terminal(client, rtsp):
+    """A terminal stream releases its name alias; the run id still serves
+    the stopped status."""
+    body = client.post("/api/v1/stream/", json={
+        "source": "rtsp://cam/x", "name": "gone"}).json()
+    _wait(client, body["stream_id"],
+          lambda b: b["status"] in ("stopped", "failed"))
+    assert client.get("/api/v1/stream/gone").status_code == 404
+    assert client.get(
+        f"/api/v1/stream/{body['stream_id']}").status_code == 200
 
 
 def test_named_stream_invalid(client, rtsp_frames):
@@ -240,7 +265,8 @@ def test_named_stream_idempotent(client, rtsp_frames):
     b = client.post("/api/v1/stream/", json=body,
                     headers={"Idempotency-Key": "k-name"})
     assert a.status_code == b.status_code == 202
-    assert a.json()["stream_id"] == b.json()["stream_id"] == "front-door"
+    assert a.json()["stream_id"] == b.json()["stream_id"]
+    assert a.json()["name"] == "front-door"
 
 
 def test_snapshot_and_video(client, rtsp_frames):
@@ -459,10 +485,11 @@ def test_credential_ref_injects_locator(client, rtsp, monkeypatch):
         "source": "rtsp://cam/x", "credential_ref": "front",
         "name": "cred"})
     assert resp.status_code == 202
-    _wait(client, "cred", lambda b: b["status"] != "starting")
+    sid = resp.json()["stream_id"]
+    _wait(client, sid, lambda b: b["status"] != "starting")
     assert rtsp.open_locators == [
         "rtsp://opallook:helloworld@cam/x"]
-    shown = client.get("/api/v1/stream/cred").json()
+    shown = client.get(f"/api/v1/stream/{sid}").json()
     assert shown["source_redacted"] == "rtsp://cam/x"
 
 
@@ -486,6 +513,132 @@ def test_embedded_userinfo_redacted(client, rtsp):
     resp = client.post("/api/v1/stream/", json={
         "source": "rtsp://u:pw@cam/x", "name": "redact"})
     assert resp.status_code == 202
-    shown = client.get("/api/v1/stream/redact").json()
+    sid = resp.json()["stream_id"]
+    shown = client.get(f"/api/v1/stream/{sid}").json()
     assert shown["source_redacted"] == "rtsp://cam/x"
-    client.post("/api/v1/stream/redact/stop")
+    client.post(f"/api/v1/stream/{sid}/stop")
+
+
+# -- run identity: idempotent retries ------------------------------------------
+
+
+def test_replay_after_stop_returns_same_run(client, fake_rtsp):
+    """A retry after stop returns the recorded run's receipt — it does
+    not start a second stream for the spent key."""
+    fake_rtsp.frames_per_open = [None]
+    fake_rtsp.frame_delay = 0.01
+    body = {"source": "rtsp://cam/x", "name": "door"}
+    a = client.post("/api/v1/stream/", json=body,
+                    headers={"Idempotency-Key": "k-stop"})
+    sid = a.json()["stream_id"]
+    client.post(f"/api/v1/stream/{sid}/stop")
+    b = client.post("/api/v1/stream/", json=body,
+                    headers={"Idempotency-Key": "k-stop"})
+    assert b.status_code == 202
+    assert b.json()["stream_id"] == sid
+    assert b.json()["status"] == "stopped"
+
+
+def test_replay_after_name_reuse_binds_old_run(client, fake_rtsp):
+    """Name reuse must not rebind the key: replaying the old key returns
+    the stopped original run, not the replacement holding the name."""
+    fake_rtsp.frames_per_open = [None, None]
+    fake_rtsp.frame_delay = 0.01
+    body = {"source": "rtsp://cam/x", "name": "door"}
+    a = client.post("/api/v1/stream/", json=body,
+                    headers={"Idempotency-Key": "k-old"})
+    sid_a = a.json()["stream_id"]
+    client.post(f"/api/v1/stream/{sid_a}/stop")
+    repl = client.post("/api/v1/stream/", json={
+        "source": "rtsp://cam/y", "name": "door"})
+    sid_b = repl.json()["stream_id"]
+    b = client.post("/api/v1/stream/", json=body,
+                    headers={"Idempotency-Key": "k-old"})
+    assert b.status_code == 202
+    assert b.json()["stream_id"] == sid_a != sid_b
+    assert b.json()["status"] == "stopped"
+
+
+def test_replay_after_runtime_loss_readmits(client, fake_rtsp):
+    """Restart case: the durable key outlives the ephemeral runtime.
+    A fingerprint replay re-admits and rebinds to the new run."""
+    fake_rtsp.frames_per_open = [None, None]
+    fake_rtsp.frame_delay = 0.01
+    body = {"source": "rtsp://cam/x"}
+    a = client.post("/api/v1/stream/", json=body,
+                    headers={"Idempotency-Key": "k-restart"})
+    sid_a = a.json()["stream_id"]
+    client.post(f"/api/v1/stream/{sid_a}/stop")
+    client.app.state.stream_runtimes.clear()  # simulate process restart
+    b = client.post("/api/v1/stream/", json=body,
+                    headers={"Idempotency-Key": "k-restart"})
+    assert b.status_code == 202
+    sid_b = b.json()["stream_id"]
+    assert sid_b != sid_a
+    # the key is now bound to the new run
+    c = client.post("/api/v1/stream/", json=body,
+                    headers={"Idempotency-Key": "k-restart"})
+    assert c.json()["stream_id"] == sid_b
+
+
+def test_expired_key_readmits_fresh(client, fake_rtsp):
+    """After the 24h reservation lapses the same key is a fresh admission,
+    not a replay of a spent binding."""
+    fake_rtsp.frames_per_open = [None, None]
+    fake_rtsp.frame_delay = 0.01
+    body = {"source": "rtsp://cam/x"}
+    a = client.post("/api/v1/stream/", json=body,
+                    headers={"Idempotency-Key": "k-exp"})
+    sid_a = a.json()["stream_id"]
+    store = client.app.state.store
+    with store.write_txn():
+        store._conn.execute(
+            "UPDATE idempotency_keys SET expires_at = ? WHERE key = ?",
+            ("2000-01-01T00:00:00Z", "k-exp"))
+    client.post(f"/api/v1/stream/{sid_a}/stop")
+    b = client.post("/api/v1/stream/", json=body,
+                    headers={"Idempotency-Key": "k-exp"})
+    assert b.status_code == 202
+    assert b.json()["stream_id"] != sid_a
+
+
+def test_concurrent_duplicate_admissions(client, fake_rtsp):
+    """N simultaneous same-key requests produce exactly one stream."""
+    from concurrent.futures import ThreadPoolExecutor
+
+    fake_rtsp.frames_per_open = [None] * 8
+    fake_rtsp.frame_delay = 0.01
+    body = {"source": "rtsp://cam/x"}
+    headers = {"Idempotency-Key": "k-race"}
+
+    def post():
+        return client.post("/api/v1/stream/", json=body, headers=headers)
+
+    with ThreadPoolExecutor(max_workers=8) as pool:
+        responses = list(pool.map(lambda _: post(), range(8)))
+    statuses = [r.status_code for r in responses]
+    assert all(s == 202 for s in statuses), statuses
+    ids = {r.json()["stream_id"] for r in responses}
+    assert len(ids) == 1
+    runtimes = client.app.state.stream_runtimes
+    assert [r for r in runtimes.values()
+            if r.status not in ("stopped", "failed")].__len__() == 1
+
+
+def test_concurrent_same_name_conflict(client, fake_rtsp):
+    """N simultaneous same-name admissions produce exactly one holder."""
+    from concurrent.futures import ThreadPoolExecutor
+
+    fake_rtsp.frames_per_open = [None] * 8
+    fake_rtsp.frame_delay = 0.01
+    body = {"source": "rtsp://cam/x", "name": "race-door"}
+
+    def post(i):
+        return client.post("/api/v1/stream/", json=body,
+                           headers={"Idempotency-Key": f"k-race-{i}"})
+
+    with ThreadPoolExecutor(max_workers=8) as pool:
+        responses = list(pool.map(post, range(8)))
+    statuses = sorted(r.status_code for r in responses)
+    assert statuses.count(202) == 1
+    assert statuses.count(409) == len(responses) - 1

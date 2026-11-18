@@ -54,7 +54,7 @@ class StreamRuntime:
     def __init__(
         self,
         *,
-        stream_id: str | None = None,
+        name: str | None = None,
         source: str,
         credential_ref: str | None = None,
         engine=None,
@@ -67,7 +67,11 @@ class StreamRuntime:
         buffer_size: int = 5,
         sse_buffer: int = 256,
     ) -> None:
-        self.stream_id = stream_id or f"strm_{uuid.uuid4().hex[:16]}"
+        # stream_id is the immutable run identity; name is a client-chosen
+        # label that is unique only among non-terminal streams and resolves
+        # as a lookup alias while held.
+        self.stream_id = f"strm_{uuid.uuid4().hex[:16]}"
+        self.name = name
         self.mode = "inference" if engine is not None else "video"
         self._source = source
         self._credential_ref = credential_ref
@@ -254,6 +258,7 @@ class StreamRuntime:
     def status_dict(self) -> dict[str, Any]:
         return {
             "stream_id": self.stream_id,
+            "name": self.name,
             "mode": self.mode,
             "engine_id": self.engine_id,
             "model_id": self.model_id,

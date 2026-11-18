@@ -34,7 +34,16 @@ def _runtimes(request: Request) -> dict[str, StreamRuntime]:
 
 
 def _get_or_404(request: Request, stream_id: str) -> StreamRuntime:
+    """Resolve a run id exactly, else a client-chosen name as an alias.
+
+    Run ids always win; a name resolves only its current non-terminal
+    holder, so a terminal stream releases the alias (the run stays
+    addressable by its run id)."""
     rt = _runtimes(request).get(stream_id)
+    if rt is None:
+        rt = next((r for r in _runtimes(request).values()
+                   if r.name == stream_id
+                   and r.status not in TERMINAL_STATES), None)
     if rt is None:
         raise ApiError(404, f"Unknown stream: {stream_id!r}")
     return rt
@@ -76,20 +85,6 @@ def post_api_v1_stream(request: Request, store: StoreDep,
                        body: StreamStartRequest) -> JSONResponse:
     key = request_idempotency_key(request)
     fingerprint = _fingerprint(body)
-    if key:
-        row = store._conn.execute(
-            "SELECT fingerprint, session_id FROM idempotency_keys "
-            "WHERE key = ?", (key,)).fetchone()
-        if row is not None:
-            if row["fingerprint"] != fingerprint:
-                raise ApiError(409, "Idempotency-Key was used with a "
-                                    "different request body.")
-            prior = _runtimes(request).get(row["session_id"])
-            if prior is not None:
-                return JSONResponse(
-                    prior.status_dict(), status_code=202,
-                    headers={"Location":
-                             f"/api/v1/stream/{prior.stream_id}"})
 
     limits = effective_settings(store)
     SourcePolicy.from_settings(limits).check_network(
@@ -103,36 +98,58 @@ def post_api_v1_stream(request: Request, store: StoreDep,
     except CredentialUnavailable as exc:
         raise ApiError(422, str(exc)) from exc
 
+    # Check-and-mutate under one lock: key lookup, fingerprint validation,
+    # admission limit, name conflict, runtime insert, and the durable
+    # receipt binding are atomic with respect to concurrent admissions.
     with _ADMISSION_LOCK:
+        if key:
+            row = store._conn.execute(
+                "SELECT fingerprint, session_id FROM idempotency_keys "
+                "WHERE key = ? AND expires_at > ?",
+                (key, now_iso())).fetchone()
+            if row is not None:
+                if row["fingerprint"] != fingerprint:
+                    raise ApiError(409, "Idempotency-Key was used with a "
+                                        "different request body.")
+                bound = runtimes.get(row["session_id"])
+                if bound is not None:
+                    # Fingerprint replay returns the recorded run's receipt —
+                    # never a different run that reused the name.
+                    return JSONResponse(
+                        bound.status_dict(), status_code=202,
+                        headers={"Location":
+                                 f"/api/v1/stream/{bound.stream_id}"})
+                # The binding outlived its run (process restart — runtimes
+                # are ephemeral): re-admit and rebind the key below.
         active = sum(1 for rt in runtimes.values()
                      if rt.status not in TERMINAL_STATES)
         if active >= limits.max_concurrent_streams:
             raise ApiError(429, "Stream admission limit reached "
                                 f"({limits.max_concurrent_streams}).")
         if body.name is not None:
-            prior = runtimes.get(body.name)
-            if prior is not None:
-                if prior.status not in TERMINAL_STATES:
-                    raise ApiError(409, f"Stream name {body.name!r} is "
-                                        "already in use.")
-                del runtimes[body.name]
+            holder = next((r for r in runtimes.values()
+                           if r.name == body.name
+                           and r.status not in TERMINAL_STATES), None)
+            if holder is not None:
+                raise ApiError(409, f"Stream name {body.name!r} is "
+                                    "already in use.")
         rt = StreamRuntime(
-            stream_id=body.name,
+            name=body.name,
             source=body.source, credential_ref=body.credential_ref,
             engine=adapter, model_id=body.model_id,
             confidence=body.confidence, device_id=body.device_id,
             engine_options=body.engine_options, annotate=body.annotate,
             buffer_policy=body.buffer_policy, buffer_size=body.buffer_size,
             sse_buffer=limits.sse_buffer_events)
+        if key:
+            with store.write_txn():
+                store._conn.execute(
+                    "INSERT OR REPLACE INTO idempotency_keys "
+                    "(key, fingerprint, session_id, created_at, expires_at) "
+                    "VALUES (?, ?, ?, ?, ?)",
+                    (key, fingerprint, rt.stream_id, now_iso(),
+                     iso(plus_hours(24))))
         runtimes[rt.stream_id] = rt
-    if key:
-        with store.write_txn():
-            store._conn.execute(
-                "INSERT OR REPLACE INTO idempotency_keys "
-                "(key, fingerprint, session_id, created_at, expires_at) "
-                "VALUES (?, ?, ?, ?, ?)",
-                (key, fingerprint, rt.stream_id, now_iso(),
-                 iso(plus_hours(24))))
     rt.start()
     return JSONResponse(rt.status_dict(), status_code=202,
                         headers={"Location":

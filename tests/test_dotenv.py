@@ -179,6 +179,9 @@ def test_cli_dotenv_controls(tmp_path, monkeypatch):
     assert "dotenv file not found" in result.output
     result = runner.invoke(app, ["--no-env-file", "info", "health"])
     assert not (tmp_path / ".env").exists()
+    # CliRunner shares the process; a real second invocation starts clean.
+    monkeypatch.delenv("OPAL_NO_DOTENV", raising=False)
+    monkeypatch.delenv("OPAL_DOTENV_FILE", raising=False)
     result = runner.invoke(app, ["info", "health"])
     assert (tmp_path / ".env").exists()
 

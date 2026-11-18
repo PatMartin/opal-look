@@ -31,12 +31,20 @@ contract copies live under `vendor/opal-api/`.
   context manager for atomic check-and-mutate.
 - DI: FastAPI `Depends` providers in `src/opal_look/dependencies.py`
   (`StoreDep`); handlers inject the store rather than reaching app.state.
-- Engines: `EngineAdapter` Protocol + `ENGINE_REGISTRY` (factory/registry,
-  `opal_look.engines` entry-point hook via `load_plugin_adapters()`).
-  Adapter surface: `capabilities/probe/options_schema/validate_config/
+- Engines: `EngineAdapter` Protocol + `ENGINE_REGISTRY` (factory/registry)
+  in `src/opal_look/engines/` (package). Adapters register via the
+  `opal_look.engines` entry-point hook (`load_plugin_adapters()`) or env
+  declaration (`register_env_adapters()`). Adapter surface:
+  `capabilities/probe/options_schema/validate_config/
   metadata/validate_engine_options` plus the MVP ops `hardware()`,
   `models()`, `load_model()`, `unload_model()`, `predict(image, ...)`.
   The `synthetic` adapter gives deterministic detections with no ML deps.
+  `engines/yolo/` is a remote adapter proxying the standalone
+  opal-look-yolo service (adapter contract
+  `openapi/engines/yolo_1.7.1.yaml`); registered iff
+  `OPAL_LOOK_ENGINE_YOLO_BASE_URL` is set, configured via
+  `OPAL_LOOK_ENGINE_YOLO_ENABLED/TIMEOUT_SECONDS` (seeded into the
+  engines row, authoritative like settings) + `_TOKEN` (env-only).
   Models are engine-federated metadata (no central table); hardware is
   engine-local. `engine_gate(store, adapter)` -> 503 for disabled engines.
 - Streams: `StreamRuntime` in `src/opal_look/streams.py` — in-memory only,
@@ -47,9 +55,11 @@ contract copies live under `vendor/opal-api/`.
   `src/opal_look/capture.py` (`opal_look.capture` entry-point hook).
   `RtspAvAdapter` (`capture_rtsp.py`) decodes via PyAV (optional; absent
   -> 503 at admission). `LiveFramePump` honors the contract
-  `buffer_policy` (drop-oldest/drop-newest/block). Credentials embedded
-  in the RTSP URI are never echoed — `streams.redact_source` strips
-  userinfo for `source_redacted`.
+  `buffer_policy` (drop-oldest/drop-newest/block). Credentials are
+  provisioned via `OPAL_LOOK_CRED_<REF>` env vars, named per stream with
+  `credential_ref` — `capture.credentialed_locator` injects userinfo at
+  connect time only (422 when unprovisioned); URI userinfo is never
+  echoed — `streams.redact_source` strips it for `source_redacted`.
 - SQLite: single connection shared by loop + threadpool threads; all
   statements serialize through `Store._lock` (`_LockedConnection` proxy),
   and `write_txn()` holds it for the whole transaction.
@@ -106,7 +116,7 @@ contract copies live under `vendor/opal-api/`.
 | profiles (CRUD+activate, kernel shapes) | verified |
 | backup (export/validate/import + managed create/list/download/restore/delete) | verified |
 | service (pidfile-managed start/stop/log; restart via OPAL_LOOK_WAIT_PID) | verified |
-| streams (202+Location admission, mode rules, idempotency-key, stop 409, client-chosen `name` -> stream_id, 409 active-name conflict, reuse after terminal) | verified |
+| streams (202+Location admission, mode rules, idempotency-key, stop 409, client-chosen `name` -> stream_id, 409 active-name conflict, reuse after terminal, `credential_ref` -> OPAL_LOOK_CRED_<REF> injection, 422 unprovisioned) | verified |
 | stream video (MJPEG) + snapshot (JPEG) + metrics + annotated rules | verified |
 | stream SSE (frame/detection/status/terminal, heartbeat, Last-Event-ID replay, 409 stale) | verified |
 | inference-mode streams (detection events, annotate overlays, engine gates) | verified |

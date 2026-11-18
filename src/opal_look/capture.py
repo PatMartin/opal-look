@@ -241,6 +241,12 @@ class LiveFramePump:
     def queue_depth(self) -> int:
         return self._queue.qsize()
 
+    def join(self, timeout: float | None = None) -> bool:
+        """Wait for the pump thread to exit; True once it has."""
+        if self._thread.is_alive():
+            self._thread.join(timeout)
+        return not self._thread.is_alive()
+
     def close(self) -> None:
         self._closed = True
         try:

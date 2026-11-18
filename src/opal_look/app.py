@@ -16,7 +16,6 @@ from .capture import load_capture_plugins
 from .engines import (apply_env_engines, ensure_engines,
                         load_plugin_adapters, register_env_adapters)
 from .errors import register_error_handlers
-from .framecache import FrameCache
 from .routers import (
     backup, engines, hardware, health, models, predict, profiles, service,
     settings, streams,
@@ -62,10 +61,6 @@ def create_app(
     if token is not None and not token.strip():
         raise ValueError("auth_token must be non-empty")
     app.state.auth_token = token.strip() if token else None
-    import threading as _th
-    app.state.viewer_lock = _th.Lock()
-    app.state.viewer_counts = {}
-    app.state.frame_cache = FrameCache()
     app.state.stream_runtimes = {}
     from .store import sweep_expired
     app.state.swept = sweep_expired(app.state.store)

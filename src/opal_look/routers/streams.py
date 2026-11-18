@@ -140,7 +140,8 @@ def post_api_v1_stream(request: Request, store: StoreDep,
             confidence=body.confidence, device_id=body.device_id,
             engine_options=body.engine_options, annotate=body.annotate,
             buffer_policy=body.buffer_policy, buffer_size=body.buffer_size,
-            sse_buffer=limits.sse_buffer_events)
+            sse_buffer=limits.sse_buffer_events,
+            max_viewers=limits.max_viewers)
         if key:
             with store.write_txn():
                 store._conn.execute(
@@ -213,7 +214,7 @@ def get_api_v1_stream_events(request: Request,
                     continue
                 yield (f"id: {seq}\nevent: {etype}\n"
                        f"data: {json.dumps(data)}\n\n")
-                if etype == "terminal":
+                if etype in ("terminal", "dropped"):
                     break
         finally:
             rt.unsubscribe(sub)
@@ -228,9 +229,10 @@ def get_api_v1_stream_video(request: Request, stream_id: str,
     _check_annotated(rt, annotated)
     if rt.status in TERMINAL_STATES:
         raise ApiError(409, f"Stream {stream_id!r} is {rt.status}.")
+    # Subscribe before the response starts so the viewer cap answers 429.
+    sub = rt.subscribe(None)
 
     def gen():
-        sub = rt.subscribe(None)
         try:
             jpg = rt.latest_jpeg(annotated)
             if jpg is not None:
@@ -240,7 +242,7 @@ def get_api_v1_stream_video(request: Request, stream_id: str,
                     seq, etype, data = sub.get(timeout=_HEARTBEAT_SECONDS)
                 except queue.Empty:
                     continue
-                if etype == "terminal":
+                if etype in ("terminal", "dropped"):
                     break
                 if etype != "frame":
                     continue

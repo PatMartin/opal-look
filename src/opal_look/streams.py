@@ -24,6 +24,7 @@ from urllib.parse import urlsplit, urlunsplit
 
 from .capture import (LiveFramePump, capture_adapter_for,
                       credentialed_locator)
+from .errors import ApiError
 from .timeutil import now_iso
 
 TERMINAL_STATES = ("stopped", "failed")
@@ -66,6 +67,8 @@ class StreamRuntime:
         buffer_policy: str = "drop-oldest",
         buffer_size: int = 5,
         sse_buffer: int = 256,
+        max_viewers: int = 8,
+        teardown_grace_seconds: float = 30.0,
     ) -> None:
         # stream_id is the immutable run identity; name is a client-chosen
         # label that is unique only among non-terminal streams and resolves
@@ -85,6 +88,8 @@ class StreamRuntime:
         self.annotate = annotate
         self.buffer_policy = buffer_policy
         self.buffer_size = buffer_size
+        self.max_viewers = max_viewers
+        self._teardown_grace = teardown_grace_seconds
 
         self.status = "starting"
         self.started_at = now_iso()
@@ -99,6 +104,7 @@ class StreamRuntime:
         self._frame_no = 0
         self._latest: Any = None           # plain PIL frame
         self._latest_annotated: Any = None  # annotated copy (inference+annotate)
+        self._jpeg_cache: dict[str, tuple[int, bytes]] = {}
         self._pump: LiveFramePump | None = None
         self._stop = threading.Event()
         self._thread: threading.Thread | None = None
@@ -107,7 +113,10 @@ class StreamRuntime:
         self._event_seq = 0
         self._events: deque[tuple[int, str, dict]] = deque(maxlen=sse_buffer)
         self._subs: list[queue.Queue] = []
-        self._lock = threading.Lock()
+        # Lock order: _stop_lock > _lock > _hub_lock.
+        self._lock = threading.Lock()       # latest frame / pump
+        self._hub_lock = threading.Lock()   # event buffer + subscribers
+        self._stop_lock = threading.Lock()  # status transitions in stop/finalize
 
     # -- lifecycle -----------------------------------------------------------
 
@@ -117,19 +126,62 @@ class StreamRuntime:
         self._thread.start()
 
     def stop(self) -> None:
-        if self.status in TERMINAL_STATES or self.status == "stopping":
-            return
-        self.status = "stopping"
+        """Request stop; terminal status follows actual resource release.
+
+        Fast path joins inline; a slow unwind (decoder stuck in open or a
+        long inference) finishes on a helper thread so the HTTP response
+        is not held hostage. Status stays "stopping" until the decode
+        thread has actually exited and the pump is closed.
+        """
+        with self._stop_lock:
+            if self.status in TERMINAL_STATES or self.status == "stopping":
+                return
+            self.status = "stopping"
+            self._stop.set()
+            with self._lock:
+                pump = self._pump
         self._emit("status", {"status": "stopping"})
-        self._stop.set()
-        if self._pump is not None:
-            self._pump.close()
-        if self._thread is not None:
-            self._thread.join(timeout=5)
-        self.status = "stopped"
-        self._emit("terminal", {"status": "stopped"})
+        if pump is not None:
+            pump.close()
+        thread = self._thread
+        if thread is not None:
+            thread.join(timeout=5)
+        if thread is not None and thread.is_alive():
+            threading.Thread(target=self._finalize,
+                             name=f"stream-finalize-{self.stream_id}",
+                             daemon=True).start()
+        else:
+            self._finalize()
+
+    def _finalize(self) -> None:
+        """Publish the terminal state once the decode thread is done.
+
+        A decoder that never exits reports failed (teardown_timeout)
+        rather than a falsely clean stopped.
+        """
+        thread = self._thread
+        if thread is not None:
+            thread.join(timeout=self._teardown_grace)
+        with self._stop_lock:
+            if self.status in TERMINAL_STATES:
+                return
+            if thread is not None and thread.is_alive():
+                self.status = "failed"
+                self._error = {
+                    "code": "teardown_timeout",
+                    "message": "decoder did not exit within "
+                               f"{self._teardown_grace:g}s of stop"}
+                self._emit("terminal", {
+                    "status": "failed",
+                    "error": {"code": "teardown_timeout",
+                              "message": self._error["message"]}})
+                return
+            self.status = "stopped"
+            self._emit("terminal", {"status": "stopped"})
 
     def _run(self) -> None:
+        pump: LiveFramePump | None = None
+        failed: Exception | None = None
         try:
             adapter = capture_adapter_for("rtsp")
             if adapter is None:
@@ -137,14 +189,20 @@ class StreamRuntime:
             frames = adapter.open_stream(
                 self._source, {},
                 credentialed_locator(self._source, self._credential_ref))
-            self._pump = LiveFramePump(
+            pump = LiveFramePump(
                 frames, capacity=self.buffer_size,
-                policy=self.buffer_policy).start()
+                policy=self.buffer_policy)
+            with self._lock:
+                self._pump = pump
+                opened_during_stop = self._stop.is_set()
+            if opened_during_stop:
+                return  # opened while stopping: release it in finally
+            pump.start()
             self.status = "running"
             self._emit("status", {"status": "running"})
             while not self._stop.is_set():
                 try:
-                    frame = self._pump.get(timeout=0.5)
+                    frame = pump.get(timeout=0.5)
                 except queue.Empty:
                     continue
                 self.frames_received += 1
@@ -163,17 +221,28 @@ class StreamRuntime:
                     detections = result["detections"]
                 self._publish_frame(frame, detections, infer_ms)
                 self.frames_processed += 1
-                self.frames_dropped += self._pump.take_dropped()
-            if self.status != "stopping":
-                self.status = "stopped"
+                self.frames_dropped += pump.take_dropped()
         except Exception as exc:
-            if self.status == "stopping":
-                return
-            self.status = "failed"
-            self._error = {"code": "stream_failed", "message": str(exc)}
-            self._emit("terminal", {"status": "failed",
-                                    "error": {"code": "stream_failed",
-                                              "message": str(exc)}})
+            if self.status != "stopping":
+                failed = exc
+        finally:
+            # Terminal status is only published after decode resources
+            # are actually released.
+            if pump is not None:
+                pump.close()
+                pump.join(timeout=5)
+            if failed is not None:
+                self.status = "failed"
+                self._error = {"code": "stream_failed",
+                               "message": str(failed)}
+                self._emit("terminal", {
+                    "status": "failed",
+                    "error": {"code": "stream_failed",
+                              "message": str(failed)}})
+            elif self.status not in TERMINAL_STATES + ("stopping",):
+                self.status = "stopped"
+                self._emit("terminal", {"status": "stopped"})
+            # status == "stopping": stop()/_finalize publishes after join.
 
     # -- frames --------------------------------------------------------------
 
@@ -197,38 +266,61 @@ class StreamRuntime:
             self.last_frame_at = now_iso()
             if self.annotate and detections is not None:
                 self._latest_annotated = self._annotate(frame, detections)
-            self._emit("frame", {"frame": self._frame_no,
-                                 "detections": len(detections),
-                                 "inference_ms": infer_ms})
-            if self.mode == "inference" and detections:
-                self._emit("detection", {"frame": self._frame_no,
-                                         "detections": detections,
-                                         "processing_ms": infer_ms})
+            frame_no = self._frame_no
+        self._emit("frame", {"frame": frame_no,
+                             "detections": len(detections),
+                             "inference_ms": infer_ms})
+        if self.mode == "inference" and detections:
+            self._emit("detection", {"frame": frame_no,
+                                     "detections": detections,
+                                     "processing_ms": infer_ms})
 
     def latest_jpeg(self, annotated: bool = False) -> bytes | None:
+        """JPEG of the latest frame; encoded once per frame+variant and
+        shared by every viewer asking for the same one."""
         with self._lock:
             img = self._latest_annotated if annotated else self._latest
             if img is None:
                 return None
-            return _jpeg(img)
+            key = "annotated" if annotated else "plain"
+            cached = self._jpeg_cache.get(key)
+            if cached is not None and cached[0] == self._frame_no:
+                return cached[1]
+            data = _jpeg(img)
+            self._jpeg_cache[key] = (self._frame_no, data)
+            return data
 
     # -- events (Observer) ----------------------------------------------------
 
     def _emit(self, event_type: str, data: dict[str, Any]) -> None:
-        self._event_seq += 1
-        event = (self._event_seq, event_type, data)
-        self._events.append(event)
-        for sub in list(self._subs):
-            try:
-                sub.put_nowait(event)
-            except queue.Full:
-                self._subs.remove(sub)
+        with self._hub_lock:
+            self._event_seq += 1
+            event = (self._event_seq, event_type, data)
+            self._events.append(event)
+            for sub in list(self._subs):
+                try:
+                    sub.put_nowait(event)
+                except queue.Full:
+                    # Slow consumer: evict its oldest queued event, deliver a
+                    # final 'dropped' marker, and unsubscribe it — the
+                    # consumer sees the marker, then its stream ends.
+                    self._subs.remove(sub)
+                    try:
+                        sub.get_nowait()
+                        sub.put_nowait((self._event_seq, "dropped",
+                                        {"reason": "slow_consumer"}))
+                    except (queue.Empty, queue.Full):
+                        pass
 
     def subscribe(self, last_event_id: int | None) -> queue.Queue:
         """Replay buffered events newer than last_event_id, then live tail.
-        Raises ValueError('stale') when the requested ID fell off the buffer."""
+        Raises ValueError('stale') when the requested ID fell off the buffer,
+        ApiError(429) when viewer occupancy is at max_viewers."""
         sub: queue.Queue = queue.Queue(maxsize=1024)
-        with self._lock:
+        with self._hub_lock:
+            if len(self._subs) >= self.max_viewers:
+                raise ApiError(429, "Viewer limit reached "
+                                    f"({self.max_viewers}).")
             if last_event_id is not None:
                 oldest = (self._event_seq - len(self._events)
                           if self._events else 0)
@@ -241,7 +333,7 @@ class StreamRuntime:
         return sub
 
     def unsubscribe(self, sub: queue.Queue) -> None:
-        with self._lock:
+        with self._hub_lock:
             if sub in self._subs:
                 self._subs.remove(sub)
 

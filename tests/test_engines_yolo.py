@@ -6,9 +6,8 @@ import httpx
 import pytest
 from PIL import Image
 
-from opal_look.engines import (ENGINE_REGISTRY, EngineRegistry,
-                               EngineUnavailable, ModelNotFound,
-                               ensure_engines)
+from opal_look.engines import (EngineRegistry, EngineUnavailable,
+                               ModelNotFound, ensure_engines)
 from opal_look.engines.yolo import apply_env, register_if_configured
 from opal_look.engines.yolo.adapter import YoloRemoteAdapter
 from opal_look.store import Store
@@ -19,8 +18,6 @@ URL = "http://yolo.test:8086"
 @pytest.fixture()
 def yolo_env(monkeypatch):
     monkeypatch.setenv("OPAL_LOOK_ENGINE_YOLO_BASE_URL", URL)
-    yield
-    ENGINE_REGISTRY._adapters.pop("yolo", None)
 
 
 def _adapter(handler) -> YoloRemoteAdapter:
@@ -167,8 +164,6 @@ def yolo_env_refused(monkeypatch):
     # loopback:1 refuses instantly -> deterministic unavailable probe
     monkeypatch.setenv("OPAL_LOOK_ENGINE_YOLO_BASE_URL",
                        "http://127.0.0.1:1")
-    yield
-    ENGINE_REGISTRY._adapters.pop("yolo", None)
 
 
 def test_engine_list_shows_yolo(yolo_env_refused, client):

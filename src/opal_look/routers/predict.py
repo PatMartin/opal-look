@@ -8,7 +8,7 @@ from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse
 
 from ..dependencies import StoreDep
-from ..engines import (ENGINE_REGISTRY, EngineUnavailable, ModelNotFound,
+from ..engines import (EngineUnavailable, ModelNotFound,
                        engine_gate)
 from ..errors import ApiError
 from ..schemas import PredictRequest
@@ -32,7 +32,7 @@ def _load_image(source: str, policy: SourcePolicy,
 @router.post("/api/v1/predict")
 def post_api_v1_predict(request: Request, store: StoreDep,
                         body: PredictRequest) -> JSONResponse:
-    adapter = ENGINE_REGISTRY.get(body.engine_id)
+    adapter = request.app.state.engine_registry.get(body.engine_id)
     if adapter is None:
         raise ApiError(404, f"Unknown engine: {body.engine_id!r}")
     engine_gate(store, adapter)

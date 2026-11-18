@@ -108,8 +108,8 @@ def test_discover_engines(client):
 
 def test_discover_empty_catalog_is_healthy(client, monkeypatch):
     """Zero usable engines is a valid, healthy discovery result."""
-    from opal_look import engines as eng_mod
-    monkeypatch.setattr(eng_mod.ENGINE_REGISTRY, "_adapters", {})
+    registry = client.app.state.engine_registry
+    monkeypatch.setattr(registry, "_adapters", {})
     resp = client.post("/api/v1/engine/discover")
     assert resp.status_code == 200
     assert resp.json() == {"engines": [], "errors": []}

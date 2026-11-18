@@ -6,7 +6,7 @@ from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse
 
 from ..dependencies import StoreDep
-from ..engines import (ENGINE_REGISTRY, engine_read, ensure_engines,
+from ..engines import (EngineRegistry, engine_read, ensure_engines,
                        load_plugin_adapters)
 from ..errors import ApiError
 from ..precondition import check_if_match, require_if_match
@@ -16,19 +16,24 @@ from ..store import Store
 router = APIRouter()
 
 
-def _get_engine_or_404(store: Store, engine_id: str):
+def _registry(request: Request) -> EngineRegistry:
+    return request.app.state.engine_registry
+
+
+def _get_engine_or_404(request: Request, store: Store, engine_id: str):
     row = store.engines.get(engine_id)
-    if row is None or engine_id not in ENGINE_REGISTRY:
+    if row is None or engine_id not in _registry(request):
         raise ApiError(404, f"Unknown engine: {engine_id!r}")
     return row
 
 
 @router.get("/api/v1/engine/")
 def get_api_v1_engines(request: Request, store: StoreDep) -> JSONResponse:
+    registry = _registry(request)
     body = [
-        engine_read(store, row)
+        engine_read(store, row, registry)
         for row in store.engines.list()
-        if row["engine_id"] in ENGINE_REGISTRY
+        if row["engine_id"] in registry
     ]
     return JSONResponse(body, headers={"ETag": store.config_revision()})
 
@@ -37,8 +42,9 @@ def get_api_v1_engines(request: Request, store: StoreDep) -> JSONResponse:
 def get_api_v1_engines_engine_id(
     request: Request, store: StoreDep, engine_id: str
 ) -> JSONResponse:
-    row = _get_engine_or_404(store, engine_id)
-    return JSONResponse(engine_read(store, row), headers={"ETag": store.config_revision()})
+    row = _get_engine_or_404(request, store, engine_id)
+    return JSONResponse(engine_read(store, row, _registry(request)),
+                        headers={"ETag": store.config_revision()})
 
 
 @router.patch("/api/v1/engine/{engine_id}")
@@ -49,8 +55,8 @@ def patch_api_v1_engines_engine_id(
     reject_null_fields(supplied)
 
     require_if_match(request)
-    _get_engine_or_404(store, engine_id)
-    adapter = ENGINE_REGISTRY.get(engine_id)
+    _get_engine_or_404(request, store, engine_id)
+    adapter = _registry(request).get(engine_id)
 
     if "options" in supplied:
         errors = adapter.validate_config(supplied["options"])
@@ -65,7 +71,8 @@ def patch_api_v1_engines_engine_id(
             store.engines.update(engine_id, fields)
         revision = store.bump_revision()
     row = store.engines.get(engine_id)
-    return JSONResponse(engine_read(store, row), headers={"ETag": revision})
+    return JSONResponse(engine_read(store, row, _registry(request)),
+                        headers={"ETag": revision})
 
 
 @router.post("/api/v1/engine/discover")
@@ -74,20 +81,21 @@ def post_api_v1_engine_discover(request: Request, store: StoreDep) -> JSONRespon
 
     An empty engines array is healthy: video-only streams need no engine.
     Plugin load failures surface in errors without failing the scan."""
-    load_plugin_adapters()
-    ensure_engines(store)
+    registry = _registry(request)
+    load_plugin_adapters(registry)
+    ensure_engines(store, registry)
     engines = [
-        engine_read(store, row)
+        engine_read(store, row, registry)
         for row in store.engines.list()
-        if row["engine_id"] in ENGINE_REGISTRY
+        if row["engine_id"] in registry
     ]
-    return JSONResponse({"engines": engines, "errors": list(ENGINE_REGISTRY.errors)})
+    return JSONResponse({"engines": engines, "errors": list(registry.errors)})
 
 
 @router.get("/api/v1/engine/{engine_id}/capabilities")
 def get_api_v1_engine_capabilities(
     request: Request, store: StoreDep, engine_id: str
 ) -> JSONResponse:
-    _get_engine_or_404(store, engine_id)
-    adapter = ENGINE_REGISTRY.get(engine_id)
+    _get_engine_or_404(request, store, engine_id)
+    adapter = _registry(request).get(engine_id)
     return JSONResponse({"engine_id": engine_id, **adapter.capabilities()})

@@ -91,10 +91,12 @@ def get_api_v1_backup_export(store: StoreDep) -> dict:
 
 
 @router.post("/api/v1/backup/validate")
-def post_api_v1_backup_validate(store: StoreDep, body: dict) -> dict:
+def post_api_v1_backup_validate(request: Request, store: StoreDep,
+                               body: dict) -> dict:
     """OpalValidationReport: non-mutating issues, never writes."""
     config, bindings = _unwrap(body)
-    return _report(validate_configuration(store, config, bindings))
+    return _report(validate_configuration(
+        store, config, bindings, request.app.state.engine_registry))
 
 
 @router.post("/api/v1/backup/import")
@@ -109,7 +111,8 @@ def post_api_v1_backup_import(
     config, bindings = _unwrap(body)
     result, revision = _import_result(
         request, store, config, bindings,
-        validate_configuration(store, config, bindings))
+        validate_configuration(store, config, bindings,
+            request.app.state.engine_registry))
     return JSONResponse(result, headers={"ETag": revision})
 
 
@@ -168,7 +171,8 @@ def post_api_v1_backup_restore(
     config, bindings = _unwrap(read_backup(store, filename))
     result, revision = _import_result(
         request, store, config, bindings,
-        validate_configuration(store, config, bindings))
+        validate_configuration(store, config, bindings,
+            request.app.state.engine_registry))
     result["backup_filename"] = filename
     return JSONResponse(result, headers={"ETag": revision})
 

@@ -235,11 +235,19 @@ class EngineRegistry:
         return engine_id in self._adapters
 
 
-ENGINE_REGISTRY = EngineRegistry()
-ENGINE_REGISTRY.register(SyntheticAdapter())
+def default_registry() -> EngineRegistry:
+    """Fresh app-owned registry holding the built-in adapters.
+
+    Each application instance owns its registry (and therefore its adapter
+    instances) — adapter state such as loaded-model flags never bleeds
+    across apps. create_app builds one per app; tests build isolated ones.
+    """
+    registry = EngineRegistry()
+    registry.register(SyntheticAdapter())
+    return registry
 
 
-def load_plugin_adapters(registry: EngineRegistry = ENGINE_REGISTRY) -> None:
+def load_plugin_adapters(registry: EngineRegistry) -> None:
     """Optional plugin hook: register adapters from 'opal_look.engines' entry
     points. Load failures are recorded for EngineDiscovery.errors."""
     import logging
@@ -253,7 +261,7 @@ def load_plugin_adapters(registry: EngineRegistry = ENGINE_REGISTRY) -> None:
             logging.getLogger(__name__).warning("failed to load engine plugin %s", ep.name)
 
 
-def register_env_adapters(registry: EngineRegistry = ENGINE_REGISTRY) -> None:
+def register_env_adapters(registry: EngineRegistry) -> None:
     """Register built-in remote adapters declared via OPAL_LOOK_ENGINE_* env.
 
     Runs inside create_app; the service entry point's dotenv ``prepare()`` has
@@ -272,7 +280,7 @@ def apply_env_engines(store: Store) -> None:
     apply_env(store)
 
 
-def ensure_engines(store: Store, registry: EngineRegistry = ENGINE_REGISTRY) -> None:
+def ensure_engines(store: Store, registry: EngineRegistry) -> None:
     """Seed registry rows for installed adapters; idempotent."""
     with store.write_txn():
         for adapter in registry.all():
@@ -293,9 +301,10 @@ def engine_gate(store: Store, adapter: EngineAdapter) -> None:
                             f"{message or 'disabled'}.")
 
 
-def engine_runtime(store: Store, row: sqlite3.Row) -> dict[str, Any]:
+def engine_runtime(store: Store, row: sqlite3.Row,
+                   registry: EngineRegistry) -> dict[str, Any]:
     """Internal rich engine view (probe, config, capabilities) for services."""
-    adapter = ENGINE_REGISTRY.get(row["engine_id"])
+    adapter = registry.get(row["engine_id"])
     config = json.loads(row["config"])
     enabled = bool(row["enabled"])
     available, message = adapter.probe(config, enabled)
@@ -312,9 +321,10 @@ def engine_runtime(store: Store, row: sqlite3.Row) -> dict[str, Any]:
     }
 
 
-def engine_read(store: Store, row: sqlite3.Row) -> dict[str, Any]:
+def engine_read(store: Store, row: sqlite3.Row,
+                registry: EngineRegistry) -> dict[str, Any]:
     """Kernel OpalEngine resource shape."""
-    adapter = ENGINE_REGISTRY.get(row["engine_id"])
+    adapter = registry.get(row["engine_id"])
     config = json.loads(row["config"])
     enabled = bool(row["enabled"])
     available, _ = adapter.probe(config, enabled)

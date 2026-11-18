@@ -62,7 +62,8 @@ def _issue(path: str, message: str, code: str = "invalid",
 
 
 def validate_configuration(store, config: dict[str, Any],
-                           bindings: dict[str, Any] | None) -> list[dict[str, Any]]:
+                           bindings: dict[str, Any] | None,
+                           registry) -> list[dict[str, Any]]:
     """Concrete issues for an OpalConfigExport (non-mutating)."""
     issues: list[dict[str, Any]] = []
 
@@ -75,8 +76,7 @@ def validate_configuration(store, config: dict[str, Any],
             issues.append(_issue("settings",
                                  f"invalid settings values: {exc}"))
 
-    from .engines import ENGINE_REGISTRY
-    known_engines = {e.engine_id for e in ENGINE_REGISTRY.all()}
+    known_engines = {e.engine_id for e in registry.all()}
     for i, e in enumerate(config.get("engines", [])):
         eid = e.get("engine_id") or e.get("id")
         if eid and eid not in known_engines:
@@ -93,7 +93,8 @@ def validate_configuration(store, config: dict[str, Any],
 def apply_import(store, request, config: dict[str, Any],
                  bindings: dict[str, Any] | None) -> None:
     """Atomic replace under If-Match. Caller holds write_txn."""
-    issues = validate_configuration(store, config, bindings)
+    issues = validate_configuration(
+        store, config, bindings, request.app.state.engine_registry)
     errors = [i for i in issues if i["severity"] == "error"]
     if errors:
         raise ApiError(422, "Configuration is invalid: "

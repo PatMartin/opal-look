@@ -7,18 +7,18 @@ from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse
 
 from ..dependencies import StoreDep
-from ..engines import (ENGINE_REGISTRY, EngineUnavailable, ModelNotFound,
+from ..engines import (EngineRegistry, EngineUnavailable, ModelNotFound,
                        engine_gate)
 from ..errors import ApiError
 
 router = APIRouter()
 
 
-def _catalog(engine_id: str | None) -> list[dict]:
+def _catalog(registry: EngineRegistry, engine_id: str | None) -> list[dict]:
     adapters = (
-        [ENGINE_REGISTRY.get(engine_id)]
+        [registry.get(engine_id)]
         if engine_id is not None
-        else ENGINE_REGISTRY.all()
+        else registry.all()
     )
     out: list[dict] = []
     for adapter in adapters:
@@ -28,10 +28,11 @@ def _catalog(engine_id: str | None) -> list[dict]:
     return out
 
 
-def _resolve_owner(model_id: str, engine_id: str | None):
+def _resolve_owner(registry: EngineRegistry, model_id: str,
+                   engine_id: str | None):
     owners = [a for a in
-              ([ENGINE_REGISTRY.get(engine_id)] if engine_id
-               else ENGINE_REGISTRY.all())
+              ([registry.get(engine_id)] if engine_id
+               else registry.all())
               if a is not None
               and any(m["model_id"] == model_id for m in a.models())]
     if not owners:
@@ -45,13 +46,15 @@ def _resolve_owner(model_id: str, engine_id: str | None):
 @router.get("/api/v1/model/")
 def get_api_v1_models(request: Request,
                     engine_id: str | None = None) -> JSONResponse:
-    return JSONResponse(_catalog(engine_id))
+    return JSONResponse(
+        _catalog(request.app.state.engine_registry, engine_id))
 
 
 @router.get("/api/v1/model/{model_id}")
 def get_api_v1_model(request: Request, model_id: str,
                    engine_id: str | None = None) -> JSONResponse:
-    adapter = _resolve_owner(model_id, engine_id)
+    adapter = _resolve_owner(
+        request.app.state.engine_registry, model_id, engine_id)
     model = next(m for m in adapter.models() if m["model_id"] == model_id)
     return JSONResponse(model)
 
@@ -59,7 +62,8 @@ def get_api_v1_model(request: Request, model_id: str,
 @router.post("/api/v1/model/{model_id}/load")
 def post_api_v1_model_load(request: Request, store: StoreDep, model_id: str,
                            engine_id: str | None = None) -> JSONResponse:
-    adapter = _resolve_owner(model_id, engine_id)
+    adapter = _resolve_owner(
+        request.app.state.engine_registry, model_id, engine_id)
     engine_gate(store, adapter)
     try:
         return JSONResponse(adapter.load_model(model_id, device_id=None))
@@ -72,7 +76,8 @@ def post_api_v1_model_load(request: Request, store: StoreDep, model_id: str,
 @router.post("/api/v1/model/{model_id}/unload")
 def post_api_v1_model_unload(request: Request, store: StoreDep, model_id: str,
                              engine_id: str | None = None) -> JSONResponse:
-    adapter = _resolve_owner(model_id, engine_id)
+    adapter = _resolve_owner(
+        request.app.state.engine_registry, model_id, engine_id)
     runtimes = getattr(request.app.state, "stream_runtimes", {})
     active = [sid for sid, rt in runtimes.items()
               if getattr(rt, "model_id", None) == model_id

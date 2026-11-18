@@ -33,7 +33,9 @@ def _health_read(request: Request, store) -> dict:
     """Kernel OpalHealthReport: aggregate status plus suite-standard sections."""
     storage_ok = store.ping()
     ready, status = _readiness(store)
-    engines = [engine_runtime(store, row) for row in store.engines.list()]
+    app_state_registry = request.app.state.engine_registry
+    engines = [engine_runtime(store, row, app_state_registry)
+               for row in store.engines.list()]
     if ready and any(e["enabled"] and not e["available"] for e in engines):
         status = "degraded"
 

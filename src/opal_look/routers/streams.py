@@ -14,7 +14,7 @@ from fastapi.responses import JSONResponse, Response, StreamingResponse
 from ..capture import (CredentialUnavailable, capture_adapter_for,
                        resolve_credentials)
 from ..dependencies import StoreDep
-from ..engines import ENGINE_REGISTRY, engine_gate
+from ..engines import EngineRegistry, engine_gate
 from ..errors import ApiError
 from ..idempotency import request_idempotency_key
 from ..schemas import StreamStartRequest
@@ -54,11 +54,12 @@ def _fingerprint(body: StreamStartRequest) -> str:
     return hashlib.sha256(canonical.encode()).hexdigest()
 
 
-def _admit_engine(store, body: StreamStartRequest):
+def _admit_engine(store, body: StreamStartRequest,
+                  registry: EngineRegistry):
     """Resolve and gate the inference engine; returns adapter or None."""
     if body.engine_id is None:
         return None
-    adapter = ENGINE_REGISTRY.get(body.engine_id)
+    adapter = registry.get(body.engine_id)
     if adapter is None:
         raise ApiError(404, f"Unknown engine: {body.engine_id!r}")
     engine_gate(store, adapter)
@@ -90,7 +91,8 @@ def post_api_v1_stream(request: Request, store: StoreDep,
     SourcePolicy.from_settings(limits).check_network(
         body.source, RTSP_SCHEMES, "Stream")
     runtimes = _runtimes(request)
-    adapter = _admit_engine(store, body)
+    adapter = _admit_engine(store, body,
+                            request.app.state.engine_registry)
     if capture_adapter_for("rtsp") is None:
         raise ApiError(503, "No RTSP capture backend is installed.")
     try:

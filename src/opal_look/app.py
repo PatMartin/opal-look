@@ -13,8 +13,9 @@ from .access_log import AccessLogMiddleware
 from .auth import BearerAuthMiddleware, env_token
 from .correlation import CorrelationMiddleware
 from .capture import load_capture_plugins
-from .engines import (apply_env_engines, ensure_engines,
-                        load_plugin_adapters, register_env_adapters)
+from .engines import (apply_env_engines, default_registry,
+                        ensure_engines, load_plugin_adapters,
+                        register_env_adapters)
 from .errors import register_error_handlers
 from .routers import (
     backup, engines, hardware, health, models, predict, profiles, service,
@@ -64,10 +65,13 @@ def create_app(
     app.state.stream_runtimes = {}
     from .store import sweep_expired
     app.state.swept = sweep_expired(app.state.store)
-    load_plugin_adapters()
-    register_env_adapters()
+    # App-owned engine registry: adapter state (loaded models, probes,
+    # sockets) is scoped to this app instance and never shared across apps.
+    app.state.engine_registry = default_registry()
+    load_plugin_adapters(app.state.engine_registry)
+    register_env_adapters(app.state.engine_registry)
     load_capture_plugins()
-    ensure_engines(app.state.store)
+    ensure_engines(app.state.store, app.state.engine_registry)
     apply_env_engines(app.state.store)
 
     # Outermost first: access log -> correlation -> bearer gate -> routes.

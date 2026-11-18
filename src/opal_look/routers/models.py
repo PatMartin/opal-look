@@ -24,17 +24,31 @@ def _catalog(registry: EngineRegistry, engine_id: str | None) -> list[dict]:
     for adapter in adapters:
         if adapter is None:
             continue
-        out.extend(adapter.models())
+        try:
+            out.extend(adapter.models())
+        except EngineUnavailable:
+            continue   # a down engine contributes no models to the catalog
     return out
 
 
 def _resolve_owner(registry: EngineRegistry, model_id: str,
                    engine_id: str | None):
-    owners = [a for a in
-              ([registry.get(engine_id)] if engine_id
-               else registry.all())
-              if a is not None
-              and any(m["model_id"] == model_id for m in a.models())]
+    candidates = ([registry.get(engine_id)] if engine_id
+                  else registry.all())
+    owners = []
+    for a in candidates:
+        if a is None:
+            continue
+        if engine_id is not None:
+            # Explicit engine: its failure must surface, not hide as 404.
+            if any(m["model_id"] == model_id for m in a.models()):
+                owners.append(a)
+        else:
+            try:
+                if any(m["model_id"] == model_id for m in a.models()):
+                    owners.append(a)
+            except EngineUnavailable:
+                continue
     if not owners:
         raise ApiError(404, f"Unknown model: {model_id!r}")
     if len(owners) > 1:
@@ -53,19 +67,23 @@ def get_api_v1_models(request: Request,
 @router.get("/api/v1/model/{model_id}")
 def get_api_v1_model(request: Request, model_id: str,
                    engine_id: str | None = None) -> JSONResponse:
-    adapter = _resolve_owner(
-        request.app.state.engine_registry, model_id, engine_id)
-    model = next(m for m in adapter.models() if m["model_id"] == model_id)
+    try:
+        adapter = _resolve_owner(
+            request.app.state.engine_registry, model_id, engine_id)
+        model = next(m for m in adapter.models()
+                     if m["model_id"] == model_id)
+    except EngineUnavailable as exc:
+        raise ApiError(503, str(exc))
     return JSONResponse(model)
 
 
 @router.post("/api/v1/model/{model_id}/load")
 def post_api_v1_model_load(request: Request, store: StoreDep, model_id: str,
                            engine_id: str | None = None) -> JSONResponse:
-    adapter = _resolve_owner(
-        request.app.state.engine_registry, model_id, engine_id)
-    engine_gate(store, adapter)
     try:
+        adapter = _resolve_owner(
+            request.app.state.engine_registry, model_id, engine_id)
+        engine_gate(store, adapter)
         return JSONResponse(adapter.load_model(model_id, device_id=None))
     except ModelNotFound:
         raise ApiError(404, f"Unknown model: {model_id!r}")
@@ -76,8 +94,11 @@ def post_api_v1_model_load(request: Request, store: StoreDep, model_id: str,
 @router.post("/api/v1/model/{model_id}/unload")
 def post_api_v1_model_unload(request: Request, store: StoreDep, model_id: str,
                              engine_id: str | None = None) -> JSONResponse:
-    adapter = _resolve_owner(
-        request.app.state.engine_registry, model_id, engine_id)
+    try:
+        adapter = _resolve_owner(
+            request.app.state.engine_registry, model_id, engine_id)
+    except EngineUnavailable as exc:
+        raise ApiError(503, str(exc))
     runtimes = getattr(request.app.state, "stream_runtimes", {})
     active = [sid for sid, rt in runtimes.items()
               if getattr(rt, "model_id", None) == model_id

@@ -359,6 +359,63 @@ def _stream_snapshot(
     typer.echo(str(out))
 
 
+@stream.command("bridge")
+def _stream_bridge(
+        stream_id: str,
+        event_url: str = typer.Option(
+            None, "--event-url",
+            help="OPAL Event service base URL "
+                 "(or OPAL_EVENT_URL env var)"),
+        event_token: str = typer.Option(None, "--event-token"),
+        topic_prefix: str = typer.Option("look.detection",
+                                         "--topic-prefix"),
+        source: str = typer.Option("opal-look", "--source"),
+        min_confidence: float = typer.Option(0.0, "--min-confidence"),
+        classes: str = typer.Option(
+            None, "--classes",
+            help="comma-separated class names to publish (default all)"),
+        cooldown: float = typer.Option(0.0, "--cooldown",
+                                       help="seconds between publishes "
+                                            "per camera"),
+        max_reconnects: int = typer.Option(
+            None, "--max-reconnects",
+            help="give up after N SSE reconnects (default: forever)")):
+    """Opt-in: forward detection SSE to an OPAL Event service.
+
+    Publishes EventInput envelopes (topic <prefix>.<camera>) with stable
+    dedup identity; reconnects with Last-Event-ID replay suppression."""
+    import os
+
+    from opal_look.event_bridge import (BridgeConfig, CameraFilter,
+                                        EventBridge)
+
+    url = event_url or os.environ.get("OPAL_EVENT_URL")
+    if not url:
+        raise typer.BadParameter(
+            "Event service URL required (--event-url or OPAL_EVENT_URL)")
+    filt = CameraFilter(
+        min_confidence=min_confidence,
+        class_names=({c.strip() for c in classes.split(",") if c.strip()}
+                     if classes else None),
+        cooldown_seconds=cooldown)
+    cfg = BridgeConfig(
+        look_url=_state["url"],
+        event_url=url, stream_id=stream_id,
+        look_token=os.environ.get("OPAL_LOOK_TOKEN"),
+        event_token=event_token or os.environ.get("OPAL_EVENT_TOKEN"),
+        source=source, topic_prefix=topic_prefix,
+        filters=[filt], max_reconnects=max_reconnects)
+    typer.echo(f"bridging {stream_id} -> {url} "
+               f"(topic {topic_prefix}.{stream_id})")
+    try:
+        bridge = EventBridge(cfg)
+        bridge.run()
+    except KeyboardInterrupt:
+        pass
+    typer.echo(f"bridge stopped: published={bridge.published} "
+               f"suppressed={bridge.suppressed} dropped={bridge.dropped}")
+
+
 @stream.command("metrics")
 def _stream_metrics(stream_id: str):
     _emit(unwrap(_client().get(f"/api/v1/stream/{stream_id}/metrics")))

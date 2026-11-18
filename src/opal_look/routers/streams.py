@@ -14,7 +14,7 @@ from fastapi.responses import JSONResponse, Response, StreamingResponse
 from ..capture import (CredentialUnavailable, capture_adapter_for,
                        resolve_credentials)
 from ..dependencies import StoreDep
-from ..engines import EngineRegistry, engine_gate
+from ..engines import (EngineRegistry, EngineUnavailable, engine_gate)
 from ..errors import ApiError
 from ..idempotency import request_idempotency_key
 from ..schemas import StreamStartRequest
@@ -63,19 +63,26 @@ def _admit_engine(store, body: StreamStartRequest,
     if adapter is None:
         raise ApiError(404, f"Unknown engine: {body.engine_id!r}")
     engine_gate(store, adapter)
-    model = next((m for m in adapter.models()
-                  if m["model_id"] == body.model_id), None)
+    try:
+        model = next((m for m in adapter.models()
+                      if m["model_id"] == body.model_id), None)
+        devices = adapter.hardware()
+        errors = adapter.validate_engine_options(
+            body.engine_options or {})
+        supports_annotate = bool(
+            adapter.capabilities().get("annotation"))
+    except EngineUnavailable as exc:
+        raise ApiError(503, str(exc))
     if model is None:
         raise ApiError(404, f"Unknown model: {body.model_id!r}")
     if not model.get("loaded"):
         raise ApiError(409, f"Model {body.model_id!r} is not loaded.")
     if body.device_id is not None and not any(
-            d["device_id"] == body.device_id for d in adapter.hardware()):
+            d["device_id"] == body.device_id for d in devices):
         raise ApiError(422, f"Unknown device: {body.device_id!r}")
-    errors = adapter.validate_engine_options(body.engine_options or {})
     if errors:
         raise ApiError(422, "Invalid engine options.", details=errors)
-    if body.annotate and not adapter.capabilities().get("annotation"):
+    if body.annotate and not supports_annotate:
         raise ApiError(422, f"Engine {body.engine_id!r} does not support "
                             "annotation.")
     return adapter

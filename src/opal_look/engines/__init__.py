@@ -256,7 +256,9 @@ def load_plugin_adapters(registry: EngineRegistry = ENGINE_REGISTRY) -> None:
 def register_env_adapters(registry: EngineRegistry = ENGINE_REGISTRY) -> None:
     """Register built-in remote adapters declared via OPAL_LOOK_ENGINE_* env.
 
-    Runs after load_dotenv inside create_app so .env is visible; idempotent.
+    Runs inside create_app; the service entry point's dotenv ``prepare()`` has
+    already applied any ``.env`` values, so env-declared engines are visible.
+    create_app itself does not load ``.env``. Idempotent.
     """
     from .yolo import register_if_configured
 

@@ -68,6 +68,7 @@ class StreamRuntime:
         buffer_size: int = 5,
         sse_buffer: int = 256,
         max_viewers: int = 8,
+        frame_cache_seconds: float = 30.0,
         teardown_grace_seconds: float = 30.0,
     ) -> None:
         # stream_id is the immutable run identity; name is a client-chosen
@@ -89,6 +90,7 @@ class StreamRuntime:
         self.buffer_policy = buffer_policy
         self.buffer_size = buffer_size
         self.max_viewers = max_viewers
+        self._frame_cache_seconds = frame_cache_seconds
         self._teardown_grace = teardown_grace_seconds
 
         self.status = "starting"
@@ -104,7 +106,7 @@ class StreamRuntime:
         self._frame_no = 0
         self._latest: Any = None           # plain PIL frame
         self._latest_annotated: Any = None  # annotated copy (inference+annotate)
-        self._jpeg_cache: dict[str, tuple[int, bytes]] = {}
+        self._jpeg_cache: dict[str, tuple[int, float, bytes]] = {}
         self._pump: LiveFramePump | None = None
         self._stop = threading.Event()
         self._thread: threading.Thread | None = None
@@ -277,17 +279,20 @@ class StreamRuntime:
 
     def latest_jpeg(self, annotated: bool = False) -> bytes | None:
         """JPEG of the latest frame; encoded once per frame+variant and
-        shared by every viewer asking for the same one."""
+        shared by every viewer asking for the same one. Entries expire
+        after frame_cache_seconds even while the frame is unchanged."""
         with self._lock:
             img = self._latest_annotated if annotated else self._latest
             if img is None:
                 return None
             key = "annotated" if annotated else "plain"
+            now = time.monotonic()
             cached = self._jpeg_cache.get(key)
-            if cached is not None and cached[0] == self._frame_no:
-                return cached[1]
+            if (cached is not None and cached[0] == self._frame_no
+                    and now - cached[1] < self._frame_cache_seconds):
+                return cached[2]
             data = _jpeg(img)
-            self._jpeg_cache[key] = (self._frame_no, data)
+            self._jpeg_cache[key] = (self._frame_no, now, data)
             return data
 
     # -- events (Observer) ----------------------------------------------------

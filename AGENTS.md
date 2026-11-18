@@ -31,10 +31,13 @@ contract copies live under `vendor/opal-api/`.
   context manager for atomic check-and-mutate.
 - DI: FastAPI `Depends` providers in `src/opal_look/dependencies.py`
   (`StoreDep`); handlers inject the store rather than reaching app.state.
-- Engines: `EngineAdapter` Protocol + `ENGINE_REGISTRY` (factory/registry)
-  in `src/opal_look/engines/` (package). Adapters register via the
-  `opal_look.engines` entry-point hook (`load_plugin_adapters()`) or env
-  declaration (`register_env_adapters()`). Adapter surface:
+- Engines: `EngineAdapter` Protocol + an app-owned `EngineRegistry`
+  (`app.state.engine_registry`, built by `default_registry()` in
+  `create_app` — adapter state never bleeds across app instances) in
+  `src/opal_look/engines/` (package). Adapters register via the
+  `opal_look.engines` entry-point hook (`load_plugin_adapters(registry)`)
+  or env declaration (`register_env_adapters(registry)`). Conformance
+  gate for any new adapter: `tests/test_engine_contract.py`. Adapter surface:
   `capabilities/probe/options_schema/validate_config/
   metadata/validate_engine_options` plus the MVP ops `hardware()`,
   `models()`, `load_model()`, `unload_model()`, `predict(image, ...)`.
@@ -48,8 +51,17 @@ contract copies live under `vendor/opal-api/`.
   Models are engine-federated metadata (no central table); hardware is
   engine-local. `engine_gate(store, adapter)` -> 503 for disabled engines.
 - Streams: `StreamRuntime` in `src/opal_look/streams.py` — in-memory only,
-  state machine starting->running->stopping->stopped|failed, observer hub
-  (bounded replay buffer + subscriber queues) feeding SSE and MJPEG.
+  state machine starting->running->stopping->stopped|failed. `stream_id`
+  is the server-generated immutable run identity; `name` is a
+  client-chosen label, unique among non-terminal streams, resolving as a
+  lookup alias while held (see docs/IDENTITY_AND_BRIDGES.md and
+  specs/STREAM_NAME_AMENDMENT.md). Terminal status is published only
+  after the pump thread exits and the capture stream is closed
+  (teardown_timeout -> failed). Observer hub (bounded replay buffer +
+  subscriber queues) feeds SSE and MJPEG under one lock; a full queue
+  evicts the subscriber with a final `dropped` event; viewer occupancy is
+  bounded by `max_viewers` (snapshot uncounted); JPEG output is encoded
+  once per frame+variant (`frame_cache_seconds` TTL) and shared.
   One decode pump per stream; viewers never start a second decode.
 - Capture: `CaptureAdapter` Protocol + `CAPTURE_REGISTRY` in
   `src/opal_look/capture.py` (`opal_look.capture` entry-point hook).
@@ -112,12 +124,12 @@ contract copies live under `vendor/opal-api/`.
 | engines (list/get/patch, discover -> EngineDiscovery{engines,errors}, capabilities) | verified |
 | hardware (engine-local list/show, ?engine_id filter/disambiguation) | verified |
 | models (engine-federated list/show/load/unload; 404/409/422/503) | verified |
-| predict (path/URI source, size/pixel caps, engine+model+device+options gates, native opt-in) | verified |
+| predict (path/URI source under source policy, bounded reads + redirect re-checks, size/pixel caps before decode, engine+model+device+options gates, native opt-in) | verified |
 | profiles (CRUD+activate, kernel shapes) | verified |
 | backup (export/validate/import + managed create/list/download/restore/delete) | verified |
 | service (pidfile-managed start/stop/log; restart via OPAL_LOOK_WAIT_PID) | verified |
-| streams (202+Location admission, mode rules, idempotency-key, stop 409, client-chosen `name` -> stream_id, 409 active-name conflict, reuse after terminal, `credential_ref` -> OPAL_LOOK_CRED_<REF> injection, 422 unprovisioned) | verified |
-| stream video (MJPEG) + snapshot (JPEG) + metrics + annotated rules | verified |
+| streams (202+Location admission, mode rules, idempotency-key -> immutable run id receipt, stop -> cleanup-bound terminal, generated `stream_id` + `name` lookup alias, 409 active-name conflict, reuse after terminal, `credential_ref` -> OPAL_LOOK_CRED_<REF> injection, 422 unprovisioned, source policy before admission) | verified |
+| stream video (MJPEG, bounded viewers + dropped eviction) + snapshot (JPEG) + metrics + annotated rules | verified |
 | stream SSE (frame/detection/status/terminal, heartbeat, Last-Event-ID replay, 409 stale) | verified |
 | inference-mode streams (detection events, annotate overlays, engine gates) | verified |
 | idempotency (durable keys, fingerprint replay, 409s) | verified |
@@ -125,8 +137,10 @@ contract copies live under `vendor/opal-api/`.
 | CLI (opal look / opal-look, all verbs incl. stream/predict, REST-only) | verified |
 | SPA (/app/ static client, all MVP sections) | verified |
 | conformance (strict audit rc=0 CONFORMANT: 39 paths / 47 ops) | verified |
+| event bridge (opt-in `stream bridge` verb: detection SSE -> EventInput publish, filters/cooldown, stable dedup ids, Last-Event-ID reconnect, bounded retries) | verified |
 
 Deferred (documented): real RTSP decode needs PyAV (`pip install av`)
 else stream admission -> 503; ZeroMQ event bus retired with the old
-contract (no bus surface in the MVP); MJPEG viewer count is not capped;
-SSE `heartbeat` is emitted as comments, not typed events.
+contract (no bus surface in the MVP); SSE `heartbeat` is emitted as
+comments, not typed events; the Event bridge is an external opt-in
+process, not a server-side surface.

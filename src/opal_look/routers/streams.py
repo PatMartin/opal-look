@@ -150,7 +150,8 @@ def post_api_v1_stream(request: Request, store: StoreDep,
             engine_options=body.engine_options, annotate=body.annotate,
             buffer_policy=body.buffer_policy, buffer_size=body.buffer_size,
             sse_buffer=limits.sse_buffer_events,
-            max_viewers=limits.max_viewers)
+            max_viewers=limits.max_viewers,
+            frame_cache_seconds=limits.frame_cache_seconds)
         if key:
             with store.write_txn():
                 store._conn.execute(

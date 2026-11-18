@@ -1,6 +1,7 @@
 """MVP CLI: every command mirrors a real REST op; no retired flows."""
 
 import json
+import tempfile
 
 import pytest
 from typer.testing import CliRunner
@@ -17,6 +18,9 @@ def cli(tmp_path, monkeypatch):
 
     app = create_app(data_dir=tmp_path / "data")
     inner = TestClient(app, base_url="http://testserver")
+    inner.put("/api/v1/setting/source_local_roots",
+              json={"value": [tempfile.gettempdir()]},
+              headers={"If-Match": "*"})
     monkeypatch.setitem(cli_mod._state, "inner", inner)
     monkeypatch.setitem(cli_mod._state, "url", "http://testserver")
     yield CliRunner()

@@ -19,6 +19,7 @@ from ..errors import ApiError
 from ..idempotency import request_idempotency_key
 from ..schemas import StreamStartRequest
 from ..settings import effective_settings
+from ..source_policy import RTSP_SCHEMES, SourcePolicy
 from ..streams import TERMINAL_STATES, StreamRuntime
 from ..timeutil import now_iso, plus_hours, iso
 
@@ -91,6 +92,8 @@ def post_api_v1_stream(request: Request, store: StoreDep,
                              f"/api/v1/stream/{prior.stream_id}"})
 
     limits = effective_settings(store)
+    SourcePolicy.from_settings(limits).check_network(
+        body.source, RTSP_SCHEMES, "Stream")
     runtimes = _runtimes(request)
     adapter = _admit_engine(store, body)
     if capture_adapter_for("rtsp") is None:

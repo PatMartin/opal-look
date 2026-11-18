@@ -164,7 +164,11 @@ def test_no_capture_backend_503(client, monkeypatch):
     assert resp.status_code == 503
 
 
-def test_admission_limit_429(client, rtsp_frames):
+def test_admission_limit_429(client, fake_rtsp):
+    # Endless feed: the occupying stream must stay non-terminal while the
+    # second admission is evaluated (a drained stream frees the slot).
+    fake_rtsp.frames_per_open = [None]
+    fake_rtsp.frame_delay = 0.01
     client.put("/api/v1/setting/max_concurrent_streams",
                json={"value": 1}, headers={"If-Match": "*"})
     sid = client.post("/api/v1/stream/", json={

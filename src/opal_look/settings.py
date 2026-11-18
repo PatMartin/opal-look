@@ -22,6 +22,10 @@ class ServiceSettings(BaseModel):
     max_upload_bytes: int = Field(default=1_073_741_824, ge=1)
     max_image_pixels: int = Field(default=50_000_000, ge=1)
     max_viewers: int = Field(default=8, ge=1)
+    # Outbound source policy (opal_look.source_policy).
+    source_local_roots: list[str] = Field(default_factory=list)
+    source_allowed_hosts: list[str] = Field(default_factory=list)
+    source_allow_private: bool = False
 
 
 class ServiceSettingsPatch(BaseModel):
@@ -34,6 +38,9 @@ class ServiceSettingsPatch(BaseModel):
     max_upload_bytes: int | None = Field(default=None, ge=1)
     max_image_pixels: int | None = Field(default=None, ge=1)
     max_viewers: int | None = Field(default=None, ge=1)
+    source_local_roots: list[str] | None = Field(default=None)
+    source_allowed_hosts: list[str] | None = Field(default=None)
+    source_allow_private: bool | None = Field(default=None)
 
 
 class SingleSettingPut(BaseModel):

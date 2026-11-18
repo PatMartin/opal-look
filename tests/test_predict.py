@@ -1,7 +1,16 @@
 import io
+import tempfile
 
 import pytest
 from PIL import Image
+
+
+@pytest.fixture(autouse=True)
+def _permit_tmp_sources(client):
+    """Predict fixtures live under tmp_path; permit the temp root."""
+    client.put("/api/v1/setting/source_local_roots",
+               json={"value": [tempfile.gettempdir()]},
+               headers={"If-Match": "*"})
 
 
 @pytest.fixture()

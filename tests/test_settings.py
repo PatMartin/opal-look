@@ -12,6 +12,9 @@ DEFAULTS = {
     "max_upload_bytes": 1073741824,
     "max_image_pixels": 50000000,
     "max_viewers": 8,
+    "source_local_roots": [],
+    "source_allowed_hosts": [],
+    "source_allow_private": False,
 }
 
 

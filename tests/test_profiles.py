@@ -172,11 +172,13 @@ def test_profiles_export_import_roundtrip(client):
     resp = _mk(client, "exp", modules={"some-mod": {"k": 1}})
     pid = resp.json()["id"]
     client.post(f"/api/v1/profile/{pid}/activate", headers={"If-Match": "*"})
-    cfg = client.get("/api/v1/backup/export").json()
-    doc = next(p for p in cfg["profiles"] if p.get("name") == "exp")
+    snap = client.post("/api/v1/config/save",
+                       json={"destination": "response"}).json()["snapshot"]
+    doc = next(p for p in snap["resources"]["profiles"]
+               if p.get("name") == "exp")
     assert doc["id"] == pid
     assert doc["modules"] == {"some-mod": {"k": 1}}
-    resp = client.post("/api/v1/backup/import", json=cfg,
+    resp = client.post("/api/v1/config/load", json={"snapshot": snap},
                        headers={"If-Match": "*"})
     assert resp.status_code == 200
     got = client.get(f"/api/v1/profile/{pid}").json()

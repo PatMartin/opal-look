@@ -53,18 +53,38 @@ SETTINGS_KEYS = frozenset(ServiceSettings.model_fields)
 
 
 def effective_settings(store: Store) -> ServiceSettings:
-    overrides = store.settings.overrides()
+    """Effective values: persisted overrides under environment/.env overlays
+    (precedence environment > dotenv > persisted > default)."""
+    overrides = dict(store.settings.overrides())
+    for key, overlay in env_overlays().items():
+        overrides[key] = overlay["value"]
     return ServiceSettings.model_validate(
         {k: v for k, v in overrides.items() if k in SETTINGS_KEYS}
     )
 
 
 ENV_PREFIX = "OPAL_LOOK_"
+DOTENV_FILE_VAR = "OPAL_DOTENV_FILE"
+NO_DOTENV_VAR = "OPAL_NO_DOTENV"
+_INVALID = object()
 _log = logging.getLogger(__name__)
 
 
+def _parse_setting(key: str, raw: Any) -> Any:
+    """JSON-then-string parse + schema validation for one setting value."""
+    try:
+        value = json.loads(raw)
+    except (json.JSONDecodeError, TypeError):
+        value = raw
+    try:
+        validated = ServiceSettingsPatch.model_validate({key: value})
+    except ValidationError:
+        return _INVALID
+    return validated.model_dump(exclude_unset=True)[key]
+
+
 def env_setting_overrides(environ: dict[str, str] | None = None) -> dict[str, Any]:
-    """OPAL_LOOK_<SETTING_KEY> environment variables -> validated overrides.
+    """OPAL_LOOK_<SETTING_KEY> variables -> validated values.
 
     Only names matching a documented setting key apply; other OPAL_LOOK_*
     vars (HOST/PORT/TOKEN/CRED_*) are ignored. Values are parsed as JSON
@@ -79,41 +99,52 @@ def env_setting_overrides(environ: dict[str, str] | None = None) -> dict[str, An
         key = var[len(ENV_PREFIX):].lower()
         if key not in SETTINGS_KEYS:
             continue
-        try:
-            value = json.loads(raw)
-        except (json.JSONDecodeError, TypeError):
-            value = raw
-        try:
-            validated = ServiceSettingsPatch.model_validate({key: value})
-        except ValidationError:
+        value = _parse_setting(key, raw)
+        if value is _INVALID:
             _log.warning("ignoring %s=%r: invalid value for setting %r",
                          var, raw, key)
             continue
-        out[key] = validated.model_dump(exclude_unset=True)[key]
+        out[key] = value
     return out
 
 
-def apply_env_settings(store: Store,
-                       environ: dict[str, str] | None = None) -> list[str]:
-    """Seed ``setting_overrides`` from OPAL_LOOK_<key> env vars.
+def _dotenv_setting_keys(environ: dict[str, str]) -> set[str]:
+    """Setting keys whose process value was sourced from the dotenv file.
 
-    The environment is authoritative: a defined key is (re)written each
-    startup, superseding API-set overrides. Keys whose stored value already
-    matches are skipped. Returns the keys that changed; the config revision
-    is bumped only when at least one did.
+    Only counts when dotenv prepare() recorded ``OPAL_DOTENV_FILE``; a file
+    var only sourced the process value when the real environment did not
+    already define it (``load_dotenv(override=False)``).
     """
-    desired = env_setting_overrides(environ)
-    changed = [
-        key for key, value in desired.items()
-        if (entry := store.settings.entry(key)) is None
-        or entry["value"] != value
-    ]
-    if not changed:
-        return []
-    with store.write_txn():
-        for key in changed:
-            store.settings.set(key, desired[key])
-        store.bump_revision()
-    _log.info("applied setting(s) from environment: %s",
-              ", ".join(sorted(changed)))
-    return changed
+    path = environ.get(DOTENV_FILE_VAR)
+    if not path or environ.get(NO_DOTENV_VAR):
+        return set()
+    from dotenv import dotenv_values
+    try:
+        file_vars = dotenv_values(path)
+    except OSError:
+        return set()
+    keys = set()
+    for var, value in file_vars.items():
+        if not isinstance(var, str) or not var.startswith(ENV_PREFIX):
+            continue
+        key = var[len(ENV_PREFIX):].lower()
+        if key not in SETTINGS_KEYS or value is None:
+            continue
+        if environ.get(var) == value:
+            keys.add(key)
+    return keys
+
+
+def env_overlays(environ: dict[str, str] | None = None) -> dict[str, dict[str, Any]]:
+    """{key: {"value", "source"}} for env/dotenv-supplied setting values.
+
+    ``source`` is ``environment`` for real environment variables and
+    ``dotenv`` for values that came from the loaded dotenv file.
+    """
+    env = os.environ if environ is None else environ
+    dotenv_keys = _dotenv_setting_keys(env)
+    return {
+        key: {"value": value,
+              "source": "dotenv" if key in dotenv_keys else "environment"}
+        for key, value in env_setting_overrides(env).items()
+    }

@@ -1,4 +1,10 @@
-"""Portable settings endpoints: whole-map GET/PATCH and per-key GET/PUT/DELETE."""
+"""Portable settings endpoints: whole-map GET and per-key GET/PUT/DELETE.
+
+v0.1.0 retires the collection PATCH; writes are per-key only. Setting
+records carry kernel provenance: `value` is the effective value after
+environment/.env overlays, `configured_value` the persisted desired value,
+`source` the winning layer (environment > dotenv > persisted > default).
+"""
 
 from __future__ import annotations
 
@@ -17,6 +23,7 @@ from ..settings import (
     ServiceSettingsPatch,
     SingleSettingPut,
     effective_settings,
+    env_overlays,
 )
 
 router = APIRouter()
@@ -40,17 +47,38 @@ def _reject_nulls(values: dict) -> None:
 
 
 def _setting_read(store, key: str) -> dict:
-    """Kernel SettingRead: key/value plus lifecycle metadata."""
+    """Kernel SettingRead: effective/configured/default plus provenance."""
     effective = effective_settings(store).model_dump(mode="json")
-    override = store.settings.entry(key) if hasattr(store.settings, "entry") else None
+    override = store.settings.entry(key)
+    overlays = env_overlays()
     from pydantic_core import PydanticUndefined
     default = ServiceSettings.model_fields[key].default
+    default = None if default is PydanticUndefined else default
+    if key in overlays:
+        source = overlays[key]["source"]
+    elif override is not None:
+        source = "persisted"
+    else:
+        source = "default"
+    warnings = []
+    if source in ("environment", "dotenv") and override is not None:
+        warnings.append({
+            "code": f"masked_by_{source}",
+            "path": key,
+            "message": (f"The {source} overlay masks the persisted "
+                        f"override for {key!r}."),
+        })
     body = {
         "key": key,
         "value": effective[key],
-        "default": None if default is PydanticUndefined else default,
-        "is_default": override is None,
+        "configured_value": override["value"] if override else default,
+        "default": default,
+        "has_override": override is not None,
+        "is_default": source == "default",
+        "source": source,
+        "restart_required": False,
         "pending_restart": False,
+        "warnings": warnings,
     }
     if override and override.get("updated_at"):
         body["updated_at"] = override["updated_at"]
@@ -61,24 +89,6 @@ def _setting_read(store, key: str) -> dict:
 def get_api_v1_settings(request: Request, store: StoreDep) -> JSONResponse:
     body = effective_settings(store).model_dump(mode="json")
     return JSONResponse(body, headers={"ETag": store.config_revision()})
-
-
-@router.patch("/api/v1/setting/")
-def patch_api_v1_settings(
-    request: Request, store: StoreDep, patch: ServiceSettingsPatch
-) -> JSONResponse:
-    supplied = patch.model_dump(exclude_unset=True)
-    if not supplied:
-        raise ApiError(422, "Empty settings patches are not allowed.")
-    _reject_nulls(supplied)
-
-    with store.write_txn():
-        check_if_match(request, store)
-        for key, value in supplied.items():
-            store.settings.set(key, value)
-        revision = store.bump_revision()
-    body = effective_settings(store).model_dump(mode="json")
-    return JSONResponse(body, headers={"ETag": revision})
 
 
 @router.get("/api/v1/setting/{key}")

@@ -53,10 +53,9 @@ def create_app(
     import time as _time
     app.state.started_monotonic = _time.monotonic()
     app.state.store = store if store is not None else Store(Path(data_dir) if data_dir else default_data_dir())
-    # OPAL_LOOK_<SETTING_KEY> env vars (real env first, .env fills gaps)
-    # authoritatively seed setting_overrides at startup.
-    from .settings import apply_env_settings
-    apply_env_settings(app.state.store)
+    # OPAL_LOOK_<SETTING_KEY> env/.env vars form an overlay above persisted
+    # setting_overrides at read time (kernel SettingRead provenance); they
+    # are never written to the store.
     # Bearer token is provisioned out of band; absence = loopback dev mode.
     token = auth_token if auth_token is not None else env_token()
     if token is not None and not token.strip():

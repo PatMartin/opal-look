@@ -95,8 +95,9 @@ live under `vendor/opal-api/`.
   `idempotency.request_idempotency_key` (contract bounds 1..128) backed by
   the durable `idempotency_keys` table (fingerprint replay -> same
   admission; mismatched body -> 409; 24h TTL).
-- Environment: `python-dotenv` loads a repo-root `.env` at `main()` and
-  `create_app()` (never overrides real env vars; `.env` is gitignored;
+- Environment: `python-dotenv` loads a repo-root `.env` via
+  `dotenv.prepare()` at executable entry points (`main()`, CLI callback;
+  never overrides real env vars; `.env` is gitignored;
   `.env.example` documents the set). Covers `OPAL_LOOK_HOST/PORT
   (default 127.0.0.1:8002)/DATA_DIR/TOKEN` + `OPAL_LOOK_CRED_*`. Any
   `OPAL_LOOK_<SETTING_KEY>` matching a `/api/v1/setting/` key applies as a

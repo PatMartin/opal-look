@@ -2,9 +2,9 @@
 
 Group/verb layout follows the contract's x-opal-cli metadata: canonical
 `opal look [parent] [group] <command>` spellings — top-level groups are
-`engine`, `model`, `predict`, `hardware`, `stream`, `service` and `info`;
-`config` parents `engine update`, `profile`, `setting` and the snapshot
-verbs `save`/`load`/`validate`.
+`engine`, `model`, `predict`, `hardware`, `stream`, `profile`, `persona`,
+`service` and `info`; `config` parents `setting` and the snapshot verbs
+`save`/`load`/`validate`.
 All logic lives server-side; this client only issues HTTP calls and
 honestly surfaces streaming/bearer limits. `service` falls back to local
 pidfile control when the API is unreachable — a dead server cannot
@@ -163,6 +163,15 @@ def _engine_show(engine_id: str):
 @engine.command("discover")
 def _engine_discover():
     _emit(unwrap(_client().request("POST", "/api/v1/engine/discover")))
+
+
+@engine.command("update")
+def _engine_update(
+        engine_id: str, body: str = typer.Option(None, "--body"),
+        file: Path = typer.Option(None, "--file")):
+    _emit(unwrap(_client().mutate(
+        "PATCH", f"/api/v1/engine/{engine_id}",
+        etag_path=f"/api/v1/engine/{engine_id}", json=_body(body, file))))
 
 
 @engine.command("capabilities")
@@ -531,41 +540,204 @@ def _svc_log(lines: int = typer.Option(10, "--lines")):
 
 app.add_typer(service, name="service")
 
-# -- config parent group ----------------------------------------------------------
+# -- profile (portable namespaced documents) --------------------------------------
 
-config = typer.Typer(help="config", epilog=(
+profile = typer.Typer(help="profile", epilog=(
     "Examples:\n"
-    "  opal-look config engine update synthetic --body '{\"enabled\":false}'\n"
-    "  opal-look config profile add --file profile.json\n"
-    "  opal-look config setting list\n"
-    "  opal-look config setting set max_viewers 4\n"
-    "  opal-look config save --out snapshot.json\n"
-    "  opal-look config load --in snapshot.json"))
-
-cfg_engine = typer.Typer(help="engine")
+    "  opal-look profile list\n"
+    "  opal-look profile add --name home --is-active\n"
+    "  opal-look profile add --in profile.json\n"
+    "  opal-look profile update home --module opal-say=say.json"))
 
 
-@cfg_engine.command("update")
-def _cfg_engine_update(
-        engine_id: str, body: str = typer.Option(None, "--body"),
-        file: Path = typer.Option(None, "--file")):
+def _profile_fields(name, description, is_active, shared, module,
+                    infile, body) -> dict:
+    if infile:
+        doc = _body(None, infile)
+        if any(v is not None for v in (name, description, is_active,
+                                       shared)) or module or body:
+            raise SystemExit("--in is exclusive with the field flags")
+        return doc
+    doc = _body(body, None) or {}
+    if name is not None:
+        doc["name"] = name
+    if description is not None:
+        doc["description"] = description
+    if is_active is not None:
+        doc["is_active"] = is_active
+    if shared is not None:
+        doc["shared"] = json.loads(Path(shared).read_text(encoding="utf-8"))
+    for kv in module or []:
+        key, _, val = kv.partition("=")
+        if not key or not val:
+            raise SystemExit("--module takes KEY=JSON_FILE")
+        doc.setdefault("modules", {})[key] = json.loads(
+            Path(val).read_text(encoding="utf-8"))
+    return doc
+
+
+_PROFILE_OPTS = dict(
+    name=typer.Option(None, "--name"),
+    description=typer.Option(None, "--description"),
+    is_active=typer.Option(None, "--is-active/--no-is-active"),
+    shared=typer.Option(None, "--shared", help="Shared compartment file."),
+    module=typer.Option(None, "--module",
+                        help="KEY=JSON_FILE module compartment; repeatable."),
+    infile=typer.Option(None, "--in", help="Whole profile document file."),
+    body=typer.Option(None, "--body", help="Inline JSON body."),
+)
+
+
+@profile.command("list")
+def _profile_list():
+    _emit(unwrap(_client().get("/api/v1/profile/")))
+
+
+@profile.command("show")
+def _profile_show(profile_id: str):
+    _emit(unwrap(_client().get(f"/api/v1/profile/{profile_id}")))
+
+
+@profile.command("add")
+def _profile_add(
+        name: str = _PROFILE_OPTS["name"],
+        description: str = _PROFILE_OPTS["description"],
+        is_active: bool = _PROFILE_OPTS["is_active"],
+        shared: Path = _PROFILE_OPTS["shared"],
+        module: list[str] = _PROFILE_OPTS["module"],
+        infile: Path = _PROFILE_OPTS["infile"],
+        body: str = _PROFILE_OPTS["body"]):
+    doc = _profile_fields(name, description, is_active, shared, module,
+                          infile, body)
+    _emit(unwrap(_client().mutate("POST", "/api/v1/profile/", json=doc)))
+
+
+@profile.command("update")
+def _profile_update(
+        profile_id: str,
+        name: str = _PROFILE_OPTS["name"],
+        description: str = _PROFILE_OPTS["description"],
+        is_active: bool = _PROFILE_OPTS["is_active"],
+        shared: Path = _PROFILE_OPTS["shared"],
+        module: list[str] = _PROFILE_OPTS["module"],
+        infile: Path = _PROFILE_OPTS["infile"],
+        body: str = _PROFILE_OPTS["body"]):
+    doc = _profile_fields(name, description, is_active, shared, module,
+                          infile, body)
     _emit(unwrap(_client().mutate(
-        "PATCH", f"/api/v1/engine/{engine_id}",
-        etag_path=f"/api/v1/engine/{engine_id}", json=_body(body, file))))
+        "PATCH", f"/api/v1/profile/{profile_id}",
+        etag_path=f"/api/v1/profile/{profile_id}", json=doc)))
 
 
-config.add_typer(cfg_engine, name="engine")
+@profile.command("remove")
+def _profile_remove(profile_id: str):
+    _emit(unwrap(_client().mutate("DELETE", f"/api/v1/profile/{profile_id}",
+                                  etag_path=f"/api/v1/profile/{profile_id}")))
 
-_profs = _crud("profile", "/api/v1/profile/")
 
-
-@_profs.command("activate")
-def _prof_activate(profile_id: str):
+@profile.command("activate")
+def _profile_activate(profile_id: str):
     _emit(unwrap(_client().mutate(
         "POST", f"/api/v1/profile/{profile_id}/activate")))
 
 
-config.add_typer(_profs, name="profile")
+app.add_typer(profile, name="profile")
+
+# -- persona ----------------------------------------------------------------------
+
+persona = typer.Typer(help="persona", epilog=(
+    "Examples:\n"
+    "  opal-look persona list --enabled\n"
+    "  opal-look persona add --persona-id amy --name Amy --voice-id v1\n"
+    "  opal-look persona update amy --no-enabled\n"
+    "  opal-look persona validate amy"))
+
+
+@persona.command("list")
+def _persona_list(enabled: bool = typer.Option(
+        None, "--enabled/--no-enabled")):
+    q = _query(enabled=enabled) if enabled is not None else ""
+    _emit(unwrap(_client().get("/api/v1/persona/" + q)))
+
+
+@persona.command("add")
+def _persona_add(
+        persona_id: str = typer.Option(..., "--persona-id"),
+        name: str = typer.Option(..., "--name"),
+        description: str = typer.Option(None, "--description"),
+        voice_id: str = typer.Option(None, "--voice-id"),
+        enabled: bool = typer.Option(None, "--enabled/--no-enabled"),
+        if_match: str = typer.Option(None, "--if-match")):
+    body = {"persona_id": persona_id, "name": name,
+            "description": description, "voice_id": voice_id}
+    if enabled is not None:
+        body["enabled"] = enabled
+    body = {k: v for k, v in body.items() if v is not None}
+    if if_match:
+        _emit(unwrap(_client().request(
+            "POST", "/api/v1/persona/", json=body,
+            headers={"If-Match": if_match})))
+    else:
+        _emit(unwrap(_client().mutate("POST", "/api/v1/persona/", json=body)))
+
+
+@persona.command("show")
+def _persona_show(persona_id: str):
+    _emit(unwrap(_client().get(f"/api/v1/persona/{persona_id}")))
+
+
+@persona.command("update")
+def _persona_update(
+        persona_id: str,
+        name: str = typer.Option(None, "--name"),
+        description: str = typer.Option(None, "--description"),
+        voice_id: str = typer.Option(None, "--voice-id"),
+        enabled: bool = typer.Option(None, "--enabled/--no-enabled"),
+        if_match: str = typer.Option(None, "--if-match")):
+    body = {k: v for k, v in {"name": name, "description": description,
+                              "voice_id": voice_id,
+                              "enabled": enabled}.items() if v is not None}
+    if not body:
+        raise SystemExit("no fields supplied")
+    if if_match:
+        _emit(unwrap(_client().request(
+            "PATCH", f"/api/v1/persona/{persona_id}", json=body,
+            headers={"If-Match": if_match})))
+    else:
+        _emit(unwrap(_client().mutate(
+            "PATCH", f"/api/v1/persona/{persona_id}",
+            etag_path=f"/api/v1/persona/{persona_id}", json=body)))
+
+
+@persona.command("remove")
+def _persona_remove(persona_id: str,
+                    if_match: str = typer.Option(None, "--if-match")):
+    if if_match:
+        _emit(unwrap(_client().request(
+            "DELETE", f"/api/v1/persona/{persona_id}",
+            headers={"If-Match": if_match})))
+    else:
+        _emit(unwrap(_client().mutate(
+            "DELETE", f"/api/v1/persona/{persona_id}",
+            etag_path=f"/api/v1/persona/{persona_id}")))
+
+
+@persona.command("validate")
+def _persona_validate(persona_id: str):
+    _emit(unwrap(_client().request(
+        "POST", f"/api/v1/persona/{persona_id}/validate")))
+
+
+app.add_typer(persona, name="persona")
+
+# -- config parent group ----------------------------------------------------------
+
+config = typer.Typer(help="config", epilog=(
+    "Examples:\n"
+    "  opal-look config setting list\n"
+    "  opal-look config setting set max_viewers 4\n"
+    "  opal-look config save --out snapshot.json\n"
+    "  opal-look config load --in snapshot.json"))
 
 setting = typer.Typer(help="setting", epilog=(
     "Examples:\n"
@@ -634,25 +806,6 @@ def _config_validate(file: Path = typer.Option(None, "--in", help="Snapshot "
 
 
 app.add_typer(config, name="config")
-
-# -- top-level `setting` aliases (contract: 'setting get', 'setting delete') ------
-
-setting_alias = typer.Typer(help="setting (alias spellings for config setting)")
-
-
-@setting_alias.command("get")
-def _setting_alias_get(key: str):
-    """Alias for `config setting show`."""
-    _emit(unwrap(_client().get(f"/api/v1/setting/{key}")))
-
-
-@setting_alias.command("delete")
-def _setting_alias_delete(key: str):
-    """Alias for `config setting remove`."""
-    _emit(unwrap(_client().mutate("DELETE", f"/api/v1/setting/{key}")))
-
-
-app.add_typer(setting_alias, name="setting")
 
 from . import tree_cmds as _tree_cmds  # noqa: E402
 _tree_cmds.register(app, "opal-look")

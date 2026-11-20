@@ -48,7 +48,7 @@ def test_cli_engine_show(cli):
 
 
 def test_cli_engine_update(cli):
-    r = cli.invoke(cli_app, ["config", "engine", "update", "synthetic",
+    r = cli.invoke(cli_app, ["engine", "update", "synthetic",
                              "--body", '{"enabled": false}'])
     assert r.exit_code == 0, r.output
     assert '"enabled": false' in r.output
@@ -73,11 +73,10 @@ def test_cli_setting_update(cli):
 
 
 def test_cli_profile_crud(cli):
-    r = cli.invoke(cli_app, ["config", "profile", "add", "--body",
-                             '{"name": "cli-prof"}'])
+    r = cli.invoke(cli_app, ["profile", "add", "--name", "cli-prof"])
     assert r.exit_code == 0, r.output
     assert "cli-prof" in cli.invoke(
-        cli_app, ["config", "profile", "list"]).output
+        cli_app, ["profile", "list"]).output
 
 
 def test_cli_config_save_load_validate(cli, tmp_path):
@@ -307,17 +306,34 @@ def test_cli_model_predict_stream(cli, tmp_path, monkeypatch):
                                 "synthetic-det"]).exit_code == 0
 
 
-def test_cli_setting_aliases(cli):
-    """Contract alias spellings: 'setting get'/'setting delete' (top-level)."""
-    r = cli.invoke(cli_app, ["setting", "get", "max_viewers"])
+def test_cli_setting_roundtrip(cli):
+    r = cli.invoke(cli_app, ["config", "setting", "show", "max_viewers"])
     assert r.exit_code == 0 and "max_viewers" in r.output
     r = cli.invoke(cli_app, ["config", "setting", "set",
                              "max_viewers", "6"])
     assert r.exit_code == 0, r.output
-    r = cli.invoke(cli_app, ["--json", "setting", "get", "max_viewers"])
+    r = cli.invoke(cli_app, ["--json", "config", "setting", "show",
+                             "max_viewers"])
     assert json.loads(r.output)["configured_value"] == 6
-    assert cli.invoke(cli_app, ["setting", "delete",
+    assert cli.invoke(cli_app, ["config", "setting", "remove",
                                 "max_viewers"]).exit_code == 0
-    r = cli.invoke(cli_app, ["--json", "setting", "get", "max_viewers"])
+    r = cli.invoke(cli_app, ["--json", "config", "setting", "show",
+                             "max_viewers"])
     # persisted override cleared; repo .env OPAL_LOOK_MAX_VIEWERS=2 still masks
     assert json.loads(r.output)["has_override"] is False
+
+
+def test_cli_persona_crud(cli):
+    r = cli.invoke(cli_app, ["persona", "add", "--persona-id", "amy",
+                             "--name", "Amy", "--voice-id", "v1"])
+    assert r.exit_code == 0, r.output
+    assert "amy" in cli.invoke(cli_app, ["persona", "list"]).output
+    r = cli.invoke(cli_app, ["persona", "list", "--no-enabled"])
+    assert "amy" not in r.output
+    r = cli.invoke(cli_app, ["persona", "update", "amy", "--no-enabled"])
+    assert r.exit_code == 0, r.output
+    r = cli.invoke(cli_app, ["persona", "validate", "amy"])
+    assert r.exit_code == 0 and '"valid": false' in r.output
+    r = cli.invoke(cli_app, ["persona", "remove", "amy"])
+    assert r.exit_code == 0
+    assert cli.invoke(cli_app, ["persona", "show", "amy"]).exit_code != 0

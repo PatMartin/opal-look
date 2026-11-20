@@ -79,7 +79,7 @@ detector). Stop the service with `opal-look service stop` or Ctrl-C.
 - **`credential_ref`** — names an `OPAL_LOOK_CRED_<REF>` env var holding
   `user:pass`, injected into the RTSP URI at connect time only. Never
   stored, logged, or echoed.
-- **Contract** — `openapi/opal_look_v1.7.1.yaml` is authoritative and
+- **Contract** — `openapi/opal_look_v0.1.0.yaml` is authoritative and
   pinned; `opal-look-audit` verifies conformance offline.
 
 ## Common tasks
@@ -134,12 +134,12 @@ at `…/front-ai/video?annotated=true`. What `yolo26n` can identify:
 
 #### Inspect and tune the service
 
-**Outcome:** check health, adjust runtime knobs, take a backup.
+**Outcome:** check health, adjust runtime knobs, save a snapshot.
 
 ```bash
-opal-look info show                       # service info
+opal-look info health                     # service report
 opal-look config setting list             # effective settings
-opal-look backup create                  # portable config archive
+opal-look config save --out snapshot.json # portable config snapshot
 ```
 
 **Result:** JSON output (`--json` for raw bodies). Config mutations need
@@ -202,12 +202,12 @@ config.
 ## Further documentation
 
 - [docs/COOKBOOK.md](docs/COOKBOOK.md) — task recipes (SSE, idempotency,
-  backups, MJPEG capture, credentials)
+  config snapshots, MJPEG capture, credentials)
 - [docs/YOLO_INSTALL.md](docs/YOLO_INSTALL.md) — engine contract detail +
   remote adapter setup
 - [docs/yolo26n_classes.md](docs/yolo26n_classes.md) — what the YOLO
   models detect
-- [openapi/opal_look_v1.7.1.yaml](openapi/opal_look_v1.7.1.yaml) —
+- [openapi/opal_look_v0.1.0.yaml](openapi/opal_look_v0.1.0.yaml) —
   authoritative REST contract; [specs/](specs/) holds the migration
   ledger and pending amendments (`name`, `credential_ref`)
 - [AGENTS.md](AGENTS.md) — architecture, conventions, coverage status

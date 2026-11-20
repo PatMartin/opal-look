@@ -1,17 +1,21 @@
 # OPAL Look
 
-Implementation of `openapi/opal_look_v1.7.1.yaml` + `openapi/shared/
-opal_kernel.yaml` (OPAL Suite Kernel 1.7.1) as the authoritative contract
+Implementation of `openapi/opal_look_v0.1.0.yaml` + `openapi/shared/
+opal_kernel.yaml` (OPAL Suite Kernel 0.1.0) as the authoritative contract
 (do not serve a generated spec; do not edit the contract files — amendments
 go upstream first). Python 3.12+ / FastAPI / SQLite.
 
-MVP contract (replaced in place at v1.7.1): engine-free video streaming
-plus optional discoverable inference adapters. RTSP streams run with zero
-AI engines installed; engines (e.g. YOLO/RF-DETR/RT-DETR/D-FINE, or the
-built-in `synthetic` adapter) add predict + inference-mode streams.
-Migration record: `specs/OPAL_LOOK_V1_7_LEDGER.md`; design reference
-package under `docs/redesign/vision_contracts/`; v1.4.0-era upstream
-contract copies live under `vendor/opal-api/`.
+MVP contract: engine-free video streaming plus optional discoverable
+inference adapters. RTSP streams run with zero AI engines installed;
+engines (e.g. YOLO/RF-DETR/RT-DETR/D-FINE, or the built-in `synthetic`
+adapter) add predict + inference-mode streams. The v0.1.0 cutover retired
+`/api/v1/info/*` (health is the single info surface), `/api/v1/backup/*`
+(replaced by `config save/load/validate` snapshots), and the settings map
+PATCH; it added the persona catalog and namespaced portable profiles.
+Migration records: `specs/OPAL_LOOK_V0_1_MIGRATION.md` (this cutover) and
+`specs/OPAL_LOOK_V1_7_LEDGER.md` (v1.7); design reference package under
+`docs/redesign/vision_contracts/`; v1.4.0-era upstream contract copies
+live under `vendor/opal-api/`.
 
 ## Commands
 
@@ -26,7 +30,7 @@ contract copies live under `vendor/opal-api/`.
 
 - Persistence: per-aggregate repositories behind Protocols under
   `src/opal_look/repositories/`; `Store` owns the connection + schema and
-  exposes `store.meta/settings/engines/profiles` plus the
+  exposes `store.meta/settings/engines/profiles/personas` plus the
   `idempotency_keys` table. `store.write_txn()` is the unit-of-work
   context manager for atomic check-and-mutate.
 - DI: FastAPI `Depends` providers in `src/opal_look/dependencies.py`
@@ -44,7 +48,7 @@ contract copies live under `vendor/opal-api/`.
   The `synthetic` adapter gives deterministic detections with no ML deps.
   `engines/yolo/` is a remote adapter proxying the standalone
   opal-look-yolo service (adapter contract
-  `openapi/engines/yolo_1.7.1.yaml`); registered iff
+  `openapi/engines/opal_look_yolo_v0.1.0.yaml`); registered iff
   `OPAL_LOOK_ENGINE_YOLO_BASE_URL` is set, configured via
   `OPAL_LOOK_ENGINE_YOLO_ENABLED/TIMEOUT_SECONDS` (seeded into the
   engines row, authoritative like settings) + `_TOKEN` (env-only).
@@ -95,10 +99,11 @@ contract copies live under `vendor/opal-api/`.
   `create_app()` (never overrides real env vars; `.env` is gitignored;
   `.env.example` documents the set). Covers `OPAL_LOOK_HOST/PORT
   (default 127.0.0.1:8002)/DATA_DIR/TOKEN` + `OPAL_LOOK_CRED_*`. Any
-  `OPAL_LOOK_<SETTING_KEY>` matching a `/api/v1/setting/` key is seeded
-  into `setting_overrides` at startup — authoritative over API-set
-  overrides, re-applied every boot, invalid values warned-and-skipped
-  (`settings.apply_env_settings`; bumps config revision only on change).
+  `OPAL_LOOK_<SETTING_KEY>` matching a `/api/v1/setting/` key applies as a
+  read overlay on every setting read — precedence environment > dotenv >
+  persisted > default, surfaced as `source`/`configured_value`/
+  `has_override` in `SettingRead`; invalid values are skipped with a
+  warning (`settings.env_overlays`).
 - Bearer auth: `OPAL_LOOK_TOKEN` (env or `.env`, opaque). Set -> all
   `/api/v1` requests need `Authorization: Bearer <token>` (401 +
   `WWW-Authenticate: Bearer`, enforced by `BearerAuthMiddleware` inside
@@ -107,26 +112,28 @@ contract copies live under `vendor/opal-api/`.
   the token or accept it in query strings. CLI sends it automatically.
 - Clients: `opal-look` Typer CLI + `opal look` umbrella (REST-only via
   httpx; x-opal-cli taxonomy — engine/model/hardware/predict/stream/
-  backup/service/info + `config` parent group, `tree` retained) and a
+  profile/persona/service/info + `config` parent group with the
+  setting subgroup and save/load/validate, `tree` retained) and a
   full-coverage SPA (static assets at /app/ calling REST, no business
   logic).
 - vendor/opal-api/ holds local-only reference copies of the sibling
   contracts (opal_event/listen/talk + upstream opal_look — note upstream
-  Look is a different API; our opal_look_v1.7.1.yaml is authoritative).
+  Look is a different API; our opal_look_v0.1.0.yaml is authoritative).
 
 ## Contract coverage (verified)
 
 | Area | Status |
 |---|---|
 | errors/correlation envelope | verified |
-| health/info (/, /health, /info/, /info/ping, live, ready, suite health) | verified |
-| settings (map GET/PATCH + per-key GET/PUT/DELETE, If-Match/ETag) | verified |
+| health (merged OpalHealthReport + live/ready probes; info/* retired) | verified |
+| settings (map GET + per-key GET/PUT/DELETE with provenance, If-Match/ETag; map PATCH retired) | verified |
 | engines (list/get/patch, discover -> EngineDiscovery{engines,errors}, capabilities) | verified |
 | hardware (engine-local list/show, ?engine_id filter/disambiguation) | verified |
 | models (engine-federated list/show/load/unload; 404/409/422/503) | verified |
 | predict (path/URI source under source policy, bounded reads + redirect re-checks, size/pixel caps before decode, engine+model+device+options gates, native opt-in) | verified |
-| profiles (CRUD+activate, kernel shapes) | verified |
-| backup (export/validate/import + managed create/list/download/restore/delete) | verified |
+| profiles (portable namespaced docs, string ids, own-compartment patch, foreign preserved) | verified |
+| personas (local catalog CRUD + validate, If-Match, enabled filter) | verified |
+| config (save/load/validate OpalConfigSnapshot, managed snapshot, atomic load) | verified |
 | service (pidfile-managed start/stop/log; restart via OPAL_LOOK_WAIT_PID) | verified |
 | streams (202+Location admission, mode rules, idempotency-key -> immutable run id receipt, stop -> cleanup-bound terminal, generated `stream_id` + `name` lookup alias, 409 active-name conflict, reuse after terminal, `credential_ref` -> OPAL_LOOK_CRED_<REF> injection, 422 unprovisioned, source policy before admission) | verified |
 | stream video (MJPEG, bounded viewers + dropped eviction) + snapshot (JPEG) + metrics + annotated rules | verified |
@@ -136,7 +143,7 @@ contract copies live under `vendor/opal-api/`.
 | retention sweep (startup purge of expired idempotency rows) | verified |
 | CLI (opal look / opal-look, all verbs incl. stream/predict, REST-only) | verified |
 | SPA (/app/ static client, all MVP sections) | verified |
-| conformance (strict audit rc=0 CONFORMANT: 39 paths / 47 ops) | verified |
+| conformance (strict audit rc=0 CONFORMANT: 35 paths / 45 ops) | verified |
 | event bridge (opt-in `stream bridge` verb: detection SSE -> EventInput publish, filters/cooldown, stable dedup ids, Last-Event-ID reconnect, bounded retries) | verified |
 
 Deferred (documented): real RTSP decode needs PyAV (`pip install av`)

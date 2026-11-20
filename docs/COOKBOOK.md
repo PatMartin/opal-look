@@ -1,6 +1,6 @@
 # OPAL Look Cookbook
 
-Practical, copy/pasteable workflows for OPAL Look **v1.7.1**.
+Practical, copy/pasteable workflows for OPAL Look **v0.1.0**.
 
 Every fenced shell block has GitHub's built-in **Copy** button. Run the
 commands from a shell with the OPAL Look environment installed. `opal look …`
@@ -39,8 +39,6 @@ automatically when the variable is set in your shell too.
 
 ```bash
 look info health       # aggregated readiness incl. database + engines
-look info ping
-look info version
 ```
 
 ### 2. Inventory the inference engine catalog
@@ -245,36 +243,38 @@ start` (the new process inherits the old server's environment).
 
 ### 16. Record deployment posture with profiles
 
-Profiles are named bundles — extra fields are stored verbatim (kernel
-`OpalProfile`); exactly one is active at a time. Look records which is
-active (`info health` reports `active_profile_id`); what the fields mean
-is up to your clients.
+Profiles are portable namespaced documents (kernel `OpalProfile`): a
+`shared` compartment plus per-module `modules` compartments preserved
+verbatim; exactly one is locally active at a time. Look records which is
+active (`info health` reports `active_profile_id`); foreign compartments
+belong to their owning modules and are read-only here.
 
 ```bash
-look config profile add --body '{"name":"night-watch","stream_defaults":{"buffer_policy":"drop-newest"}}'
-look config profile list
-look config profile activate PROFILE_ID
-look config profile show PROFILE_ID
+look profile add --body '{"name":"night-watch","stream_defaults":{"buffer_policy":"drop-newest"}}'
+look profile list
+look profile activate PROFILE_ID
+look profile show PROFILE_ID
 ```
 
-### 17. Export, validate, and restore configuration
+### 17. Save, validate, and restore configuration
+
+Portable OpalConfigSnapshot documents: `config save --out` captures the
+live config to a file, `config save` replaces the server's managed
+recovery snapshot.
 
 ```bash
-look backup export > look-config.json
-look backup validate --file look-config.json
-look backup import --file look-config.json
+look config save --out look-config.json
+look config validate --in look-config.json
+look config load --in look-config.json
 ```
 
-### 18. Managed backup archives
+### 18. Managed snapshot
 
-Server-side archives under `<data_dir>/backups/`.
+The single managed snapshot lives in the service store.
 
 ```bash
-look backup create
-look backup list
-look backup download opal-look-YYYYMMDDTHHMMSSZ.json --out copy.json
-look backup restore opal-look-YYYYMMDDTHHMMSSZ.json
-look backup remove opal-look-YYYYMMDDTHHMMSSZ.json
+look config save        # write/replace the managed snapshot
+look config load        # atomically restore it (If-Match required)
 ```
 
 ### 19. Operate the service lifecycle
@@ -311,13 +311,13 @@ output, but it lands in your shell history).
 
 ```bash
 opal-look-audit --strict     # or: python -m opal_look.contract_audit --strict
-# RESULT: CONFORMANT when all 47 contract ops are implemented
+# RESULT: CONFORMANT when all 45 contract ops are implemented
 ```
 
 ## Cross-Module OPAL Workflows
 
-The v1.7.1 contract is deliberately small; sibling modules integrate over
-the stream/predict/backup surface:
+The v0.1.0 contract is deliberately small; sibling modules integrate over
+the stream/predict/config surface:
 
 - **opal-look-yolo** is the working example — a remote engine service
   wired via `OPAL_LOOK_ENGINE_YOLO_BASE_URL` (recipe 11); full guide in
@@ -329,8 +329,8 @@ the stream/predict/backup surface:
   events for reasoning.
 - **OPAL Listen/Talk** can drive `stream start --name` + `snapshot` for
   voice-requested live views; Look supplies the JPEG, Talk describes it.
-- **Config portability:** `backup export`/`import` moves a Look setup
-  between sites; `validate` checks a bundle before applying it.
+- **Config portability:** `config save --out`/`config load --in` moves a Look setup
+  between sites; `config validate` checks a snapshot before applying it.
 
 The sibling modules have independent contracts — substitute their deployed
 endpoints for the placeholders above. Do not wire synthetic detections to

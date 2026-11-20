@@ -20,3 +20,6 @@ specs/logs/
 logs/
 .env
 !.env.example
+
+# coverage measurement
+.coverage

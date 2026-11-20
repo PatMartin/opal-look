@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: OPAL Look — MVP Plus Visual Observation API
-  version: 1.7.1
+  version: '0.1.0'
   description: |
     Clean-cut replacement contract for OPAL Look. Video-only RTSP streams work
     with no AI engine installed; YOLO, RF-DETR, RT-DETR and D-FINE are optional
@@ -30,8 +30,6 @@ info:
     - Credentials are configured as references; RTSP source URIs are never
       echoed back with userinfo in responses, events, or error details.
       Non-loopback bindings require REST authentication.
-  license:
-    name: Internal use
 servers:
 - url: http://127.0.0.1:8082
   description: Illustrative local endpoint; actual bind address and port are configurable.
@@ -46,14 +44,13 @@ tags:
   description: Engine-local compute devices (cpu, gpu, accelerator).
 - name: streams
   description: Ephemeral RTSP video-only or inference sessions with SSE metadata, MJPEG viewing, snapshots and metrics.
-- name: settings
-  description: Service settings with per-key management.
+- name: persona
 - name: profiles
-  description: Reusable configuration profiles; exactly one may be active.
-- name: backup
-  description: Backup, restore, import, export, and validate service configuration.
-- name: info
-  description: Service identity, version and liveness probes.
+  description: 'Reusable namespaced configuration profiles; at most one is locally active.
+    Look declares no compartment fields today (`modules.opal-look` is an explicit empty
+    schema), but profile records, selection and portability behave suite-wide.'
+- name: config
+  description: Save, load, validate, and inspect portable module configuration.
 - name: health
   description: Service readiness and health information.
 - name: service
@@ -74,7 +71,6 @@ paths:
         group: engine
         command: show
       patch:
-        parent: config
         group: engine
         command: update
   /api/v1/engine/discover:
@@ -893,165 +889,38 @@ paths:
         command: metrics
   /api/v1/setting/:
     $ref: './shared/opal_kernel.yaml#/components/pathItems/settings_collection'
-    x-opal-cli:
-      get:
-        parent: config
-        group: setting
-        command: list
-      patch:
-        parent: config
-        group: setting
-        command: update
-        aliases:
-        - config setting patch
   /api/v1/setting/{key}:
     $ref: './shared/opal_kernel.yaml#/components/pathItems/settings_key'
-    x-opal-cli:
-      get:
-        parent: config
-        group: setting
-        command: show
-        aliases:
-        - setting get
-      put:
-        parent: config
-        group: setting
-        command: set
-      delete:
-        parent: config
-        group: setting
-        command: remove
-        aliases:
-        - setting delete
+  /api/v1/config/save:
+    $ref: './shared/opal_kernel.yaml#/components/pathItems/config_save'
+  /api/v1/config/load:
+    $ref: './shared/opal_kernel.yaml#/components/pathItems/config_load'
+  /api/v1/config/validate:
+    $ref: './shared/opal_kernel.yaml#/components/pathItems/config_validate'
   /api/v1/profile/:
     $ref: './shared/opal_kernel.yaml#/components/pathItems/profiles_collection'
-    x-opal-cli:
-      get:
-        parent: config
-        group: profile
-        command: list
-      post:
-        parent: config
-        group: profile
-        command: add
   /api/v1/profile/{profile_id}:
     $ref: './shared/opal_kernel.yaml#/components/pathItems/profile_item'
-    x-opal-cli:
-      get:
-        parent: config
-        group: profile
-        command: show
-      patch:
-        parent: config
-        group: profile
-        command: update
-      delete:
-        parent: config
-        group: profile
-        command: remove
   /api/v1/profile/{profile_id}/activate:
     $ref: './shared/opal_kernel.yaml#/components/pathItems/profile_activate'
-    x-opal-cli:
-      post:
-        parent: config
-        group: profile
-        command: activate
-  /api/v1/backup/list:
-    $ref: './shared/opal_kernel.yaml#/components/pathItems/backup_list'
-    x-opal-cli:
-      get:
-        group: backup
-        command: list
-  /api/v1/backup/create:
-    $ref: './shared/opal_kernel.yaml#/components/pathItems/backup_create'
-    x-opal-cli:
-      post:
-        group: backup
-        command: create
-  /api/v1/backup/download/{filename}:
-    $ref: './shared/opal_kernel.yaml#/components/pathItems/backup_download'
-    x-opal-cli:
-      get:
-        group: backup
-        command: download
-  /api/v1/backup/restore/{filename}:
-    $ref: './shared/opal_kernel.yaml#/components/pathItems/backup_restore'
-    x-opal-cli:
-      post:
-        group: backup
-        command: restore
-  /api/v1/backup/{filename}:
-    $ref: './shared/opal_kernel.yaml#/components/pathItems/backup_delete'
-    x-opal-cli:
-      delete:
-        group: backup
-        command: remove
-  /api/v1/backup/export:
-    $ref: './shared/opal_kernel.yaml#/components/pathItems/backup_export'
-    x-opal-cli:
-      get:
-        group: backup
-        command: export
-  /api/v1/backup/import:
-    $ref: './shared/opal_kernel.yaml#/components/pathItems/backup_import'
-    x-opal-cli:
-      post:
-        group: backup
-        command: import
-  /api/v1/backup/validate:
-    $ref: './shared/opal_kernel.yaml#/components/pathItems/backup_validate_post'
-    x-opal-cli:
-      post:
-        group: backup
-        command: validate
   /api/v1/health/:
     $ref: './shared/opal_kernel.yaml#/components/pathItems/health'
-    x-opal-cli:
-      get:
-        group: info
-        command: health
-  /api/v1/info/:
-    $ref: './shared/opal_kernel.yaml#/components/pathItems/info'
-    x-opal-cli:
-      get:
-        group: info
-        command: version
-  /api/v1/info/ping:
-    $ref: './shared/opal_kernel.yaml#/components/pathItems/info_ping'
-    x-opal-cli:
-      get:
-        group: info
-        command: ping
   /api/v1/health/live:
     $ref: './shared/opal_kernel.yaml#/components/pathItems/health_live'
-    x-opal-cli:
-      get:
-        group: info
-        command: live
   /api/v1/health/ready:
     $ref: './shared/opal_kernel.yaml#/components/pathItems/health_ready'
-    x-opal-cli:
-      get:
-        group: info
-        command: ready
   /api/v1/service/start:
     $ref: './shared/opal_kernel.yaml#/components/pathItems/service_start'
-    x-opal-cli:
-      post:
-        group: service
-        command: start
   /api/v1/service/stop:
     $ref: './shared/opal_kernel.yaml#/components/pathItems/service_stop'
-    x-opal-cli:
-      post:
-        group: service
-        command: stop
   /api/v1/service/log:
     $ref: './shared/opal_kernel.yaml#/components/pathItems/service_log'
-    x-opal-cli:
-      get:
-        group: service
-        command: log
+  /api/v1/persona/:
+    $ref: './shared/opal_kernel.yaml#/components/pathItems/persona_collection'
+  /api/v1/persona/{persona_id}:
+    $ref: './shared/opal_kernel.yaml#/components/pathItems/persona_item'
+  /api/v1/persona/{persona_id}/validate:
+    $ref: './shared/opal_kernel.yaml#/components/pathItems/persona_validate'
 components:
   securitySchemes:
     BearerAuth:
@@ -1479,8 +1348,17 @@ components:
           format: date-time
 x-opal-authorization:
   $ref: './shared/opal_kernel.yaml#/x-opal-authorization'
+x-opal-profile-namespace:
+  compartment: opal-look
+  schema: './shared/opal_kernel.yaml#/components/schemas/OpalLookProfileNamespace'
+  patch_schema: './shared/opal_kernel.yaml#/components/schemas/OpalLookProfileNamespacePatch'
+  description: >-
+    Declares this module's compartment key in namespaced profiles and the
+    schemas that validate it. Look declares no profile-specific defaults; the
+    compartment is an explicit empty closed schema that preserves the
+    registered namespace for future fields. See docs/PROFILE_MIGRATION.md.
 x-opal-context-standard:
-  version: '1.4'
+  version: '2.0.0'
   headers:
   - X-Opal-Session-Id
   - X-Opal-Transaction-Id
@@ -1506,6 +1384,7 @@ x-opal-cli-commands:
   engine:
   - list
   - show
+  - update
   - discover
   - capabilities
   model:
@@ -1527,37 +1406,24 @@ x-opal-cli-commands:
   - watch-video
   - snapshot
   - metrics
-  config:
-    engine:
-    - update
-    profile:
-    - list
-    - add
-    - show
-    - update
-    - remove
-    - activate
-    setting:
-    - list
-    - update
-    - show
-    - set
-    - remove
-  info:
-  - version
-  - ping
-  - health
-  - live
-  - ready
-  backup:
+  profile:
   - list
-  - create
-  - download
-  - restore
+  - add
+  - show
+  - update
   - remove
-  - export
-  - import
+  - activate
+  config:
+  - save
+  - load
   - validate
+  config setting:
+  - list
+  - show
+  - set
+  - remove
+  info:
+  - health
   service:
   - start
   - stop
@@ -1570,4 +1436,30 @@ x-opal-mvp-rules:
     auth beyond loopback.
   decoding: Decode a source once per stream and fan frames out to consumers; viewing must not establish a new RTSP connection.
   bounded_resources: Bound frame queues and stream admission; stopping releases resources; stale replays fail explicitly.
-  scope: No opal-devices, recording, pipelines, tracking, jobs, personas, event bus, training, or model downloads in MVP Plus.
+  scope: No opal-devices, recording, pipelines, tracking, jobs, event bus, training, or model downloads
+    in MVP Plus. Persona support is limited to the shared management surface (catalog CRUD plus
+    validate) and identity/enabled checks; look-specific persona bindings are out of scope.
+x-opal-health-details:
+  version: '1.0'
+  description: >-
+    Module-defined members of OpalHealthReport.details. Look declares no
+    health-specific diagnostics today; `details` may still carry
+    implementation-defined members that consumers must treat as optional.
+  members: {}
+x-opal-snapshot:
+  version: '1.0'
+  module: opal-look
+  format_versions:
+  - '1.0.0'
+  resources:
+  - profiles
+  - personas
+  - engines
+  - models
+  description: >-
+    Declares the canonical module identity and resource sections carried in this module's
+    configuration snapshots. `config load`/`config validate` validate `snapshot` against the shared
+    `OpalConfigSnapshot` envelope and the declared `module` identity and resource
+    sections; wrong-module, unsupported-version, and unknown-section snapshots are
+    rejected. Snapshots carry persistent desired configuration only:
+    profiles, personas, engines, models; never runtime history, sessions, streams, binaries, or secrets.

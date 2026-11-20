@@ -1,4 +1,4 @@
-"""Offline contract audit: pinned openapi/opal_look_v1.7.1.yaml (+ shared kernel) vs implemented routes.
+"""Offline contract audit: pinned openapi/opal_look_v0.1.0.yaml (+ shared kernel) vs implemented routes.
 
 Reads the pinned YAML contract and the live FastAPI application, then reports:
 
@@ -33,7 +33,7 @@ HTTP_METHODS = frozenset(
 API_PREFIX = "/api/v1"
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-DEFAULT_CONTRACT = REPO_ROOT / "openapi" / "opal_look_v1.7.1.yaml"
+DEFAULT_CONTRACT = REPO_ROOT / "openapi" / "opal_look_v0.1.0.yaml"
 
 
 @dataclass(frozen=True)
@@ -186,9 +186,11 @@ def load_contract(path: Path) -> ContractInventory:
             op_id = op.get("operationId")
             if not op_id:
                 problems.append(f"{method.upper()} {api_path}: missing operationId")
-            # Kernel x-opal-cli-format: `command` is required; `group`,
-            # `parent` and `aliases` are optional.
-            if not cli.get("command"):
+            # Kernel x-opal-cli-format: a descriptor's `command` is required;
+            # `group`, `parent` and `aliases` are optional. An absent
+            # descriptor is a deliberate "no CLI binding" (e.g. the kernel
+            # health probes direct callers to `info health`).
+            if cli and not cli.get("command"):
                 problems.append(
                     f"{method.upper()} {api_path}: missing x-opal-cli command"
                 )
@@ -388,10 +390,10 @@ def _build_app(data_dir: Path | None) -> Any:
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         prog="opal-look-audit",
-        description="Audit implemented routes against the pinned v1.7.1 contract.",
+        description="Audit implemented routes against the pinned 0.1.0 contract.",
     )
     parser.add_argument("--contract", type=Path, default=DEFAULT_CONTRACT,
-                        help="pinned OpenAPI YAML (default: openapi/opal_look_v1.7.1.yaml)")
+                        help="pinned OpenAPI YAML (default: openapi/opal_look_v0.1.0.yaml)")
     parser.add_argument("--strict", action="store_true",
                         help="exit 1 on missing/legacy routes or contract problems")
     parser.add_argument("--json", action="store_true", dest="as_json",

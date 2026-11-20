@@ -1,4 +1,4 @@
-/* OPAL Look SPA (MVP v1.7.1) — thin REST client, no business logic. */
+/* OPAL Look SPA (MVP v0.1.0) — thin REST client, no business logic. */
 "use strict";
 
 const $ = (s, r = document) => r.querySelector(s);

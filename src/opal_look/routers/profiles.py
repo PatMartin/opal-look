@@ -1,8 +1,11 @@
-"""Profile endpoints (kernel OpalProfile): list/create/show/patch/delete/activate."""
+"""Profile endpoints (kernel OpalProfile/Create/Patch): portable namespaced
+profile documents with shared + per-module compartments. Look's own
+compartment is an explicit empty schema; foreign compartments are preserved
+verbatim through reads, own-compartment edits and config save/load."""
 
 from __future__ import annotations
 
-import json
+import secrets
 
 from fastapi import APIRouter, Request, Response
 from fastapi.responses import JSONResponse
@@ -10,36 +13,30 @@ from fastapi.responses import JSONResponse
 from ..dependencies import StoreDep
 from ..errors import ApiError
 from ..precondition import check_if_match, require_if_match
-from ..profiles import profile_read
+from ..profiles import (
+    OWN_COMPARTMENT,
+    profile_read,
+    validate_modules,
+    validate_shared,
+)
 from ..timeutil import now_iso
 
 router = APIRouter()
 
-# Fields that map to real columns; everything else persists in the data blob.
-_PROFILE_CORE = {"id", "name", "is_active", "created_at", "updated_at"}
+_CREATE_FIELDS = {"id", "name", "description", "is_active", "shared", "modules"}
+_PATCH_FIELDS = {"name", "description", "is_active", "shared", "modules"}
 
 
-def _get_profile_or_404(store, profile_id: int):
-    try:
-        pid = int(profile_id)
-    except (TypeError, ValueError):
-        raise ApiError(404, f"Unknown profile: {profile_id}")
-    row = store.profiles.get(pid)
+def _get_profile_or_404(store, profile_id: str):
+    row = store.profiles.get(profile_id)
     if row is None:
         raise ApiError(404, f"Unknown profile: {profile_id}")
     return row
 
 
-def _validate_body(store, supplied: dict) -> None:
-    if "name" in supplied and not supplied["name"]:
-        raise ApiError(422, "Profile name must be non-empty.")
-    for key in ("inference", "retention", "confidence_thresholds",
-                "engine_options", "model_paths"):
-        if key in supplied and supplied[key] is not None \
-                and not isinstance(supplied[key], dict):
-            raise ApiError(422, f"{key} must be an object.")
-    if "is_active" in supplied and not isinstance(supplied["is_active"], bool):
-        raise ApiError(422, "is_active must be a boolean.")
+def _check_name(name) -> None:
+    if not isinstance(name, str) or not name or len(name) > 100:
+        raise ApiError(422, "Profile 'name' must be a string of 1-100 chars.")
 
 
 @router.get("/api/v1/profile/")
@@ -53,22 +50,46 @@ def post_api_v1_profiles(request: Request, store: StoreDep, body: dict) -> JSONR
     require_if_match(request)
     if not isinstance(body, dict):
         raise ApiError(422, "Profile body must be a JSON object.")
+    unknown = set(body) - _CREATE_FIELDS
+    if unknown:
+        raise ApiError(422, f"Unknown profile fields: {sorted(unknown)}.")
     if "name" not in body:
         raise ApiError(422, "Profile 'name' is required.")
-    _validate_body(store, body)
-    data = {k: v for k, v in body.items() if k not in _PROFILE_CORE}
-    data["created_at"] = now_iso()
-    data["updated_at"] = data["created_at"]
+    _check_name(body["name"])
+    if "id" in body and (not isinstance(body["id"], str) or not body["id"]):
+        raise ApiError(422, "Profile 'id' must be a non-empty string.")
+    if "description" in body and body["description"] is not None \
+            and not isinstance(body["description"], str):
+        raise ApiError(422, "Profile 'description' must be a string or null.")
+    if "is_active" in body and not isinstance(body["is_active"], bool):
+        raise ApiError(422, "is_active must be a boolean.")
+    validate_shared(body.get("shared"))
+    validate_modules(body.get("modules"), patch=False)
+
+    pid = body.get("id") or f"p-{secrets.token_hex(6)}"
+    now = now_iso()
+    fields = {
+        "profile_id": pid,
+        "name": body["name"],
+        "description": body.get("description"),
+        "is_active": bool(body.get("is_active")),
+        "shared": body.get("shared") or {},
+        "modules": body.get("modules") or {},
+        "created_at": now,
+        "updated_at": now,
+    }
     with store.write_txn():
         check_if_match(request, store)
-        pid = store.profiles.insert_kernel(
-            {"name": body["name"], "is_active": bool(body.get("is_active")),
-             "data": data})
-        if body.get("is_active"):
+        if store.profiles.get(pid) is not None:
+            raise ApiError(409, f"Profile {pid!r} already exists.")
+        store.profiles.insert(fields)
+        if fields["is_active"]:
             store.profiles.set_active(pid)
         revision = store.bump_revision()
     return JSONResponse(profile_read(store.profiles.get(pid)),
-                        status_code=201, headers={"ETag": revision})
+                        status_code=201,
+                        headers={"ETag": revision,
+                                 "Location": f"/api/v1/profile/{pid}"})
 
 
 @router.get("/api/v1/profile/{profile_id}")
@@ -85,31 +106,39 @@ def patch_api_v1_profiles_profile_id(
     row = _get_profile_or_404(store, profile_id)
     if not isinstance(body, dict):
         raise ApiError(422, "Profile patch must be a JSON object.")
-    if any(v is None for v in body.values()):
-        raise ApiError(422, "Explicit null values are not allowed in updates.")
-    _validate_body(store, body)
-    data = json.loads(row["data"] or "{}")
-    fields: dict = {}
-    for k, v in body.items():
-        if k in ("id", "created_at"):
-            continue
-        if k == "updated_at":
-            continue
-        (fields if k in ("name", "is_active") else data)[k] = v
-    data["updated_at"] = now_iso()
-    update = {"data": data}
-    if "name" in fields:
-        update["name"] = fields["name"]
+    if not body:
+        raise ApiError(422, "Empty profile patches are not allowed.")
+    unknown = set(body) - _PATCH_FIELDS
+    if unknown:
+        raise ApiError(422, f"Unknown profile patch fields: {sorted(unknown)}.")
+    if "name" in body:
+        if body["name"] is None:
+            raise ApiError(422, "Profile 'name' may not be null.")
+        _check_name(body["name"])
+    if "description" in body and body["description"] is not None \
+            and not isinstance(body["description"], str):
+        raise ApiError(422, "Profile 'description' must be a string or null.")
+    if "is_active" in body and not isinstance(body["is_active"], bool):
+        raise ApiError(422, "is_active must be a boolean.")
+    validate_shared(body.get("shared"))
+    validate_modules(body.get("modules"), patch=True)
+
+    update: dict = {}
+    if "name" in body:
+        update["name"] = body["name"]
+    if "description" in body:
+        update["description"] = body["description"]
+    # `shared` and the own compartment are closed-empty today: a supplied {}
+    # merges to a no-op; field-wise merge lands here when fields exist.
+    update["updated_at"] = now_iso()
     with store.write_txn():
         check_if_match(request, store)
-        store.profiles.update(int(profile_id), update)
-        if "is_active" in fields:
-            if fields["is_active"]:
-                store.profiles.set_active(int(profile_id))
-            else:
-                store.profiles.update(int(profile_id), {"active": 0})
+        store.profiles.update(profile_id, update)
+        if body.get("is_active"):
+            # True activates; false leaves the local selection unchanged.
+            store.profiles.set_active(profile_id)
         revision = store.bump_revision()
-    return JSONResponse(profile_read(store.profiles.get(int(profile_id))),
+    return JSONResponse(profile_read(store.profiles.get(profile_id)),
                         headers={"ETag": revision})
 
 
@@ -120,7 +149,7 @@ def delete_api_v1_profiles_profile_id(
     _get_profile_or_404(store, profile_id)
     with store.write_txn():
         check_if_match(request, store)
-        store.profiles.delete(int(profile_id))
+        store.profiles.delete(profile_id)
         response.headers["ETag"] = store.bump_revision()
 
 
@@ -131,7 +160,7 @@ def post_api_v1_profiles_profile_id_activate(
     _get_profile_or_404(store, profile_id)
     with store.write_txn():
         check_if_match(request, store)
-        store.profiles.set_active(int(profile_id))
+        store.profiles.set_active(profile_id)
         revision = store.bump_revision()
-    return JSONResponse(profile_read(store.profiles.get(int(profile_id))),
+    return JSONResponse(profile_read(store.profiles.get(profile_id)),
                         headers={"ETag": revision})

@@ -427,15 +427,9 @@ app.add_typer(stream, name="stream")
 
 info = typer.Typer(help="info", epilog=(
     "Examples:\n"
-    "  opal-look info health\n"
-    "  opal-look info version\n"
-    "  opal-look info ping"))
+    "  opal-look info health"))
 
 info.command("health")(lambda: _emit(unwrap(_client().get("/api/v1/health/"))))
-info.command("live")(lambda: _emit(unwrap(_client().get("/api/v1/health/live"))))
-info.command("ready")(lambda: _emit(unwrap(_client().get("/api/v1/health/ready"))))
-info.command("version")(lambda: _emit(unwrap(_client().get("/api/v1/info/"))))
-info.command("ping")(lambda: _emit(unwrap(_client().get("/api/v1/info/ping"))))
 app.add_typer(info, name="info")
 
 # -- backup ----------------------------------------------------------------------
@@ -640,7 +634,6 @@ config.add_typer(_profs, name="profile")
 setting = typer.Typer(help="setting", epilog=(
     "Examples:\n"
     "  opal-look config setting list\n"
-    "  opal-look config setting update --body '{\"max_viewers\": 4}'\n"
     "  opal-look config setting set max_viewers 4\n"
     "  opal-look config setting remove max_viewers"))
 
@@ -653,22 +646,6 @@ def _setting_list():
 @setting.command("show")
 def _setting_show(key: str):
     _emit(unwrap(_client().get(f"/api/v1/setting/{key}")))
-
-
-@setting.command("update")
-def _setting_update(body: str = typer.Option(None, "--body"),
-                    file: Path = typer.Option(None, "--file")):
-    """Atomic whole-map PATCH of the settings map."""
-    _emit(unwrap(_client().mutate("PATCH", "/api/v1/setting/",
-                                  json=_body(body, file))))
-
-
-@setting.command("patch")
-def _setting_patch(body: str = typer.Option(None, "--body"),
-                   file: Path = typer.Option(None, "--file")):
-    """Contract alias for `config setting update`."""
-    _emit(unwrap(_client().mutate("PATCH", "/api/v1/setting/",
-                                  json=_body(body, file))))
 
 
 @setting.command("set")

@@ -46,8 +46,8 @@ def test_wrong_and_malformed_credentials(authed):
 
 
 def test_valid_token_allows_json_mutation(authed):
-    resp = authed.patch(
-        "/api/v1/setting/", json={"max_upload_bytes": 9},
+    resp = authed.put(
+        "/api/v1/setting/max_upload_bytes", json={"value": 9},
         headers={**AUTH, "If-Match": "*"},
     )
     assert resp.status_code == 200

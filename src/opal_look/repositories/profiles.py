@@ -1,4 +1,4 @@
-"""profiles table: reusable analysis presets; at most one active."""
+"""profiles table: portable namespaced profile documents; at most one active."""
 
 from __future__ import annotations
 
@@ -9,14 +9,14 @@ from typing import Any, Protocol
 
 class ProfileRepository(Protocol):
     def list(self) -> list[sqlite3.Row]: ...
-    def get(self, profile_id: int) -> sqlite3.Row | None: ...
+    def get(self, profile_id: str) -> sqlite3.Row | None: ...
     def get_active(self) -> sqlite3.Row | None: ...
     def count(self) -> int: ...
-    def count_for_model(self, model_id: str) -> int: ...
-    def insert(self, name: str, model_id: str, task: str, settings: dict, active: bool) -> int: ...
-    def update(self, profile_id: int, fields: dict[str, Any]) -> None: ...
-    def delete(self, profile_id: int) -> None: ...
-    def set_active(self, profile_id: int) -> None: ...
+    def insert(self, fields: dict[str, Any]) -> None: ...
+    def update(self, profile_id: str, fields: dict[str, Any]) -> None: ...
+    def delete(self, profile_id: str) -> None: ...
+    def delete_all(self) -> None: ...
+    def set_active(self, profile_id: str) -> None: ...
 
 
 class SqliteProfileRepository:
@@ -24,79 +24,55 @@ class SqliteProfileRepository:
         self._conn = conn
 
     def list(self) -> list[sqlite3.Row]:
-        return self._conn.execute("SELECT * FROM profiles ORDER BY profile_id").fetchall()
+        return self._conn.execute(
+            "SELECT * FROM profiles ORDER BY profile_id").fetchall()
 
-    def get(self, profile_id: int) -> sqlite3.Row | None:
+    def get(self, profile_id: str) -> sqlite3.Row | None:
         return self._conn.execute(
             "SELECT * FROM profiles WHERE profile_id = ?", (profile_id,)
         ).fetchone()
 
     def count(self) -> int:
-        return self._conn.execute("SELECT COUNT(*) AS n FROM profiles").fetchone()["n"]
-
-    def count_for_model(self, model_id: str) -> int:
         return self._conn.execute(
-            "SELECT COUNT(*) AS n FROM profiles WHERE model_id = ?", (model_id,)
-        ).fetchone()["n"]
+            "SELECT COUNT(*) AS n FROM profiles").fetchone()["n"]
 
     def get_active(self) -> sqlite3.Row | None:
         return self._conn.execute(
             "SELECT * FROM profiles WHERE active = 1 LIMIT 1"
         ).fetchone()
 
-    def insert_explicit(self, fields: dict) -> None:
-        """Insert preserving profile_id/active (backup import)."""
+    def insert(self, fields: dict[str, Any]) -> None:
         self._conn.execute(
-            "INSERT INTO profiles (profile_id, name, model_id, task, settings, active) "
-            "VALUES (?, ?, ?, ?, ?, ?)",
-            (fields["profile_id"], fields["name"], fields["model_id"], fields["task"],
-             fields["settings"], int(fields["active"])),
+            "INSERT INTO profiles (profile_id, name, description, active, "
+            "shared, modules, created_at, updated_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            (fields["profile_id"], fields["name"],
+             fields.get("description"),
+             int(bool(fields.get("is_active"))),
+             json.dumps(fields.get("shared") or {}),
+             json.dumps(fields.get("modules") or {}),
+             fields.get("created_at"), fields.get("updated_at")),
         )
+
+    def update(self, profile_id: str, fields: dict[str, Any]) -> None:
+        assignments = ", ".join(f"{key} = ?" for key in fields)
+        values = [
+            json.dumps(v) if isinstance(v, (dict, list)) else v
+            for v in fields.values()
+        ]
+        self._conn.execute(
+            f"UPDATE profiles SET {assignments} WHERE profile_id = ?",
+            (*values, profile_id),
+        )
+
+    def delete(self, profile_id: str) -> None:
+        self._conn.execute(
+            "DELETE FROM profiles WHERE profile_id = ?", (profile_id,))
 
     def delete_all(self) -> None:
         self._conn.execute("DELETE FROM profiles")
 
-    def insert_kernel(self, fields: dict) -> int:
-        """Insert a kernel OpalProfile blob; returns the integer profile_id."""
-        cursor = self._conn.execute(
-            "INSERT INTO profiles (name, model_id, task, settings, active, data) "
-            "VALUES (?, ?, ?, ?, ?, ?)",
-            (fields["name"], fields.get("model_id", ""),
-             fields.get("task", ""), json.dumps({}),
-             int(bool(fields.get("is_active"))),
-             json.dumps(fields.get("data", {}))),
-        )
-        return cursor.lastrowid
-
-    def insert_kernel_explicit(self, fields: dict) -> None:
-        """Insert preserving profile_id/active (configuration import)."""
-        self._conn.execute(
-            "INSERT INTO profiles (profile_id, name, model_id, task, settings, "
-            "active, data) VALUES (?, ?, ?, ?, ?, ?, ?)",
-            (fields["profile_id"], fields["name"], fields.get("model_id", ""),
-             fields.get("task", ""), json.dumps({}),
-             int(bool(fields.get("is_active"))),
-             json.dumps(fields.get("data", {}))),
-        )
-
-    def insert(self, name: str, model_id: str, task: str, settings: dict, active: bool) -> int:
-        cursor = self._conn.execute(
-            "INSERT INTO profiles (name, model_id, task, settings, active) VALUES (?, ?, ?, ?, ?)",
-            (name, model_id, task, json.dumps(settings), int(active)),
-        )
-        return cursor.lastrowid
-
-    def update(self, profile_id: int, fields: dict[str, Any]) -> None:
-        assignments = ", ".join(f"{key} = ?" for key in fields)
-        values = [json.dumps(v) if isinstance(v, (dict, list)) else v for v in fields.values()]
-        self._conn.execute(
-            f"UPDATE profiles SET {assignments} WHERE profile_id = ?", (*values, profile_id)
-        )
-
-    def delete(self, profile_id: int) -> None:
-        self._conn.execute("DELETE FROM profiles WHERE profile_id = ?", (profile_id,))
-
-    def set_active(self, profile_id: int) -> None:
+    def set_active(self, profile_id: str) -> None:
         """Atomically make one profile active and all others inactive."""
         self._conn.execute(
             "UPDATE profiles SET active = CASE WHEN profile_id = ? THEN 1 ELSE 0 END",

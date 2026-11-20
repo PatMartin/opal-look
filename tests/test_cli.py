@@ -67,10 +67,9 @@ def test_cli_setting_show(cli):
 
 
 def test_cli_setting_update(cli):
-    r = cli.invoke(cli_app, ["config", "setting", "update", "--body",
-                             '{"max_viewers": 3}'])
+    r = cli.invoke(cli_app, ["config", "setting", "set", "max_viewers", "3"])
     assert r.exit_code == 0
-    assert '"max_viewers": 3' in r.output
+    assert '"configured_value": 3' in r.output
 
 
 def test_cli_profile_crud(cli):
@@ -96,10 +95,8 @@ def test_cli_backup_create_list(cli):
 
 
 def test_cli_info(cli):
-    r = cli.invoke(cli_app, ["info", "version"])
+    r = cli.invoke(cli_app, ["info", "health"])
     assert r.exit_code == 0 and "opal-look-svc" in r.output
-    r = cli.invoke(cli_app, ["info", "ping"])
-    assert r.exit_code == 0 and '"status": "ok"' in r.output
 
 
 def test_cli_service_log_rest(cli, tmp_path, monkeypatch):
@@ -304,16 +301,16 @@ def test_cli_model_predict_stream(cli, tmp_path, monkeypatch):
 
 
 def test_cli_setting_aliases(cli):
-    """Contract alias spellings: 'setting get'/'setting delete' (top-level)
-    and 'config setting patch'."""
+    """Contract alias spellings: 'setting get'/'setting delete' (top-level)."""
     r = cli.invoke(cli_app, ["setting", "get", "max_viewers"])
     assert r.exit_code == 0 and "max_viewers" in r.output
-    r = cli.invoke(cli_app, ["config", "setting", "patch",
-                             "--body", '{"max_viewers": 6}'])
+    r = cli.invoke(cli_app, ["config", "setting", "set",
+                             "max_viewers", "6"])
     assert r.exit_code == 0, r.output
     r = cli.invoke(cli_app, ["--json", "setting", "get", "max_viewers"])
-    assert json.loads(r.output)["value"] == 6
+    assert json.loads(r.output)["configured_value"] == 6
     assert cli.invoke(cli_app, ["setting", "delete",
                                 "max_viewers"]).exit_code == 0
     r = cli.invoke(cli_app, ["--json", "setting", "get", "max_viewers"])
-    assert json.loads(r.output)["value"] == 8  # default restored
+    # persisted override cleared; repo .env OPAL_LOOK_MAX_VIEWERS=2 still masks
+    assert json.loads(r.output)["has_override"] is False

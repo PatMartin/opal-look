@@ -8,9 +8,11 @@ If-Match in one transaction.
 from __future__ import annotations
 
 import json
+import secrets
 from typing import Any
 
 from .errors import ApiError
+from .profiles import profile_read
 from .settings import effective_settings
 from .timeutil import now_iso
 
@@ -46,12 +48,7 @@ def build_export(store) -> dict[str, Any]:
         "exported_at": now_iso(),
         "settings": effective_settings(store).model_dump(mode="json"),
         "engines": engines,
-        "profiles": [
-            {**json.loads(r["data"] or "{}"),
-             "id": r["profile_id"], "name": r["name"],
-             "is_active": bool(r["active"])}
-            for r in store.profiles.list()
-        ],
+        "profiles": [profile_read(r) for r in store.profiles.list()],
     }
 
 
@@ -111,15 +108,16 @@ def apply_import(store, request, config: dict[str, Any],
     for row in store.profiles.list():
         store.profiles.delete(row["profile_id"])
     for p in config.get("profiles", []):
-        pid = p.get("id")
-        data = {k: v for k, v in p.items() if k not in ("id", "is_active")}
-        if isinstance(pid, int):
-            store.profiles.insert_kernel_explicit(
-                {"profile_id": pid, "name": data.pop("name", str(pid)),
-                 "is_active": bool(p.get("is_active")), "data": data})
-        else:
-            store.profiles.insert_kernel(
-                {"name": data.pop("name", "profile"),
-                 "is_active": bool(p.get("is_active")), "data": data})
+        pid = p.get("id") or f"p-{secrets.token_hex(6)}"
+        store.profiles.insert({
+            "profile_id": str(pid),
+            "name": p.get("name") or str(pid),
+            "description": p.get("description"),
+            "is_active": bool(p.get("is_active")),
+            "shared": p.get("shared") or {},
+            "modules": p.get("modules") or {},
+            "created_at": p.get("created_at"),
+            "updated_at": p.get("updated_at"),
+        })
     if "settings" in config:
         _settings_apply(store, config["settings"])

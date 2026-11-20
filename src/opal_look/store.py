@@ -8,6 +8,7 @@ used for atomic check-and-mutate (If-Match + write + revision bump).
 
 from __future__ import annotations
 
+import json
 import sqlite3
 import threading
 from contextlib import contextmanager
@@ -18,15 +19,17 @@ from .repositories import (
     SqliteEngineRepository,
     SqliteMetaRepository,
     SqliteProfileRepository,
+    SqlitePersonaRepository,
     SqliteSettingsRepository,
     new_revision,
 )
+from .timeutil import now_iso
 
 # Tables retired by the MVP contract replacement (v1.7.1 clean cut).
 _RETIRED_TABLES = (
     "models", "sources", "observations", "recordings", "jobs", "monitors",
     "pipelines", "artifacts", "rules", "zones", "media", "results",
-    "snapshots", "sessions", "personas",
+    "snapshots", "sessions",
 )
 
 
@@ -77,6 +80,7 @@ class Store:
         self.settings = SqliteSettingsRepository(self._conn)
         self.engines = SqliteEngineRepository(self._conn)
         self.profiles = SqliteProfileRepository(self._conn)
+        self.personas = SqlitePersonaRepository(self._conn)
 
     def _init_schema(self) -> None:
         self._conn.executescript(
@@ -98,12 +102,24 @@ class Store:
                 metadata TEXT NOT NULL DEFAULT '{}'
             );
             CREATE TABLE IF NOT EXISTS profiles (
-                profile_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                profile_id TEXT PRIMARY KEY,
                 name TEXT NOT NULL,
-                model_id TEXT NOT NULL DEFAULT '',
-                task TEXT NOT NULL DEFAULT '',
-                settings TEXT NOT NULL DEFAULT '{}',
-                active INTEGER NOT NULL DEFAULT 0
+                description TEXT,
+                active INTEGER NOT NULL DEFAULT 0,
+                shared TEXT NOT NULL DEFAULT '{}',
+                modules TEXT NOT NULL DEFAULT '{}',
+                created_at TEXT,
+                updated_at TEXT
+            );
+            CREATE TABLE IF NOT EXISTS personas (
+                persona_id TEXT PRIMARY KEY,
+                name TEXT NOT NULL,
+                description TEXT,
+                voice_id TEXT,
+                enabled INTEGER NOT NULL DEFAULT 1,
+                origin TEXT NOT NULL DEFAULT 'local',
+                created_at TEXT,
+                updated_at TEXT
             );
             CREATE TABLE IF NOT EXISTS idempotency_keys (
                 key TEXT PRIMARY KEY,
@@ -134,9 +150,103 @@ class Store:
                 "ALTER TABLE setting_overrides ADD COLUMN updated_at TEXT")
         pcols = {r["name"] for r in self._conn.execute(
             "PRAGMA table_info(profiles)")}
-        if "data" not in pcols:
+        if "model_id" in pcols or "shared" not in pcols:
+            self._migrate_profiles_to_namespaced(pcols)
+        self._migrate_personas_if_needed()
+
+    def _migrate_profiles_to_namespaced(self, pcols: set) -> None:
+        """Rebuild a v1.7-era profiles table into portable documents.
+
+        `shared` starts empty and every legacy service-defined field moves
+        under `modules["opal-look-legacy"]` - an unrecognized compartment
+        the kernel preserves verbatim through reads and config save/load.
+        Existing integer ids become their string form ("3" stays
+        addressable as profile_id "3").
+        """
+        rows = self._conn.execute("SELECT * FROM profiles").fetchall()
+        self._conn.execute(
+            """
+            CREATE TABLE profiles_v2 (
+                profile_id TEXT PRIMARY KEY,
+                name TEXT NOT NULL,
+                description TEXT,
+                active INTEGER NOT NULL DEFAULT 0,
+                shared TEXT NOT NULL DEFAULT '{}',
+                modules TEXT NOT NULL DEFAULT '{}',
+                created_at TEXT,
+                updated_at TEXT
+            )
+            """
+        )
+        for row in rows:
+            data = {}
+            if "data" in pcols and row["data"]:
+                try:
+                    data = json.loads(row["data"])
+                except (TypeError, json.JSONDecodeError):
+                    data = {}
+            legacy = {
+                k: v for k, v in data.items()
+                if k not in ("created_at", "updated_at")
+            }
+            for col in ("model_id", "task"):
+                if col in pcols and row[col]:
+                    legacy.setdefault(col, row[col])
+            if "settings" in pcols and row["settings"] not in (None, "", "{}"):
+                try:
+                    legacy.setdefault("settings", json.loads(row["settings"]))
+                except (TypeError, json.JSONDecodeError):
+                    pass
+            modules = {"opal-look-legacy": legacy} if legacy else {}
+            created = data.get("created_at") or now_iso()
             self._conn.execute(
-                "ALTER TABLE profiles ADD COLUMN data TEXT NOT NULL DEFAULT '{}'")
+                "INSERT INTO profiles_v2 VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                (str(row["profile_id"]), row["name"], None,
+                 int(row["active"]), "{}", json.dumps(modules),
+                 created, data.get("updated_at") or created),
+            )
+        self._conn.execute("DROP TABLE profiles")
+        self._conn.execute("ALTER TABLE profiles_v2 RENAME TO profiles")
+
+    def _migrate_personas_if_needed(self) -> None:
+        """Rebuild a pre-0.1.0 personas table (different column set) into the
+        current schema, preserving rows; absent or conforming tables are
+        left alone."""
+        cols = {r["name"] for r in self._conn.execute(
+            "PRAGMA table_info(personas)")}
+        if not cols or "origin" in cols:
+            return
+        rows = self._conn.execute("SELECT * FROM personas").fetchall()
+        self._conn.execute("ALTER TABLE personas RENAME TO personas_old")
+        self._conn.execute(
+            """
+            CREATE TABLE personas (
+                persona_id TEXT PRIMARY KEY,
+                name TEXT NOT NULL,
+                description TEXT,
+                voice_id TEXT,
+                enabled INTEGER NOT NULL DEFAULT 1,
+                origin TEXT NOT NULL DEFAULT 'local',
+                created_at TEXT,
+                updated_at TEXT
+            )
+            """
+        )
+        for row in rows:
+            keys = row.keys()
+            def col(name, default=None):
+                return row[name] if name in keys else default
+            now = now_iso()
+            self._conn.execute(
+                "INSERT OR IGNORE INTO personas VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                (str(col("persona_id") or col("id")),
+                 col("name") or str(col("persona_id") or col("id")),
+                 col("description"), col("voice_id"),
+                 int(col("enabled", col("active", 1))), "local",
+                 col("created_at") or now,
+                 col("updated_at") or col("created_at") or now),
+            )
+        self._conn.execute("DROP TABLE personas_old")
 
     def ping(self) -> bool:
         try:

@@ -93,7 +93,7 @@ opal-look stream bridge front --event-url http://127.0.0.1:PORT \
 
 The adapter registers when `OPAL_LOOK_ENGINE_YOLO_BASE_URL` is set and
 proxies the standalone `opal-look-yolo` service
-(`openapi/engines/opal_look_yolo_v0.1.0.yaml`).
+(`openapi/engines/opal_look_yolo_v0.4.0.yaml`).
 
 ```
 # simulated adapter contract — tests/test_engines_yolo.py,

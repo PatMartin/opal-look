@@ -1,4 +1,4 @@
-"""opal-look: thin REST client mirroring the v0.1.0 contract.
+"""opal-look: thin REST client mirroring the v0.4.0 contract.
 
 Group/verb layout follows the contract's x-opal-cli metadata: canonical
 `opal look [parent] [group] <command>` spellings — top-level groups are
@@ -24,7 +24,7 @@ import typer
 from .client import ApiClient, unwrap
 
 app = typer.Typer(
-    help="OPAL Look v0.1.0 REST CLI (thin client; no business logic).",
+    help="OPAL Look v0.4.0 REST CLI (thin client; no business logic).",
     epilog=(
         "Examples:\n"
         "  opal-look info health\n"

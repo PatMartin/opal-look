@@ -3,7 +3,7 @@
 Status: **integrated (remote adapter).** OPAL Look ships a built-in remote
 adapter for [`opal-look-yolo`](https://github.com/PatMartin/opal-look-yolo)
 — a standalone REST microservice (contract:
-`openapi/engines/opal_look_yolo_v0.1.0.yaml`, port `:8086`, CLI `opal-yolo`). The
+`openapi/engines/opal_look_yolo_v0.4.0.yaml`, port `:8086`, CLI `opal-yolo`). The
 adapter (`src/opal_look/engines/yolo/`) implements look's `EngineAdapter`
 protocol by proxying to the service over HTTP, and is wired entirely
 through `.env` — `OPAL_LOOK_ENGINE_YOLO_BASE_URL` registers it.
@@ -100,7 +100,7 @@ class EngineAdapter(Protocol):
 ## 2. What `opal-look-yolo` provides
 
 A standalone FastAPI service implementing `openapi/opal_look_yolo.yaml`
-(identical to the vendored `openapi/engines/opal_look_yolo_v0.1.0.yaml` here —
+(identical to the vendored `openapi/engines/opal_look_yolo_v0.4.0.yaml` here —
 14 ops). Key facts:
 
 - Own CLI (`opal-yolo`), own auth (`OPAL_YOLO_*` env), own SPA at `/app`,

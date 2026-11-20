@@ -29,27 +29,8 @@ def app(tmp_path):
 
 # v0.1.0 replacement contract: the migration gap sets track each step and
 # shrink to empty as coverage lands.
-EXPECTED_MISSING: set[tuple[str, str]] = {
-    ("POST", "/api/v1/config/load"),
-    ("POST", "/api/v1/config/save"),
-    ("POST", "/api/v1/config/validate"),
-    ("GET", "/api/v1/persona/"),
-    ("POST", "/api/v1/persona/"),
-    ("DELETE", "/api/v1/persona/{persona_id}"),
-    ("GET", "/api/v1/persona/{persona_id}"),
-    ("PATCH", "/api/v1/persona/{persona_id}"),
-    ("POST", "/api/v1/persona/{persona_id}/validate"),
-}
-EXPECTED_LEGACY: set[tuple[str, str]] = {
-    ("GET", "/api/v1/backup/download/{filename}"),
-    ("GET", "/api/v1/backup/export"),
-    ("GET", "/api/v1/backup/list"),
-    ("DELETE", "/api/v1/backup/{filename}"),
-    ("POST", "/api/v1/backup/create"),
-    ("POST", "/api/v1/backup/import"),
-    ("POST", "/api/v1/backup/restore/{filename}"),
-    ("POST", "/api/v1/backup/validate"),
-}
+EXPECTED_MISSING: set[tuple[str, str]] = set()
+EXPECTED_LEGACY: set[tuple[str, str]] = set()
 # Kernel health probes carry no CLI descriptor by design ("No CLI binding;
 # use `info health`"), so they are exempt from the cli_command assertion.
 UNBOUND_OPS: set[tuple[str, str]] = {

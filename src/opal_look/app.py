@@ -18,7 +18,7 @@ from .engines import (apply_env_engines, default_registry,
                         register_env_adapters)
 from .errors import register_error_handlers
 from .routers import (
-    backup, engines, hardware, health, models, personas, predict, profiles,
+    config, engines, hardware, health, models, personas, predict, profiles,
     service, settings, streams,
 )
 from .store import Store
@@ -87,7 +87,7 @@ def create_app(
     app.include_router(streams.router)
     app.include_router(profiles.router)
     app.include_router(personas.router)
-    app.include_router(backup.router)
+    app.include_router(config.router)
     app.include_router(service.router)
 
     from fastapi.staticfiles import StaticFiles

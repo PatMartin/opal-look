@@ -71,7 +71,7 @@ def test_unhandled_error_keeps_correlation_ids(tmp_path):
 
 def test_binary_response_carries_correlation_headers(client):
     resp = client.get(
-        "/api/v1/backup/download/missing.json",
+        "/api/v1/persona/missing",
         headers={"X-Opal-Transaction-Id": "txn-bin"},
     )
     assert resp.status_code == 404

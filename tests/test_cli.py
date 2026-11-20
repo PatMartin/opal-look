@@ -80,18 +80,25 @@ def test_cli_profile_crud(cli):
         cli_app, ["config", "profile", "list"]).output
 
 
-def test_cli_backup_export(cli):
-    r = cli.invoke(cli_app, ["backup", "export"])
-    assert r.exit_code == 0
-    assert '"format_version": "1.0.0"' in r.output
-
-
-def test_cli_backup_create_list(cli):
-    r = cli.invoke(cli_app, ["backup", "create"])
+def test_cli_config_save_load_validate(cli, tmp_path):
+    snap_file = tmp_path / "snap.json"
+    r = cli.invoke(cli_app, ["config", "save", "--out", str(snap_file)])
     assert r.exit_code == 0, r.output
-    assert "opal-look-" in r.output
-    listed = json.loads(cli.invoke(cli_app, ["backup", "list"]).output)
-    assert listed and listed[0]["filename"].startswith("opal-look-")
+    assert snap_file.exists()
+    snap = json.loads(snap_file.read_text())
+    assert snap["format_version"] == "1.0.0"
+    assert snap["module"] == "opal-look"
+    r = cli.invoke(cli_app, ["config", "validate", "--in", str(snap_file)])
+    assert r.exit_code == 0 and '"valid": true' in r.output
+    r = cli.invoke(cli_app, ["config", "load", "--in", str(snap_file)])
+    assert r.exit_code == 0 and '"applied": true' in r.output
+
+
+def test_cli_config_managed_roundtrip(cli):
+    r = cli.invoke(cli_app, ["config", "save"])
+    assert r.exit_code == 0 and '"managed": true' in r.output
+    r = cli.invoke(cli_app, ["config", "load"])
+    assert r.exit_code == 0 and '"applied": true' in r.output
 
 
 def test_cli_info(cli):

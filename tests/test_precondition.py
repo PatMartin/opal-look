@@ -176,25 +176,30 @@ def test_outer_failure_rolls_back_everything(tmp_path):
 
 
 def test_import_with_stale_etag_fails_atomically(client):
-    payload = client.get("/api/v1/backup/export").json()
+    payload = client.post("/api/v1/config/save",
+                          json={"destination": "response"}).json()["snapshot"]
     stale = _etag(client)
     client.put(
         "/api/v1/setting/max_upload_bytes", json={"value": 555},
         headers={"If-Match": "*"},
     )
     resp = client.post(
-        "/api/v1/backup/import", json=payload, headers={"If-Match": stale}
+        "/api/v1/config/load", json={"snapshot": payload},
+        headers={"If-Match": stale}
     )
     assert resp.status_code == 412
-    # No partial import occurred.
-    assert client.get("/api/v1/setting/max_upload_bytes").json()["value"] == 555
+    # No partial load occurred.
+    assert client.get("/api/v1/setting/max_upload_bytes").json()[
+        "configured_value"] == 555
 
 
 def test_import_advances_revision(client):
-    payload = client.get("/api/v1/backup/export").json()
+    payload = client.post("/api/v1/config/save",
+                          json={"destination": "response"}).json()["snapshot"]
     before = _etag(client)
     resp = client.post(
-        "/api/v1/backup/import", json=payload, headers={"If-Match": "*"}
+        "/api/v1/config/load", json={"snapshot": payload},
+        headers={"If-Match": "*"}
     )
     assert resp.status_code == 200
     assert resp.headers["etag"] != before
@@ -202,14 +207,11 @@ def test_import_advances_revision(client):
 
 
 def test_runtime_activity_does_not_bump_revision(client, tmp_path):
-    """Managed backup files are runtime artifacts, not config writes."""
+    """Managed snapshots are recovery artifacts, not config writes."""
     etag = _etag(client)
-    resp = client.post("/api/v1/backup/create")
-    assert resp.status_code == 201
-    name = resp.json()["filename"]
-    assert _etag(client) == etag, "backup create must not move config ETag"
-    assert client.delete(f"/api/v1/backup/{name}").status_code == 204
-    assert _etag(client) == etag, "backup delete must not move config ETag"
+    resp = client.post("/api/v1/config/save", json={})
+    assert resp.status_code == 200
+    assert _etag(client) == etag, "config save must not move config ETag"
 
 
 def test_require_if_match_unit():

@@ -122,11 +122,8 @@ const SCREENS = {
   async dashboard(el) {
     el.innerHTML = `<h3>Dashboard</h3>`;
     try {
-      const [health, info] = await Promise.all([
-        api("GET", "/api/v1/health/"),
-        api("GET", "/api/v1/info/"),
-      ]);
-      el.innerHTML += `<pre>${esc(JSON.stringify({ health, info }, null, 2))}</pre>`;
+      const health = await api("GET", "/api/v1/health/");
+      el.innerHTML += `<pre>${esc(JSON.stringify({ health }, null, 2))}</pre>`;
     } catch (e) {}
   },
   async streams(el) {
@@ -182,27 +179,29 @@ const SCREENS = {
   },
   async settings(el) {
     el.innerHTML = await _list("Settings", "/api/v1/setting/") +
-      `<button onclick="updateSettings()">update</button>` +
       `<button onclick="showSetting()">show</button>` +
       `<button onclick="setSetting()">set</button>` +
       `<button onclick="removeSetting()">remove</button>`;
   },
-  async backup(el) {
-    el.innerHTML = `<h3>Backup</h3>
-      <button onclick="exportCfg()">export</button>
+  async personas(el) {
+    el.innerHTML = await _list("Personas", "/api/v1/persona/") +
+      `<button onclick="showPersona()">show</button>` +
+      `<button onclick="createPersona()">add</button>` +
+      `<button onclick="updatePersona()">update</button>` +
+      `<button onclick="removePersona()">remove</button>` +
+      `<button onclick="validatePersona()">validate</button>`;
+  },
+  async config(el) {
+    el.innerHTML = `<h3>Config</h3>
+      <button onclick="saveCfg()">save</button>
+      <button onclick="loadCfg()">load</button>
+      <button onclick="loadManagedCfg()">load managed</button>
       <button onclick="validateCfg()">validate</button>
-      <button onclick="importCfg()">import</button>
-      <button onclick="createBackup()">create</button>
-      <button onclick="listBackups()">list</button>
-      <button onclick="downloadBackup()">download</button>
-      <button onclick="restoreBackup()">restore</button>
-      <button onclick="deleteBackup()">remove</button>
       <pre id="cfg-out"></pre>`;
   },
   async ops(el) {
     el.innerHTML = `<h3>Operations</h3>
-      <button onclick="showInfo()">info</button>
-      <button onclick="pingInfo()">ping</button>
+      <button onclick="showHealth()">health</button>
       <button onclick="liveInfo()">live</button>
       <button onclick="readyInfo()">ready</button>
       <button onclick="svcStart()">service start</button>
@@ -235,10 +234,26 @@ async function updateEngine() {
   if (j) { await mutate("PATCH", `/api/v1/engine/${id}`, JSON.parse(j));
            render("engines"); }
 }
-async function updateSettings() {
-  const j = prompt("ServiceSettingsPatch JSON:");
-  if (j) { await mutate("PATCH", "/api/v1/setting/", JSON.parse(j));
-           render("settings"); }
+async function showPersona() {
+  const id = prompt("Persona id:"); if (!id) return;
+  toast(JSON.stringify(await api("GET", `/api/v1/persona/${id}`)));
+}
+async function createPersona() {
+  const j = prompt("PersonaCreate JSON:");
+  if (j) { await mutate("POST", "/api/v1/persona/", JSON.parse(j)); render("personas"); }
+}
+async function updatePersona() {
+  const id = prompt("Persona id:"); if (!id) return;
+  const j = prompt("PersonaUpdate JSON:");
+  if (j) { await mutate("PATCH", `/api/v1/persona/${id}`, JSON.parse(j)); render("personas"); }
+}
+async function removePersona() {
+  const id = prompt("Persona id to remove:"); if (!id) return;
+  await mutate("DELETE", `/api/v1/persona/${id}`); render("personas");
+}
+async function validatePersona() {
+  const id = prompt("Persona id:"); if (!id) return;
+  toast(JSON.stringify(await api("POST", `/api/v1/persona/${id}/validate`)));
 }
 async function loadModel() {
   const id = prompt("Model id:"); if (!id) return;
@@ -354,45 +369,29 @@ async function streamMetrics() {
   $("#st-out").textContent = JSON.stringify(
     await api("GET", `/api/v1/stream/${id}/metrics`), null, 2);
 }
-async function exportCfg() {
-  $("#cfg-out").textContent = JSON.stringify(await api("GET", "/api/v1/backup/export"), null, 2);
+async function saveCfg() {
+  const managed = confirm("OK = write managed snapshot; Cancel = capture to response only");
+  $("#cfg-out").textContent = JSON.stringify(
+    await api("POST", "/api/v1/config/save",
+              { body: { destination: managed ? "managed" : "response" } }), null, 2);
+}
+async function loadCfg() {
+  const j = prompt("OpalConfigSnapshot JSON:");
+  if (j) $("#cfg-out").textContent = JSON.stringify(
+    await mutate("POST", "/api/v1/config/load", { snapshot: JSON.parse(j) }), null, 2);
+}
+async function loadManagedCfg() {
+  $("#cfg-out").textContent = JSON.stringify(
+    await mutate("POST", "/api/v1/config/load", {}), null, 2);
 }
 async function validateCfg() {
-  const j = prompt("OpalConfigExport JSON:");
-  if (j) $("#cfg-out").textContent = JSON.stringify(
-    await api("POST", "/api/v1/backup/validate", { body: JSON.parse(j) }), null, 2);
-}
-async function importCfg() {
-  const j = prompt("OpalConfigExport JSON:");
-  if (j) $("#cfg-out").textContent = JSON.stringify(
-    await mutate("POST", "/api/v1/backup/import", JSON.parse(j)), null, 2);
-}
-async function createBackup() {
+  const j = prompt("OpalConfigSnapshot JSON (empty = live config):");
+  const body = j ? { snapshot: JSON.parse(j) } : {};
   $("#cfg-out").textContent = JSON.stringify(
-    await api("POST", "/api/v1/backup/create"), null, 2);
+    await api("POST", "/api/v1/config/validate", { body }), null, 2);
 }
-async function listBackups() {
-  $("#cfg-out").textContent = JSON.stringify(
-    await api("GET", "/api/v1/backup/list"), null, 2);
-}
-async function downloadBackup() {
-  const name = prompt("Backup filename:");
-  if (name) window.open(`/api/v1/backup/download/${name}`, "_blank");
-}
-async function restoreBackup() {
-  const name = prompt("Backup filename to restore:");
-  if (name) $("#cfg-out").textContent = JSON.stringify(
-    await mutate("POST", `/api/v1/backup/restore/${name}`), null, 2);
-}
-async function deleteBackup() {
-  const name = prompt("Backup filename to remove:");
-  if (name) { await api("DELETE", `/api/v1/backup/${name}`); render("backup"); }
-}
-async function showInfo() {
-  $("#ops-out").textContent = JSON.stringify(await api("GET", "/api/v1/info/"), null, 2);
-}
-async function pingInfo() {
-  $("#ops-out").textContent = JSON.stringify(await api("GET", "/api/v1/info/ping"), null, 2);
+async function showHealth() {
+  $("#ops-out").textContent = JSON.stringify(await api("GET", "/api/v1/health/"), null, 2);
 }
 async function liveInfo() {
   $("#ops-out").textContent = JSON.stringify(await api("GET", "/api/v1/health/live"), null, 2);
@@ -452,7 +451,7 @@ async function svcLog() {
   $("#ops-out").textContent = JSON.stringify(await api("GET", "/api/v1/service/log"), null, 2);
 }
 const GROUPS = ["dashboard", "streams", "predict", "models", "engines",
-                "hardware", "profiles", "settings", "backup", "ops"];
+                "hardware", "profiles", "personas", "settings", "config", "ops"];
 GROUPS.forEach(id => {
   const b = document.createElement("button");
   b.textContent = id; b.onclick = () => render(id);

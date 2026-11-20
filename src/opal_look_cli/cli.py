@@ -1,9 +1,10 @@
-"""opal-look: thin REST client mirroring the MVP v1.7.1 contract.
+"""opal-look: thin REST client mirroring the v0.1.0 contract.
 
 Group/verb layout follows the contract's x-opal-cli metadata: canonical
 `opal look [parent] [group] <command>` spellings — top-level groups are
-`engine`, `model`, `predict`, `hardware`, `stream`, `backup`, `service`
-and `info`; `config` parents `engine update`, `profile` and `setting`.
+`engine`, `model`, `predict`, `hardware`, `stream`, `service` and `info`;
+`config` parents `engine update`, `profile`, `setting` and the snapshot
+verbs `save`/`load`/`validate`.
 All logic lives server-side; this client only issues HTTP calls and
 honestly surfaces streaming/bearer limits. `service` falls back to local
 pidfile control when the API is unreachable — a dead server cannot
@@ -23,7 +24,7 @@ import typer
 from .client import ApiClient, unwrap
 
 app = typer.Typer(
-    help="OPAL Look v1.7.1 REST CLI (thin client; no business logic).",
+    help="OPAL Look v0.1.0 REST CLI (thin client; no business logic).",
     epilog=(
         "Examples:\n"
         "  opal-look info health\n"
@@ -432,73 +433,6 @@ info = typer.Typer(help="info", epilog=(
 info.command("health")(lambda: _emit(unwrap(_client().get("/api/v1/health/"))))
 app.add_typer(info, name="info")
 
-# -- backup ----------------------------------------------------------------------
-
-backup = typer.Typer(help="backup", epilog=(
-    "Examples:\n"
-    "  opal-look backup export\n"
-    "  opal-look backup validate --file bundle.json\n"
-    "  opal-look backup import --file bundle.json\n"
-    "  opal-look backup create\n"
-    "  opal-look backup download opal-look-20260101T000000Z.json\n"
-    "  opal-look backup restore opal-look-20260101T000000Z.json"))
-
-
-@backup.command("list")
-def _backup_list():
-    _emit(unwrap(_client().get("/api/v1/backup/list")))
-
-
-@backup.command("create")
-def _backup_create():
-    _emit(unwrap(_client().request("POST", "/api/v1/backup/create")))
-
-
-@backup.command("download")
-def _backup_download(
-        filename: str,
-        out: Path = typer.Option(None, "--out")):
-    data = unwrap(_client().get(f"/api/v1/backup/download/{filename}"))
-    target = Path(out or filename)
-    target.write_bytes(data)
-    typer.echo(str(target))
-
-
-@backup.command("restore")
-def _backup_restore(filename: str):
-    _emit(unwrap(_client().mutate(
-        "POST", f"/api/v1/backup/restore/{filename}")))
-
-
-@backup.command("remove")
-def _backup_remove(filename: str):
-    _emit(unwrap(_client().request(
-        "DELETE", f"/api/v1/backup/{filename}")))
-
-
-@backup.command("export")
-def _backup_export():
-    _emit(unwrap(_client().get("/api/v1/backup/export")))
-
-
-@backup.command("import")
-def _backup_import(file: Path = typer.Option(None, "--file"),
-                   body: str = typer.Option(None, "--body")):
-    """--file/--body supply the OpalConfigExport bundle; omitting both sends
-    a null body (import the provisioned ./config/ file set)."""
-    _emit(unwrap(_client().mutate("POST", "/api/v1/backup/import",
-                                  json=_body(body, file))))
-
-
-@backup.command("validate")
-def _backup_validate(body: str = typer.Option(None, "--body"),
-                     file: Path = typer.Option(None, "--file")):
-    _emit(unwrap(_client().request("POST", "/api/v1/backup/validate",
-                                   json=_body(body, file))))
-
-
-app.add_typer(backup, name="backup")
-
 # -- service (REST first; local pidfile fallback when unreachable) ---------------
 
 service = typer.Typer(help="service", epilog=(
@@ -604,7 +538,9 @@ config = typer.Typer(help="config", epilog=(
     "  opal-look config engine update synthetic --body '{\"enabled\":false}'\n"
     "  opal-look config profile add --file profile.json\n"
     "  opal-look config setting list\n"
-    "  opal-look config setting set max_viewers 4"))
+    "  opal-look config setting set max_viewers 4\n"
+    "  opal-look config save --out snapshot.json\n"
+    "  opal-look config load --in snapshot.json"))
 
 cfg_engine = typer.Typer(help="engine")
 
@@ -660,6 +596,43 @@ def _setting_remove(key: str):
 
 
 config.add_typer(setting, name="setting")
+
+
+@config.command("save")
+def _config_save(out: Path = typer.Option(None, "--out")):
+    """Capture a config snapshot. --out FILE writes it to disk (never
+    touches the managed snapshot); otherwise it replaces the managed one."""
+    result = unwrap(_client().request(
+        "POST", "/api/v1/config/save",
+        json={"destination": "response" if out else "managed"}))
+    if out:
+        Path(out).write_text(
+            json.dumps(result["snapshot"], indent=2) + "\n",
+            encoding="utf-8")
+        typer.echo(str(out))
+    else:
+        _emit(result)
+
+
+@config.command("load")
+def _config_load(file: Path = typer.Option(None, "--in", help="Snapshot file; "
+                        "omit to load the managed snapshot.")):
+    body: dict = {}
+    if file:
+        body = {"snapshot": json.loads(Path(file).read_text(encoding="utf-8"))}
+    _emit(unwrap(_client().mutate("POST", "/api/v1/config/load", json=body)))
+
+
+@config.command("validate")
+def _config_validate(file: Path = typer.Option(None, "--in", help="Snapshot "
+                        "file; omit to validate the live configuration.")):
+    body: dict = {}
+    if file:
+        body = {"snapshot": json.loads(Path(file).read_text(encoding="utf-8"))}
+    _emit(unwrap(_client().request("POST", "/api/v1/config/validate",
+                                   json=body)))
+
+
 app.add_typer(config, name="config")
 
 # -- top-level `setting` aliases (contract: 'setting get', 'setting delete') ------

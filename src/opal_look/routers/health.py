@@ -30,56 +30,69 @@ def _readiness(store) -> tuple[bool, str]:
 
 
 def _health_read(request: Request, store) -> dict:
-    """Kernel OpalHealthReport: aggregate status plus suite-standard sections."""
+    """Kernel OpalHealthReport: the single service information surface.
+
+    Identity, liveness, readiness and diagnostics in one report; the
+    diagnostics older revisions returned at the top level (`engines`,
+    `checks`, `components`, `database_ready`) live under `details` with
+    their existing meaning. Returns HTTP 200 whenever the report can be
+    produced, including when `ready` is false.
+    """
     storage_ok = store.ping()
-    ready, status = _readiness(store)
+    ready, _probe_status = _readiness(store)
     app_state_registry = request.app.state.engine_registry
     engines = [engine_runtime(store, row, app_state_registry)
                for row in store.engines.list()]
-    if ready and any(e["enabled"] and not e["available"] for e in engines):
+    engine_state = ("ok" if all(not e["enabled"] or e["available"] for e in engines)
+                    else "degraded")
+    if not ready:
+        status = "error"
+    elif engine_state != "ok":
         status = "degraded"
+    else:
+        status = "ok"
 
     app = request.app
     started = getattr(app.state, "started_monotonic", None)
     uptime = (time.monotonic() - started) if started is not None else 0.0
-    engine_state = ("ok" if all(not e["enabled"] or e["available"] for e in engines)
-                    else "degraded")
+    active = store.profiles.get_active()
     return {
-        "status": status,
+        "name": SERVICE_NAME,
         "version": SERVICE_VERSION,
+        "api_version": API_VERSION,
+        "status": status,
+        "live": True,
         "ready": ready,
-        "active_profile_id": (
-            store.profiles.get_active()["profile_id"]
-            if store.profiles.get_active() is not None else None),
-        "engines": [
-            {
-                "engine_id": e["engine_id"],
-                "name": e["name"],
-                "enabled": e["enabled"],
-                "available": e["available"],
-                "state": ("disabled" if not e["enabled"]
-                          else "ready" if e["available"] else "unavailable"),
-                "message": e["message"],
-            }
-            for e in engines
-        ],
         "details": {
-            "storage": "ok" if storage_ok else "unavailable",
+            "engines": [
+                {
+                    "engine_id": e["engine_id"],
+                    "name": e["name"],
+                    "enabled": e["enabled"],
+                    "available": e["available"],
+                    "state": ("disabled" if not e["enabled"]
+                              else "ready" if e["available"] else "unavailable"),
+                    "message": e["message"],
+                }
+                for e in engines
+            ],
+            "checks": [
+                {"name": "database", "state": "ok" if storage_ok else "error"},
+                {"name": "engines", "state": engine_state},
+            ],
+            "components": {
+                "database": {"state": "ok" if storage_ok else "error",
+                             "detail": "sqlite"},
+                "engines": {"state": engine_state},
+            },
+            "database_ready": storage_ok,
         },
-        "database_ready": storage_ok,
-        "pending_restart": False,
-        "pending_restart_fields": [],
-        "checks": [
-            {"name": "database", "state": "ok" if storage_ok else "error"},
-            {"name": "engines", "state": engine_state},
-        ],
+        "active_profile_id": (
+            str(active["profile_id"]) if active is not None else None),
         "checked_at": now_iso(),
         "uptime_seconds": max(0.0, uptime),
-        "components": {
-            "database": {"state": "ok" if storage_ok else "error",
-                         "detail": "sqlite"},
-            "engines": {"state": engine_state},
-        },
+        "pending_restart": False,
+        "pending_restart_fields": [],
     }
 
 
@@ -120,15 +133,3 @@ def get_service_info() -> dict:
         "contract_version": CONTRACT_VERSION,
         "description": SERVICE_DESCRIPTION,
     }
-
-
-@router.get("/api/v1/info/")
-def get_info() -> dict:
-    """Kernel ServiceInfo on the contract path; same payload as GET /."""
-    return get_service_info()
-
-
-@router.get("/api/v1/info/ping")
-def get_info_ping() -> dict:
-    """Kernel LivenessRead for process supervisors."""
-    return {"status": "ok"}

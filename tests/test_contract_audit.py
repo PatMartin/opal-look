@@ -49,8 +49,6 @@ EXPECTED_LEGACY: set[tuple[str, str]] = {
     ("POST", "/api/v1/backup/import"),
     ("POST", "/api/v1/backup/restore/{filename}"),
     ("POST", "/api/v1/backup/validate"),
-    ("GET", "/api/v1/info/"),
-    ("GET", "/api/v1/info/ping"),
     ("PATCH", "/api/v1/setting/"),
 }
 # Kernel health probes carry no CLI descriptor by design ("No CLI binding;

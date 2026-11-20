@@ -128,3 +128,20 @@ def test_engine_capabilities(client):
 def test_engine_capabilities_unknown_404(client):
     resp = client.get("/api/v1/engine/ghost/capabilities")
     assert resp.status_code == 404
+
+
+def test_engine_patch_empty_body_422(client):
+    """OpalEnginePatch minProperties:1 - {} is rejected."""
+    assert client.patch("/api/v1/engine/synthetic", json={},
+                        headers={"If-Match": "*"}).status_code == 422
+
+
+def test_engine_patch_extra_keys_are_options(client):
+    """additionalProperties: engine-specific keys land in config."""
+    resp = client.patch("/api/v1/engine/synthetic", json={"seed": 7},
+                        headers={"If-Match": "*"})
+    assert resp.status_code == 200
+    assert resp.json()["options"]["seed"] == 7
+    assert client.patch("/api/v1/engine/synthetic",
+                        json={"bogus_key": 1},
+                        headers={"If-Match": "*"}).status_code == 422

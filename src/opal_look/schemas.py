@@ -18,8 +18,9 @@ def reject_null_fields(supplied: dict[str, Any]) -> None:
 
 
 class EnginePatch(BaseModel):
-    """enabled and/or engine options (validated by adapter)."""
-    model_config = ConfigDict(strict=True, extra="forbid")
+    """enabled and/or engine options; additional top-level keys are
+    engine-specific option values (kernel additionalProperties: true)."""
+    model_config = ConfigDict(strict=True, extra="allow")
 
     enabled: bool | None = Field(default=None)
     options: dict[str, Any] | None = Field(default=None)

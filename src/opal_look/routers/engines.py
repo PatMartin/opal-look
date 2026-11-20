@@ -52,19 +52,24 @@ def patch_api_v1_engines_engine_id(
     request: Request, store: StoreDep, engine_id: str, patch: EnginePatch
 ) -> JSONResponse:
     supplied = patch.model_dump(exclude_unset=True)
+    if not supplied:
+        raise ApiError(422, "Empty engine patches are not allowed.")
     reject_null_fields(supplied)
 
     require_if_match(request)
     _get_engine_or_404(request, store, engine_id)
     adapter = _registry(request).get(engine_id)
 
-    if "options" in supplied:
-        errors = adapter.validate_config(supplied["options"])
+    fields: dict[str, Any] = {}
+    if "enabled" in supplied:
+        fields["enabled"] = supplied.pop("enabled")
+    # `options` plus any extra top-level keys are engine option values.
+    config_update = {**supplied.pop("options", {}), **supplied}
+    if config_update:
+        errors = adapter.validate_config(config_update)
         if errors:
             raise ApiError(422, "Invalid engine options.", details=errors)
-    fields = dict(supplied)
-    if "options" in fields:
-        fields["config"] = fields.pop("options")
+        fields["config"] = config_update
     with store.write_txn():
         check_if_match(request, store)
         if fields:

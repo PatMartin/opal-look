@@ -19,7 +19,7 @@ def test_spa_js_only_v17_paths(client):
                    "/api/v1/capabilities",
                    "sessionObservations"):
         assert legacy not in js, legacy
-    # every v0.1.0 MVP path family is referenced (all 45 ops reachable)
+    # every v0.4.0 MVP path family is referenced (all 45 ops reachable)
     for path in (
         "/api/v1/stream/",            # start, list, show, stop, events, video, snapshot, metrics
         "/api/v1/predict",

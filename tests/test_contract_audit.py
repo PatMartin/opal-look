@@ -1,4 +1,4 @@
-"""Offline audit of the pinned opal_look_v0.1.0.yaml contract vs live routes.
+"""Offline audit of the pinned opal_look_v0.4.0.yaml contract vs live routes.
 
 These tests are deterministic: they parse the pinned YAML and enumerate the
 FastAPI app's routes — no network, camera, GPU, or broker required.
@@ -15,7 +15,7 @@ from opal_look.app import create_app
 from opal_look import contract_audit
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-CONTRACT = REPO_ROOT / "openapi" / "opal_look_v0.1.0.yaml"
+CONTRACT = REPO_ROOT / "openapi" / "opal_look_v0.4.0.yaml"
 CONTRACT_KERNEL = REPO_ROOT / "openapi" / "shared" / "opal_kernel.yaml"
 CONTRACT_1_4 = REPO_ROOT / "vendor" / "opal-api" / "opal_look.yaml"
 
@@ -39,13 +39,13 @@ UNBOUND_OPS: set[tuple[str, str]] = {
 }
 
 
-def test_pinned_contract_exists_and_is_v0_1():
-    assert CONTRACT.is_file(), "openapi/opal_look_v0.1.0.yaml is the pinned contract"
+def test_pinned_contract_exists_and_is_v0_4():
+    assert CONTRACT.is_file(), "openapi/opal_look_v0.4.0.yaml is the pinned contract"
     assert CONTRACT_KERNEL.is_file(), "shared opal_kernel.yaml must ship with it"
     assert CONTRACT_1_4.is_file(), "v1.4.0 contract stays as historical reference"
     inv = contract_audit.load_contract(CONTRACT)
     assert inv.openapi == "3.1.0"
-    assert inv.api_version == "0.1.0"
+    assert inv.api_version == "0.4.0"
 
 
 def test_contract_inventory_is_complete():

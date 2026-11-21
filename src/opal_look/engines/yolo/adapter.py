@@ -1,7 +1,7 @@
 """Remote Ultralytics YOLO adapter.
 
 Implements the EngineAdapter protocol by proxying to a standalone
-opal-look-yolo service (openapi/engines/opal_look_yolo_v0.1.0.yaml). Connection
+opal-look-yolo service (openapi/engines/opal_look_yolo_v0.4.0.yaml). Connection
 details come from engine config (seeded from OPAL_LOOK_ENGINE_YOLO_* env);
 the bearer token is env-only.
 """

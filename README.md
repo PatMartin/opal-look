@@ -79,7 +79,7 @@ detector). Stop the service with `opal-look service stop` or Ctrl-C.
 - **`credential_ref`** — names an `OPAL_LOOK_CRED_<REF>` env var holding
   `user:pass`, injected into the RTSP URI at connect time only. Never
   stored, logged, or echoed.
-- **Contract** — `openapi/opal_look_v0.1.0.yaml` is authoritative and
+- **Contract** — `openapi/opal_look_v0.4.0.yaml` is authoritative and
   pinned; `opal-look-audit` verifies conformance offline.
 
 ## Common tasks
@@ -207,7 +207,7 @@ config.
   remote adapter setup
 - [docs/yolo26n_classes.md](docs/yolo26n_classes.md) — what the YOLO
   models detect
-- [openapi/opal_look_v0.1.0.yaml](openapi/opal_look_v0.1.0.yaml) —
+- [openapi/opal_look_v0.4.0.yaml](openapi/opal_look_v0.4.0.yaml) —
   authoritative REST contract; [specs/](specs/) holds the migration
   ledger and pending amendments (`name`, `credential_ref`)
 - [AGENTS.md](AGENTS.md) — architecture, conventions, coverage status

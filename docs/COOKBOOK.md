@@ -1,6 +1,6 @@
 # OPAL Look Cookbook
 
-Practical, copy/pasteable workflows for OPAL Look **v0.1.0**.
+Practical, copy/pasteable workflows for OPAL Look **v0.4.0**.
 
 Every fenced shell block has GitHub's built-in **Copy** button. Run the
 commands from a shell with the OPAL Look environment installed. `opal look …`
@@ -316,7 +316,7 @@ opal-look-audit --strict     # or: python -m opal_look.contract_audit --strict
 
 ## Cross-Module OPAL Workflows
 
-The v0.1.0 contract is deliberately small; sibling modules integrate over
+The v0.4.0 contract is deliberately small; sibling modules integrate over
 the stream/predict/config surface:
 
 - **opal-look-yolo** is the working example — a remote engine service

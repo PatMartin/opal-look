@@ -8,7 +8,7 @@ packages = ["src/opal_look", "src/opal_look_cli"]
 [project]
 name = "opal-look"
 version = "0.1.0"
-description = "OPAL Look vision service (contract opal_look_v0.1.0)"
+description = "OPAL Look vision service (contract opal_look_v0.4.0)"
 requires-python = ">=3.12"
 dependencies = [
     "fastapi>=0.115",
@@ -20,6 +20,7 @@ dependencies = [
     "rich>=13",
     "httpx>=0.27",
     "python-dotenv>=1.0",
+    "PyYAML>=6.0",
 ]
 
 [project.optional-dependencies]

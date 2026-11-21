@@ -1,7 +1,7 @@
 # OPAL Look
 
-Implementation of `openapi/opal_look_v0.1.0.yaml` + `openapi/shared/
-opal_kernel.yaml` (OPAL Suite Kernel 0.1.0) as the authoritative contract
+Implementation of `openapi/opal_look_v0.4.0.yaml` + `openapi/shared/
+opal_kernel.yaml` (OPAL Suite Kernel 0.4.0) as the authoritative contract
 (do not serve a generated spec; do not edit the contract files — amendments
 go upstream first). Python 3.12+ / FastAPI / SQLite.
 
@@ -48,7 +48,7 @@ live under `vendor/opal-api/`.
   The `synthetic` adapter gives deterministic detections with no ML deps.
   `engines/yolo/` is a remote adapter proxying the standalone
   opal-look-yolo service (adapter contract
-  `openapi/engines/opal_look_yolo_v0.1.0.yaml`); registered iff
+  `openapi/engines/opal_look_yolo_v0.4.0.yaml`); registered iff
   `OPAL_LOOK_ENGINE_YOLO_BASE_URL` is set, configured via
   `OPAL_LOOK_ENGINE_YOLO_ENABLED/TIMEOUT_SECONDS` (seeded into the
   engines row, authoritative like settings) + `_TOKEN` (env-only).
@@ -119,7 +119,7 @@ live under `vendor/opal-api/`.
   logic).
 - vendor/opal-api/ holds local-only reference copies of the sibling
   contracts (opal_event/listen/talk + upstream opal_look — note upstream
-  Look is a different API; our opal_look_v0.1.0.yaml is authoritative).
+  Look is a different API; our opal_look_v0.4.0.yaml is authoritative).
 
 ## Contract coverage (verified)
 

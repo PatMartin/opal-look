@@ -1,156 +1,251 @@
-# OPAL Look
+# AGENTS.md — OPAL LOOK
 
-Implementation of `openapi/opal_look_v0.5.0.yaml` + `openapi/shared/
-opal_kernel.yaml` (OPAL Suite Kernel 0.5.0) as the authoritative contract
-(do not serve a generated spec; do not edit the contract files — amendments
-go upstream first). Python 3.12+ / FastAPI / SQLite.
+> Permanent engineering guardrails for coding agents working in `opal-look`.
+> These instructions govern ongoing development, not a one-time remediation plan.
+> Follow the currently approved OPAL contracts; report discrepancies rather than
+> attempting contract-version reconciliation or redesign without authorization.
 
-MVP contract: engine-free video streaming plus optional discoverable
-inference adapters. RTSP streams run with zero AI engines installed;
-engines (e.g. YOLO/RF-DETR/RT-DETR/D-FINE, or the built-in `synthetic`
-adapter) add predict + inference-mode streams. The v0.1.0 cutover retired
-`/api/v1/info/*` (health is the single info surface), `/api/v1/backup/*`
-(replaced by `config save/load/validate` snapshots), and the settings map
-PATCH; it added the persona catalog and namespaced portable profiles.
-Migration records: `specs/OPAL_LOOK_V0_5_MIGRATION.md` (v0.5.0 cutover),
-`specs/OPAL_LOOK_V0_1_MIGRATION.md` (v0.1.0) and
-`specs/OPAL_LOOK_V1_7_LEDGER.md` (v1.7); design reference package under
-`docs/redesign/vision_contracts/`; v1.4.0-era upstream contract copies
-live under `vendor/opal-api/`.
+## 1. Purpose and boundaries
 
-## Commands
+OPAL LOOK is the visual observation service in the OPAL ecosystem. It accepts
+video/image sources, manages capture and stream lifecycles, produces frames and
+visual artifacts, and exposes observations through REST, a CLI, and a browser UI.
+It can optionally invoke compatible vision engines to analyze frames.
 
-- Setup: `python -m venv .venv && .venv/Scripts/pip install -e .[dev]`
-- Test: `.venv/Scripts/pytest`
-- Run: `.venv/Scripts/opal serve` or `.venv/Scripts/python -m opal_look` or `uvicorn opal_look.app:create_app --factory`
-- Contract audit: `.venv/Scripts/python -m opal_look.contract_audit`
-  (`--strict` = conformance gate, `--json` = machine-readable)
-- Data dir: `OPAL_LOOK_DATA_DIR` (default `./data`)
+**LOOK owns:**
+- Source configuration and access policy; camera and image-source handling.
+- Capture, decoding, frame identity, stream lifecycle, and bounded fan-out.
+- Live video endpoints, snapshots, optional annotation, stream metrics, and
+  metadata/event streams as defined by the contract.
+- Selection and invocation of compatible detection/inference engines.
+- Normalizing engine outputs into LOOK's public response/event contracts.
+- Its own health, settings, portable configuration, and observability.
 
-## Conventions / design patterns
+**LOOK does not own:**
+- YOLO/RF-DETR/RT-DETR/D-FINE model algorithms, weights, installation,
+  or engine-native inference implementations.
+- General-purpose playback/player interfaces; keep video *delivery* distinct
+  from interactive viewing, which may be handled by a separate SHOW component.
+- General event rule evaluation, automation execution, or orchestration; BUS
+  and other consumers may subscribe to LOOK observations.
+- Microphone capture, transcription, speech synthesis, or reasoning.
+- A mandatory shared device registry or central coordinator.
 
-- Persistence: per-aggregate repositories behind Protocols under
-  `src/opal_look/repositories/`; `Store` owns the connection + schema and
-  exposes `store.meta/settings/engines/profiles/personas` plus the
-  `idempotency_keys` table. `store.write_txn()` is the unit-of-work
-  context manager for atomic check-and-mutate.
-- DI: FastAPI `Depends` providers in `src/opal_look/dependencies.py`
-  (`StoreDep`); handlers inject the store rather than reaching app.state.
-- Engines: `EngineAdapter` Protocol + an app-owned `EngineRegistry`
-  (`app.state.engine_registry`, built by `default_registry()` in
-  `create_app` — adapter state never bleeds across app instances) in
-  `src/opal_look/engines/` (package). Adapters register via the
-  `opal_look.engines` entry-point hook (`load_plugin_adapters(registry)`)
-  or env declaration (`register_env_adapters(registry)`). Conformance
-  gate for any new adapter: `tests/test_engine_contract.py`. Adapter surface:
-  `capabilities/probe/options_schema/validate_config/
-  metadata/validate_engine_options` plus the MVP ops `hardware()`,
-  `models()`, `load_model()`, `unload_model()`, `predict(image, ...)`.
-  The `synthetic` adapter gives deterministic detections with no ML deps.
-  `engines/yolo/` is a remote adapter proxying the standalone
-  opal-look-yolo service (adapter contract
-  `openapi/engines/opal_look_yolo_v0.1.0.yaml`); registered iff
-  `OPAL_LOOK_ENGINE_YOLO_BASE_URL` is set, configured via
-  `OPAL_LOOK_ENGINE_YOLO_ENABLED/TIMEOUT_SECONDS` (seeded into the
-  engines row, authoritative like settings) + `_TOKEN` (env-only).
-  Models are engine-federated metadata (no central table); hardware is
-  engine-local. `engine_gate(store, adapter)` -> 503 for disabled engines.
-- Streams: `StreamRuntime` in `src/opal_look/streams.py` — in-memory only,
-  state machine starting->running->stopping->stopped|failed. `stream_id`
-  is the server-generated immutable run identity; `name` is a
-  client-chosen label, unique among non-terminal streams, resolving as a
-  lookup alias while held (see docs/IDENTITY_AND_BRIDGES.md and
-  specs/STREAM_NAME_AMENDMENT.md). Terminal status is published only
-  after the pump thread exits and the capture stream is closed
-  (teardown_timeout -> failed). Observer hub (bounded replay buffer +
-  subscriber queues) feeds SSE and MJPEG under one lock; a full queue
-  evicts the subscriber with a final `dropped` event; viewer occupancy is
-  bounded by `max_viewers` (snapshot uncounted); JPEG output is encoded
-  once per frame+variant (`frame_cache_seconds` TTL) and shared.
-  One decode pump per stream; viewers never start a second decode.
-- Capture: `CaptureAdapter` Protocol + `CAPTURE_REGISTRY` in
-  `src/opal_look/capture.py` (`opal_look.capture` entry-point hook).
-  `RtspAvAdapter` (`capture_rtsp.py`) decodes via PyAV (optional; absent
-  -> 503 at admission). `LiveFramePump` honors the contract
-  `buffer_policy` (drop-oldest/drop-newest/block). Credentials are
-  provisioned via `OPAL_LOOK_CRED_<REF>` env vars, named per stream with
-  `credential_ref` — `capture.credentialed_locator` injects userinfo at
-  connect time only (422 when unprovisioned); URI userinfo is never
-  echoed — `streams.redact_source` strips it for `source_redacted`.
-- SQLite: single connection shared by loop + threadpool threads; all
-  statements serialize through `Store._lock` (`_LockedConnection` proxy),
-  and `write_txn()` holds it for the whole transaction.
-- DTOs: pydantic models in `src/opal_look/schemas.py` + `settings.py`.
-- Middleware: `CorrelationMiddleware` (outer correlation/validation),
-  `AccessLogMiddleware` (outermost, logs all requests).
-- All errors use the OpalError envelope (`src/opal_look/errors.py`,
-  `ApiError(status, message, code=...)`).
-- X-Opal-* correlation headers handled by `CorrelationMiddleware`; never
-  trust them for authz.
-- Config mutations require If-Match vs global config revision:
-  `require_if_match(request)` early (428 missing / 422 malformed) +
-  `check_if_match(request, store)` inside `store.write_txn()` (412 stale,
-  atomic with the write; src/opal_look/precondition.py). All config writes
-  bump the revision; runtime activity must not. `write_txn()` nests via
-  SAVEPOINT. Idempotency-Key admissions use
-  `idempotency.request_idempotency_key` (contract bounds 1..128) backed by
-  the durable `idempotency_keys` table (fingerprint replay -> same
-  admission; mismatched body -> 409; 24h TTL).
-- Environment: `python-dotenv` loads a repo-root `.env` via
-  `dotenv.prepare()` at executable entry points (`main()`, CLI callback;
-  never overrides real env vars; `.env` is gitignored;
-  `.env.example` documents the set). Covers `OPAL_LOOK_HOST/PORT
-  (default 127.0.0.1:8002)/DATA_DIR/TOKEN` + `OPAL_LOOK_CRED_*`. Any
-  `OPAL_LOOK_<SETTING_KEY>` matching a `/api/v1/setting/` key applies as a
-  read overlay on every setting read — precedence environment > dotenv >
-  persisted > default, surfaced as `source`/`configured_value`/
-  `has_override` in `SettingRead`; invalid values are skipped with a
-  warning (`settings.env_overlays`).
-- Bearer auth: `OPAL_LOOK_TOKEN` (env or `.env`, opaque). Set -> all
-  `/api/v1` requests need `Authorization: Bearer <token>` (401 +
-  `WWW-Authenticate: Bearer`, enforced by `BearerAuthMiddleware` inside
-  Correlation so 401s keep X-Opal headers). Unset -> loopback dev mode;
-  `main.py` refuses non-loopback binds without it. Never log/export/echo
-  the token or accept it in query strings. CLI sends it automatically.
-- Clients: `opal-look` Typer CLI + `opal look` umbrella (REST-only via
-  httpx; command taxonomy from the retired x-opal-cli bindings —
-  engine/model/hardware/predict/stream/profile/persona/service (incl.
-  `service health`) + `config` parent group with the
-  setting subgroup and save/load/validate, `tree` retained) and a
-  full-coverage SPA (static assets at /app/ calling REST, no business
-  logic).
-- vendor/opal-api/ holds local-only reference copies of the sibling
-  contracts (opal_event/listen/talk + upstream opal_look — note upstream
-  Look is a different API; our opal_look_v0.5.0.yaml is authoritative).
+A video-only stream must remain useful **without any AI engine installed**.
+Engine unavailability may disable inference, but must not unnecessarily disable
+independent capture, snapshots, or video delivery.
 
-## Contract coverage (verified)
+## 2. The eight OPAL design tenets
 
-| Area | Status |
-|---|---|
-| errors/correlation envelope | verified |
-| health (merged OpalHealthReport + live/ready probes; info/* retired) | verified |
-| settings (map GET + per-key GET/PUT/DELETE with provenance, If-Match/ETag; map PATCH retired) | verified |
-| engines (list/get/patch, discover -> EngineDiscovery{engines,errors}, capabilities) | verified |
-| hardware (engine-local list/show, ?engine_id filter/disambiguation) | verified |
-| models (engine-federated list/show/load/unload; 404/409/422/503) | verified |
-| predict (path/URI source under source policy, bounded reads + redirect re-checks, size/pixel caps before decode, engine+model+device+options gates, native opt-in) | verified |
-| profiles (portable namespaced docs, string ids, own-compartment patch, foreign preserved) | verified |
-| personas (local catalog CRUD + validate, If-Match, enabled filter) | verified |
-| config (save/load/validate OpalConfigSnapshot, managed snapshot, atomic load) | verified |
-| service (pidfile-managed start/stop/log; restart via OPAL_LOOK_WAIT_PID) | verified |
-| streams (202+Location admission, mode rules, idempotency-key -> immutable run id receipt, stop -> cleanup-bound terminal, generated `stream_id` + `name` lookup alias, 409 active-name conflict, reuse after terminal, `credential_ref` -> OPAL_LOOK_CRED_<REF> injection, 422 unprovisioned, source policy before admission) | verified |
-| stream video (MJPEG, bounded viewers + dropped eviction) + snapshot (JPEG) + metrics + annotated rules | verified |
-| stream SSE (frame/detection/status/terminal, heartbeat, Last-Event-ID replay, 409 stale) | verified |
-| inference-mode streams (detection events, annotate overlays, engine gates) | verified |
-| idempotency (durable keys, fingerprint replay, 409s) | verified |
-| retention sweep (startup purge of expired idempotency rows) | verified |
-| CLI (opal look / opal-look, all verbs incl. stream/predict, REST-only) | verified |
-| SPA (/app/ static client, all MVP sections) | verified |
-| conformance (strict audit rc=0 CONFORMANT: 35 paths / 45 ops) | verified |
-| event bridge (opt-in `stream bridge` verb: detection SSE -> EventInput publish, filters/cooldown, stable dedup ids, Last-Event-ID reconnect, bounded retries) | verified |
+1. **Boundary Elasticity** — Preserve logical contracts while allowing
+   implementations to run in-process, through local sockets, or across a network.
+   Deployment boundaries are choices, not product limitations.
+2. **Independent Utility** — Every capability should deliver value on its own.
+   LOOK must not need THINK, LISTEN, SAY, BUS, SHOW, or a central registry just
+   to observe a camera.
+3. **Additive Composition** — Combine components via contracts without changing
+   their internals. Integration is optional and must not redefine ownership.
+4. **Economic Accessibility** — Prioritize useful operation on affordable local
+   hardware and commodity cameras; do not require expensive GPUs or cloud APIs
+   for the basic observation path.
+5. **Progressive Capability** — Begin with simple capture and inspection;
+   enable inference, annotation, acceleration, and analytics when resources exist.
+6. **Interchangeable Parts** — Standardize interfaces, not implementations.
+   Engines, capture adapters, transports, and compute backends should be
+   replaceable behind stable contracts.
+7. **Discover and Use** — **Discover what exists. Use what is available.
+   Require nothing else.** Capability discovery must not imply dependence on
+   absent or disabled integrations.
+8. **Extend the Right Surface** — **If a capability performs an existing
+   operation differently, extend its parameters. If it performs something
+   meaningfully different, extend the API.** Avoid duplicated endpoints and
+   special cases for variations that belong in existing operations.
 
-Deferred (documented): real RTSP decode needs PyAV (`pip install av`)
-else stream admission -> 503; ZeroMQ event bus retired with the old
-contract (no bus surface in the MVP); SSE `heartbeat` is emitted as
-comments, not typed events; the Event bridge is an external opt-in
-process, not a server-side surface.
+## 3. Architecture and responsibility boundaries
+
+- Keep capture/decode, stream management, artifacts, engine adapters, REST,
+  CLI, UI, and persistence separable and testable.
+- Do not move engine-native model-management or inference code into LOOK simply
+  to simplify deployment. Support both embedded and remote integrations where
+  compatible with the shared engine interface.
+- Keep a **synthetic** or deterministic test path for contract verification,
+  but never represent synthetic detections as actual model recognition.
+- Treat source, stream, frame, engine, model, and inference execution as
+  distinct identities. Propagate available context rather than inventing it.
+- Preserve frame order, identity, timestamps, dimensions, and provenance across
+  capture, inference, overlays, and emitted observations.
+- Avoid introducing an entire streaming framework, job system, registry, or
+  event rule engine when a small extension of the existing architecture suffices.
+- Maintain explicit ownership of resource cleanup when a stream stops, a client
+  disconnects, an engine times out, or the service shuts down.
+
+## 4. Stream, frame, and artifact behavior
+
+- The service owns stream lifecycle, not a downstream engine or viewer.
+- A single capture pipeline should be reusable by compatible consumers when
+  doing so avoids duplicated camera connections and decode work.
+- Apply bounded queues and explicit backpressure. A slow inference engine,
+  SSE client, MJPEG consumer, or snapshot requester must not cause unbounded
+  memory growth or indefinitely stall capture.
+- Document and test drop policies, disconnect behavior, retries, and
+  cancellation. Never imply exactly-once events or guaranteed replay unless
+  the contract explicitly provides them.
+- Distinguish live-only media (e.g., MJPEG and snapshots) from any bounded
+  SSE replay mechanism in the approved contract.
+- Treat overlay/annotation as optional presentation output; original frames
+  and inference results must remain independently usable when supported.
+- Make artifact formats, MIME types, dimensions, sampling, timestamps, and
+  lifecycle explicit. Avoid hidden persistence or unbounded retention.
+- Preserve honest stream states, errors, and readiness even when the camera
+  cannot connect or no inference engine is available.
+
+## 5. Inference engines and model contracts
+
+- Engines are optional, discoverable implementations with explicit capability,
+  availability, supported-task, device, and option metadata.
+- Use standardized engine interfaces and normalized outputs for detection and
+  other supported tasks. Preserve clearly namespaced native results only where
+  the contract permits.
+- Never assume every engine supports detection, segmentation, classification,
+  pose, OBB, a particular device, or a particular model.
+- Validate task support, model/engine compatibility, required inputs, and
+  engine-specific options **before** invoking inference. Reject unsupported
+  options rather than silently ignoring them.
+- Honor explicit engine/model selection; do not silently select a different
+  engine or model when fallback is unspecified.
+- Keep model discovery, load/unload, runtime residency, and compute-device
+  details within the owning engine; LOOK may expose or proxy them through its
+  public interface.
+- Do not download weights, install engines, create devices, or expose raw
+  filesystem paths as side effects of discovery.
+- Bound engine calls by concurrency, time, memory where feasible, and failure
+  policy. A remote engine outage must be isolated from unrelated video streams.
+- Normalize coordinates, class labels, scores, frame metadata, and errors
+  consistently; do not fabricate inference confidence or capability.
+
+## 6. REST, OpenAPI, CLI, and UI fidelity
+
+- The approved **OpenAPI 3.1 contract** is the public source of truth;
+  shared OPAL Kernel definitions govern common semantics.
+- REST implements the contract. The Typer CLI and browser UI are clients of
+  the REST surface, not alternate implementations of business logic.
+- Keep REST/CLI/UI behavior aligned for supported operations, argument types,
+  requiredness, response handling, and error semantics.
+- As suite-wide CLI derivation advances, derive command hierarchy from
+  OpenAPI paths and actions from `operationId`; derive options and validation
+  from standard OpenAPI parameters and schemas.
+- **Do not add** `x-opal-cli`, `x-opal-cli-format`, per-operation command
+  mappings, or equivalent CLI-specific contract metadata. Existing legacy
+  bindings, if any, must not be removed until a separately approved migration
+  proves compatibility.
+- Preserve existing CLI spellings and aliases unless a change is explicitly
+  justified and approved. Do not rename `operationId` merely for a prettier CLI.
+- Use standard OPAL request/transaction/session/causation IDs, `OpalError`,
+  health semantics, HTTP status codes, and configuration preconditions.
+  Context IDs are trace data, never authorization credentials.
+- Keep settings and config save/load/validate consistent with the shared
+  suite contract; strong ETags and `If-Match` protect mutations where required.
+- Escalate contract ambiguities and missing operations; do not silently
+  extend a public API or adjust contract versions.
+- Avoid inventing interface parity where the approved contract intentionally
+  exposes a transport-specific feature (such as SSE or MJPEG).
+
+## 7. Security and privacy
+
+- Treat RTSP URLs, userinfo, image paths, client-provided URLs, metadata, and
+  engine output as untrusted inputs.
+- Never log, echo, embed in errors, or persist raw camera credentials.
+  Resolve credential references through controlled configuration only.
+- Keep authentication mandatory for non-loopback exposure according to
+  the approved service security policy; do not use correlation IDs as tokens.
+- Default remote image/URL fetching to **off**, or enforce explicit allowlists
+  and protections against SSRF, redirects, DNS rebinding, and private-network
+  bypass. Bound downloads by time, bytes, and decoded dimensions.
+- Validate filesystem access and path traversal. Avoid arbitrary local file
+  reads, especially when requests arrive over the network.
+- Do not log frames, sensitive images, user-provided URLs, or model-native
+  payloads by default. Minimize retained data.
+- Do not execute model output as shell commands, Python, URL requests, or
+  privileged actions. Observation and action execution are separate services.
+- Secrets belong in environment/configuration references, not code, exported
+  snapshots, logs, or test fixtures.
+
+## 8. Configuration, deployment, and performance
+
+- Local-first, sensible defaults. Basic capture and observation must not depend
+  on internet access or proprietary hosted inference.
+- Respect the documented configuration precedence; existing environment
+  values take precedence over `.env`, which takes precedence over defaults.
+  Do not silently change persistence/seed behavior.
+- Preserve standalone usability; integrate with BUS, SHOW, inference engines,
+  or future device registries only as optional additions.
+- Support practical CPU-only operation; treat GPU acceleration as an optional
+  capability, not a universal assumption.
+- Do not block the event loop with camera decode or heavy inference. Bound work,
+  buffering, concurrent streams, and inference admission.
+- Define cleanup for open RTSP sessions, capture workers, memory buffers,
+  temporary artifacts, remote requests, and engine handles.
+- Prefer observable, deterministic degradation to hidden retries or fallback.
+- Keep configuration snapshots portable; omit secrets, live frames, large
+  binaries, volatile stream state, and runtime caches.
+
+## 9. Compatibility and scope discipline
+
+- Preserve behavior unless the task explicitly authorizes changing it.
+- Do not perform contract-version reconciliation, broad redesign, repository
+  restructuring, or cosmetic refactoring as incidental work.
+- Compare requested work against the established ownership boundaries and
+  call out violations or accidental complexity directly.
+- Prefer small composable changes over introducing new abstractions.
+- When a design change is necessary, propose separately numbered options,
+  state tradeoffs and complexity, recommend one, and obtain approval for
+  breaking changes before implementation.
+- Document intentional deviations from existing OPAL conventions rather than
+  silently creating LOOK-specific standards.
+- Do not confuse a successful mock test with successful real-camera or
+  real-model operation.
+
+## 10. Required verification
+
+For every meaningful code or contract change, test the affected behavior and
+the surrounding boundaries. Prioritize:
+
+- Contract validation and strict REST/API conformance audits.
+- Source validation, credential redaction, network restrictions, and auth.
+- Stream start/stop, reconnect/failure handling, teardown, and idempotency.
+- Bounded queues, backpressure, slow-client isolation, concurrency, and cleanup.
+- SSE frame/terminal behavior, replay limits (if offered), MJPEG, and snapshots.
+- Engine/model availability, unsupported tasks/options, timeouts, and outages.
+- Frame identity and normalized inference result fidelity.
+- CLI/REST parity and browser UI correctness for changed operations.
+- Pure video operation without an inference engine.
+- Deterministic synthetic tests and optional real RTSP/YOLO integration tests.
+
+Use the repository's current pytest and contract-audit entry points. Report
+which tests were actually run, not historical counts. Keep hardware/network
+integration tests explicitly opt-in unless the project already provides safe,
+controlled fixtures. Never claim to have tested a live camera or model unless
+you did so.
+
+## 11. Agent execution and reporting
+
+When implementing a requested change:
+
+1. State the requested scope and relevant contracts before editing.
+2. Report what was changed and exactly which files were touched.
+3. Give a **subjective estimated defect probability (%)**, with justification;
+   do not present it as measured statistical risk.
+4. Report test commands and **passed / failed / skipped / not-run** counts.
+5. Explain how the maintainer can reproduce the verification.
+6. Identify remaining uncertainty, contract drift, and potential test gaps.
+7. If work is staged, report **Step N of M**, what is complete, and the next
+   proposed step. Stop for approval only when the workflow requires it.
+8. Ask only necessary clarifying questions; provide concise options,
+   complexity, pros/cons, and a recommendation when choices affect design.
+9. Challenge flawed assumptions or unnecessary complexity respectfully and
+   specifically; do not agree merely to be agreeable.
+10. Never fabricate execution evidence, commit status, implementation coverage,
+    or integration results.
+
+**Guiding principle:** Explore without limits. Design with discipline.
+Implement with restraint. Validate with evidence.

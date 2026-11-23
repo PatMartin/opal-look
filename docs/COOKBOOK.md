@@ -161,7 +161,7 @@ look stream metrics front
 
 `synthetic` proves the workflow; `yolo` gives real detections. It runs as
 a separate service ([opal-look-yolo](https://github.com/PatMartin/opal-look-yolo),
-typically on `:8086` — see [YOLO_INSTALL.md](YOLO_INSTALL.md)); look
+typically on `:8086` — see that repo for setup); look
 proxies to it over HTTP. Wiring is one `.env` line + restart:
 
 ```bash
@@ -178,7 +178,7 @@ look model load yolo26n --engine yolo  # smallest/fastest for CPU
 Predictions are a remote round-trip per frame — measured ~250 ms on
 `yolo26n`/CPU, so inference streams run at single-digit fps (expected;
 `stream metrics` shows `inference_latency_ms`). What the model can
-identify: [yolo26n_classes.md](yolo26n_classes.md).
+identify: see the `opal-look-yolo` service's class list.
 
 ### 12. Run an inference stream with annotated overlays
 
@@ -320,8 +320,8 @@ The v0.1.0 contract is deliberately small; sibling modules integrate over
 the stream/predict/config surface:
 
 - **opal-look-yolo** is the working example — a remote engine service
-  wired via `OPAL_LOOK_ENGINE_YOLO_BASE_URL` (recipe 11); full guide in
-  [YOLO_INSTALL.md](YOLO_INSTALL.md).
+  wired via `OPAL_LOOK_ENGINE_YOLO_BASE_URL` (recipe 11); see that
+  repo's docs for setup.
 - **OPAL Event** can fan `detection` SSE events from `…/events` out to
   automations — subscribe with `curl -N` or a small SSE client and publish
   onward.

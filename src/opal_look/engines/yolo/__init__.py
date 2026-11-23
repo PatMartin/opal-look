@@ -2,8 +2,7 @@
 
 OPAL_LOOK_ENGINE_YOLO_BASE_URL registers the remote adapter and is seeded
 into the engines table at startup (authoritative over PATCH changes).
-ENABLED / TIMEOUT_SECONDS follow; TOKEN stays env-only. See env.py and
-docs/YOLO_INSTALL.md.
+ENABLED / TIMEOUT_SECONDS follow; TOKEN stays env-only. See env.py.
 """
 
 from __future__ import annotations

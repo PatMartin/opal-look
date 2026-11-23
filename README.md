@@ -20,8 +20,8 @@ modules want a shared source of visual events.
 
 Material limitations today: the bundled `synthetic` engine produces
 **deterministic test detections, not real recognition** — real object
-detection needs a remote engine adapter (a working YOLO path exists; see
-[docs/YOLO_INSTALL.md](docs/YOLO_INSTALL.md)). Streams are ephemeral (gone
+detection needs a remote engine adapter (a working YOLO path exists via
+the remote `opal-look-yolo` service). Streams are ephemeral (gone
 on restart) and RTSP-only.
 
 **Contents:** [What you can do](#what-you-can-do) · [Quickstart](#quickstart) · [Core concepts](#core-concepts) · [Common tasks](#common-tasks) · [Configuration](#configuration) · [Troubleshooting](#troubleshooting) · [Documentation](#further-documentation) · [Contributing](#contributing)
@@ -118,8 +118,8 @@ detections.
 #### Detect objects on a live feed
 
 **Outcome:** a stream that emits detection events and draws boxes.
-**Requirements:** a running remote engine (see
-[docs/YOLO_INSTALL.md](docs/YOLO_INSTALL.md)), a loaded model.
+**Requirements:** a running remote engine (the `opal-look-yolo` service,
+see below), a loaded model.
 
 ```bash
 opal-look model load yolo26n --engine yolo
@@ -129,8 +129,8 @@ look stream watch front-ai         # live detection events
 ```
 
 **Result:** SSE `detection` events per frame and an annotated MJPEG feed
-at `…/front-ai/video?annotated=true`. What `yolo26n` can identify:
-[docs/yolo26n_classes.md](docs/yolo26n_classes.md).
+at `…/front-ai/video?annotated=true`. What `yolo26n` can identify: see
+the `opal-look-yolo` service's class list.
 
 #### Inspect and tune the service
 
@@ -150,7 +150,7 @@ opal-look config save --out snapshot.json # portable config snapshot
 - **YOLO engine service** ([`opal-look-yolo`](https://github.com/PatMartin/opal-look-yolo))
   — real object detection. Look registers it via
   `OPAL_LOOK_ENGINE_YOLO_BASE_URL` and proxies engine/model/predict calls
-  over HTTP. Full guide: [docs/YOLO_INSTALL.md](docs/YOLO_INSTALL.md).
+  over HTTP; see that repo for setup.
 - **opal-bus (formerly opal-event) / opal-listen / opal-talk** — stream
   events are designed to feed suite-wide automation and speech, but no
   integration guide exists yet. Contract references are vendored under
@@ -204,10 +204,6 @@ config.
 
 - [docs/COOKBOOK.md](docs/COOKBOOK.md) — task recipes (SSE, idempotency,
   config snapshots, MJPEG capture, credentials)
-- [docs/YOLO_INSTALL.md](docs/YOLO_INSTALL.md) — engine contract detail +
-  remote adapter setup
-- [docs/yolo26n_classes.md](docs/yolo26n_classes.md) — what the YOLO
-  models detect
 - [openapi/opal_look_v0.5.0.yaml](openapi/opal_look_v0.5.0.yaml) —
   authoritative REST contract; [specs/](specs/) holds the migration
   ledger and pending amendments (`name`, `credential_ref`)

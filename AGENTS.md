@@ -1,7 +1,7 @@
 # OPAL Look
 
-Implementation of `openapi/opal_look_v0.1.0.yaml` + `openapi/shared/
-opal_kernel.yaml` (OPAL Suite Kernel 0.1.0) as the authoritative contract
+Implementation of `openapi/opal_look_v0.5.0.yaml` + `openapi/shared/
+opal_kernel.yaml` (OPAL Suite Kernel 0.5.0) as the authoritative contract
 (do not serve a generated spec; do not edit the contract files — amendments
 go upstream first). Python 3.12+ / FastAPI / SQLite.
 
@@ -12,7 +12,8 @@ adapter) add predict + inference-mode streams. The v0.1.0 cutover retired
 `/api/v1/info/*` (health is the single info surface), `/api/v1/backup/*`
 (replaced by `config save/load/validate` snapshots), and the settings map
 PATCH; it added the persona catalog and namespaced portable profiles.
-Migration records: `specs/OPAL_LOOK_V0_1_MIGRATION.md` (this cutover) and
+Migration records: `specs/OPAL_LOOK_V0_5_MIGRATION.md` (v0.5.0 cutover),
+`specs/OPAL_LOOK_V0_1_MIGRATION.md` (v0.1.0) and
 `specs/OPAL_LOOK_V1_7_LEDGER.md` (v1.7); design reference package under
 `docs/redesign/vision_contracts/`; v1.4.0-era upstream contract copies
 live under `vendor/opal-api/`.
@@ -112,14 +113,15 @@ live under `vendor/opal-api/`.
   `main.py` refuses non-loopback binds without it. Never log/export/echo
   the token or accept it in query strings. CLI sends it automatically.
 - Clients: `opal-look` Typer CLI + `opal look` umbrella (REST-only via
-  httpx; x-opal-cli taxonomy — engine/model/hardware/predict/stream/
-  profile/persona/service/info + `config` parent group with the
+  httpx; command taxonomy from the retired x-opal-cli bindings —
+  engine/model/hardware/predict/stream/profile/persona/service (incl.
+  `service health`) + `config` parent group with the
   setting subgroup and save/load/validate, `tree` retained) and a
   full-coverage SPA (static assets at /app/ calling REST, no business
   logic).
 - vendor/opal-api/ holds local-only reference copies of the sibling
   contracts (opal_event/listen/talk + upstream opal_look — note upstream
-  Look is a different API; our opal_look_v0.1.0.yaml is authoritative).
+  Look is a different API; our opal_look_v0.5.0.yaml is authoritative).
 
 ## Contract coverage (verified)
 

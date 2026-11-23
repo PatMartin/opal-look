@@ -1,4 +1,4 @@
-"""Offline audit of the pinned opal_look_v0.1.0.yaml contract vs live routes.
+"""Offline audit of the pinned opal_look_v0.5.0.yaml contract vs live routes.
 
 These tests are deterministic: they parse the pinned YAML and enumerate the
 FastAPI app's routes — no network, camera, GPU, or broker required.
@@ -15,7 +15,7 @@ from opal_look.app import create_app
 from opal_look import contract_audit
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-CONTRACT = REPO_ROOT / "openapi" / "opal_look_v0.1.0.yaml"
+CONTRACT = REPO_ROOT / "openapi" / "opal_look_v0.5.0.yaml"
 CONTRACT_KERNEL = REPO_ROOT / "openapi" / "shared" / "opal_kernel.yaml"
 CONTRACT_1_4 = REPO_ROOT / "vendor" / "opal-api" / "opal_look.yaml"
 
@@ -27,25 +27,19 @@ def app(tmp_path):
     app.state.store.close()
 
 
-# v0.1.0 replacement contract: the migration gap sets track each step and
-# shrink to empty as coverage lands.
+# v0.5.0 contract: the migration gap sets track each step and shrink to
+# empty as coverage lands.
 EXPECTED_MISSING: set[tuple[str, str]] = set()
 EXPECTED_LEGACY: set[tuple[str, str]] = set()
-# Kernel health probes carry no CLI descriptor by design ("No CLI binding;
-# use `info health`"), so they are exempt from the cli_command assertion.
-UNBOUND_OPS: set[tuple[str, str]] = {
-    ("GET", "/api/v1/health/live"),
-    ("GET", "/api/v1/health/ready"),
-}
 
 
-def test_pinned_contract_exists_and_is_v0_1():
-    assert CONTRACT.is_file(), "openapi/opal_look_v0.1.0.yaml is the pinned contract"
+def test_pinned_contract_exists_and_is_v0_5():
+    assert CONTRACT.is_file(), "openapi/opal_look_v0.5.0.yaml is the pinned contract"
     assert CONTRACT_KERNEL.is_file(), "shared opal_kernel.yaml must ship with it"
     assert CONTRACT_1_4.is_file(), "v1.4.0 contract stays as historical reference"
     inv = contract_audit.load_contract(CONTRACT)
     assert inv.openapi == "3.1.0"
-    assert inv.api_version == "0.1.0"
+    assert inv.api_version == "0.5.0"
 
 
 def test_contract_inventory_is_complete():
@@ -54,13 +48,11 @@ def test_contract_inventory_is_complete():
     assert inv.operation_count == 45
     op_ids = [op.operation_id for op in inv.operations]
     assert len(set(op_ids)) == 45
+    # The 0.5.0 kernel retired x-opal-cli: no operation ships a descriptor.
     for op in inv.operations:
-        if (op.method, op.path) in UNBOUND_OPS:
-            assert not op.cli_command
-        else:
-            assert op.cli_command, (
-                f"{op.method} {op.path} missing x-opal-cli metadata"
-            )
+        assert not op.cli_command, (
+            f"{op.method} {op.path} carries retired x-opal-cli metadata"
+        )
 
 
 def test_contract_has_no_structural_problems():

@@ -16,7 +16,7 @@ from .errors import ApiError
 
 OWN_COMPARTMENT = "opal-look"
 # Compartments whose namespace is a closed empty schema today.
-_EMPTY_COMPARTMENTS = {"opal-look", "opal-look-yolo", "opal-event", "opal-think"}
+_EMPTY_COMPARTMENTS = {"opal-look", "opal-look-yolo", "opal-bus", "opal-think"}
 
 _NUM = (int, float)
 

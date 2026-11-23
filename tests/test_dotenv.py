@@ -174,15 +174,15 @@ def test_cli_dotenv_controls(tmp_path, monkeypatch):
     """The `opal-look` callback applies the policy before any command runs."""
     runner = CliRunner()
     monkeypatch.chdir(tmp_path)
-    result = runner.invoke(app, ["--env-file", "missing.env", "info", "health"])
+    result = runner.invoke(app, ["--env-file", "missing.env", "service", "health"])
     assert result.exit_code != 0
     assert "dotenv file not found" in result.output
-    result = runner.invoke(app, ["--no-env-file", "info", "health"])
+    result = runner.invoke(app, ["--no-env-file", "service", "health"])
     assert not (tmp_path / ".env").exists()
     # CliRunner shares the process; a real second invocation starts clean.
     monkeypatch.delenv("OPAL_NO_DOTENV", raising=False)
     monkeypatch.delenv("OPAL_DOTENV_FILE", raising=False)
-    result = runner.invoke(app, ["info", "health"])
+    result = runner.invoke(app, ["service", "health"])
     assert (tmp_path / ".env").exists()
 
 

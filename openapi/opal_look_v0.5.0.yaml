@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: OPAL Look — MVP Plus Visual Observation API
-  version: '0.1.0'
+  version: '0.5.0'
   description: |
     Clean-cut replacement contract for OPAL Look. Video-only RTSP streams work
     with no AI engine installed; YOLO, RF-DETR, RT-DETR and D-FINE are optional
@@ -60,19 +60,8 @@ security:
 paths:
   /api/v1/engine/:
     $ref: './shared/opal_kernel.yaml#/components/pathItems/engines_collection'
-    x-opal-cli:
-      get:
-        group: engine
-        command: list
   /api/v1/engine/{engine_id}:
     $ref: './shared/opal_kernel.yaml#/components/pathItems/engine_item'
-    x-opal-cli:
-      get:
-        group: engine
-        command: show
-      patch:
-        group: engine
-        command: update
   /api/v1/engine/discover:
     parameters:
     - $ref: './shared/opal_kernel.yaml#/components/parameters/OpalSessionIdParameter'
@@ -112,9 +101,6 @@ paths:
           $ref: './shared/opal_kernel.yaml#/components/responses/UnprocessableEntity'
         '503':
           $ref: './shared/opal_kernel.yaml#/components/responses/ServiceUnavailable'
-      x-opal-cli:
-        group: engine
-        command: discover
   /api/v1/engine/{engine_id}/capabilities:
     parameters:
     - $ref: './shared/opal_kernel.yaml#/components/parameters/EngineId'
@@ -154,9 +140,6 @@ paths:
           $ref: './shared/opal_kernel.yaml#/components/responses/NotFound'
         '422':
           $ref: './shared/opal_kernel.yaml#/components/responses/UnprocessableEntity'
-      x-opal-cli:
-        group: engine
-        command: capabilities
   /api/v1/model/:
     parameters:
     - $ref: './shared/opal_kernel.yaml#/components/parameters/OpalSessionIdParameter'
@@ -202,9 +185,6 @@ paths:
               $ref: './shared/opal_kernel.yaml#/components/headers/OpalCausationIdHeader'
         '422':
           $ref: './shared/opal_kernel.yaml#/components/responses/UnprocessableEntity'
-      x-opal-cli:
-        group: model
-        command: list
   /api/v1/model/{model_id}:
     parameters:
     - $ref: '#/components/parameters/ModelId'
@@ -250,9 +230,6 @@ paths:
           $ref: './shared/opal_kernel.yaml#/components/responses/NotFound'
         '422':
           $ref: './shared/opal_kernel.yaml#/components/responses/UnprocessableEntity'
-      x-opal-cli:
-        group: model
-        command: show
   /api/v1/model/{model_id}/load:
     parameters:
     - $ref: '#/components/parameters/ModelId'
@@ -304,9 +281,6 @@ paths:
           $ref: './shared/opal_kernel.yaml#/components/responses/UnprocessableEntity'
         '503':
           $ref: './shared/opal_kernel.yaml#/components/responses/ServiceUnavailable'
-      x-opal-cli:
-        group: model
-        command: load
   /api/v1/model/{model_id}/unload:
     parameters:
     - $ref: '#/components/parameters/ModelId'
@@ -357,9 +331,6 @@ paths:
           $ref: './shared/opal_kernel.yaml#/components/responses/UnprocessableEntity'
         '503':
           $ref: './shared/opal_kernel.yaml#/components/responses/ServiceUnavailable'
-      x-opal-cli:
-        group: model
-        command: unload
   /api/v1/predict:
     parameters:
     - $ref: './shared/opal_kernel.yaml#/components/parameters/OpalSessionIdParameter'
@@ -412,9 +383,6 @@ paths:
           $ref: './shared/opal_kernel.yaml#/components/responses/TooManyRequests'
         '503':
           $ref: './shared/opal_kernel.yaml#/components/responses/ServiceUnavailable'
-      x-opal-cli:
-        group: predict
-        command: image
   /api/v1/hardware/:
     parameters:
     - $ref: './shared/opal_kernel.yaml#/components/parameters/OpalSessionIdParameter'
@@ -460,9 +428,6 @@ paths:
               $ref: './shared/opal_kernel.yaml#/components/headers/OpalCausationIdHeader'
         '422':
           $ref: './shared/opal_kernel.yaml#/components/responses/UnprocessableEntity'
-      x-opal-cli:
-        group: hardware
-        command: list
   /api/v1/hardware/{device_id}:
     parameters:
     - $ref: '#/components/parameters/DeviceId'
@@ -508,9 +473,6 @@ paths:
           $ref: './shared/opal_kernel.yaml#/components/responses/NotFound'
         '422':
           $ref: './shared/opal_kernel.yaml#/components/responses/UnprocessableEntity'
-      x-opal-cli:
-        group: hardware
-        command: show
   /api/v1/stream/:
     parameters:
     - $ref: './shared/opal_kernel.yaml#/components/parameters/OpalSessionIdParameter'
@@ -565,9 +527,6 @@ paths:
           $ref: './shared/opal_kernel.yaml#/components/responses/TooManyRequests'
         '503':
           $ref: './shared/opal_kernel.yaml#/components/responses/ServiceUnavailable'
-      x-opal-cli:
-        group: stream
-        command: start
     get:
       tags:
       - streams
@@ -599,9 +558,6 @@ paths:
               $ref: './shared/opal_kernel.yaml#/components/headers/OpalCausationIdHeader'
         '422':
           $ref: './shared/opal_kernel.yaml#/components/responses/UnprocessableEntity'
-      x-opal-cli:
-        group: stream
-        command: list
   /api/v1/stream/{stream_id}:
     parameters:
     - $ref: '#/components/parameters/StreamId'
@@ -639,9 +595,6 @@ paths:
           $ref: './shared/opal_kernel.yaml#/components/responses/NotFound'
         '422':
           $ref: './shared/opal_kernel.yaml#/components/responses/UnprocessableEntity'
-      x-opal-cli:
-        group: stream
-        command: show
   /api/v1/stream/{stream_id}/stop:
     parameters:
     - $ref: '#/components/parameters/StreamId'
@@ -683,9 +636,6 @@ paths:
           $ref: './shared/opal_kernel.yaml#/components/responses/Conflict'
         '422':
           $ref: './shared/opal_kernel.yaml#/components/responses/UnprocessableEntity'
-      x-opal-cli:
-        group: stream
-        command: stop
   /api/v1/stream/{stream_id}/events:
     parameters:
     - $ref: '#/components/parameters/StreamId'
@@ -735,9 +685,6 @@ paths:
           $ref: './shared/opal_kernel.yaml#/components/responses/Conflict'
         '422':
           $ref: './shared/opal_kernel.yaml#/components/responses/UnprocessableEntity'
-      x-opal-cli:
-        group: stream
-        command: watch
   /api/v1/stream/{stream_id}/video:
     parameters:
     - $ref: '#/components/parameters/StreamId'
@@ -789,9 +736,6 @@ paths:
           $ref: './shared/opal_kernel.yaml#/components/responses/NotFound'
         '422':
           $ref: './shared/opal_kernel.yaml#/components/responses/UnprocessableEntity'
-      x-opal-cli:
-        group: stream
-        command: watch-video
   /api/v1/stream/{stream_id}/snapshot:
     parameters:
     - $ref: '#/components/parameters/StreamId'
@@ -843,9 +787,6 @@ paths:
           $ref: './shared/opal_kernel.yaml#/components/responses/Conflict'
         '422':
           $ref: './shared/opal_kernel.yaml#/components/responses/UnprocessableEntity'
-      x-opal-cli:
-        group: stream
-        command: snapshot
   /api/v1/stream/{stream_id}/metrics:
     parameters:
     - $ref: '#/components/parameters/StreamId'
@@ -884,9 +825,6 @@ paths:
           $ref: './shared/opal_kernel.yaml#/components/responses/NotFound'
         '422':
           $ref: './shared/opal_kernel.yaml#/components/responses/UnprocessableEntity'
-      x-opal-cli:
-        group: stream
-        command: metrics
   /api/v1/setting/:
     $ref: './shared/opal_kernel.yaml#/components/pathItems/settings_collection'
   /api/v1/setting/{key}:
@@ -1380,54 +1318,6 @@ x-opal-context-standard:
     supports bounded replay via Last-Event-ID; stale replay returns 409. MJPEG
     video and snapshots are live-only with no replay guarantee. After headers
     are sent, failures appear as transport termination or a terminal SSE event.'
-x-opal-cli-commands:
-  engine:
-  - list
-  - show
-  - update
-  - discover
-  - capabilities
-  model:
-  - list
-  - show
-  - load
-  - unload
-  predict:
-  - image
-  hardware:
-  - list
-  - show
-  stream:
-  - start
-  - list
-  - show
-  - stop
-  - watch
-  - watch-video
-  - snapshot
-  - metrics
-  profile:
-  - list
-  - add
-  - show
-  - update
-  - remove
-  - activate
-  config:
-  - save
-  - load
-  - validate
-  config setting:
-  - list
-  - show
-  - set
-  - remove
-  info:
-  - health
-  service:
-  - start
-  - stop
-  - log
 x-opal-mvp-rules:
   engine_free_core: All non-inference stream operations MUST work with zero installed engines; /engine/ returns 200 with []
     and service health remains good.

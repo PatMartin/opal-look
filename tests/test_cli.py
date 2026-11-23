@@ -55,7 +55,7 @@ def test_cli_engine_update(cli):
 
 
 def test_cli_health(cli):
-    r = cli.invoke(cli_app, ["info", "health"])
+    r = cli.invoke(cli_app, ["service", "health"])
     assert r.exit_code == 0
     assert "synthetic" in r.output
 
@@ -101,7 +101,7 @@ def test_cli_config_managed_roundtrip(cli):
 
 
 def test_cli_info(cli):
-    r = cli.invoke(cli_app, ["info", "health"])
+    r = cli.invoke(cli_app, ["service", "health"])
     assert r.exit_code == 0 and "opal-look-svc" in r.output
 
 
@@ -182,7 +182,7 @@ def test_cli_retired_groups_gone(cli):
                  ["config", "zone", "list"], ["config", "rule", "list"],
                  ["config", "monitor", "list"], ["config", "persona", "list"],
                  ["config", "model", "list"], ["settings", "patch"],
-                 ["info", "metrics"], ["info", "events"],
+                 ["info", "health"], ["info", "metrics"], ["info", "events"],
                  ["info", "capabilities"], ["output", "fetch", "x"]):
         r = cli.invoke(cli_app, argv)
         assert r.exit_code != 0, f"{argv} still exposed"

@@ -21,7 +21,7 @@ In another terminal, set the alias (and `--url` if not on the default):
 export LOOK=http://127.0.0.1:8002
 alias look='opal-look --url "$LOOK"'
 
-look info ready
+look service health
 look engine list
 ```
 
@@ -38,7 +38,7 @@ automatically when the variable is set in your shell too.
 ### 1. Check the service end to end
 
 ```bash
-look info health       # aggregated readiness incl. database + engines
+look service health    # aggregated readiness incl. database + engines
 ```
 
 ### 2. Inventory the inference engine catalog
@@ -246,7 +246,7 @@ start` (the new process inherits the old server's environment).
 Profiles are portable namespaced documents (kernel `OpalProfile`): a
 `shared` compartment plus per-module `modules` compartments preserved
 verbatim; exactly one is locally active at a time. Look records which is
-active (`info health` reports `active_profile_id`); foreign compartments
+active (`service health` reports `active_profile_id`); foreign compartments
 belong to their owning modules and are read-only here.
 
 ```bash

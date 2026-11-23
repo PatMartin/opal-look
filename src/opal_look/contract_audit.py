@@ -1,4 +1,4 @@
-"""Offline contract audit: pinned openapi/opal_look_v0.1.0.yaml (+ shared kernel) vs implemented routes.
+"""Offline contract audit: pinned openapi/opal_look_v0.5.0.yaml (+ shared kernel) vs implemented routes.
 
 Reads the pinned YAML contract and the live FastAPI application, then reports:
 
@@ -33,7 +33,7 @@ HTTP_METHODS = frozenset(
 API_PREFIX = "/api/v1"
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-DEFAULT_CONTRACT = REPO_ROOT / "openapi" / "opal_look_v0.1.0.yaml"
+DEFAULT_CONTRACT = REPO_ROOT / "openapi" / "opal_look_v0.5.0.yaml"
 
 
 @dataclass(frozen=True)
@@ -168,7 +168,8 @@ def load_contract(path: Path) -> ContractInventory:
             problems.append(f"path {api_path}: item is not a mapping")
             continue
         # Path-level "$ref" pulls a pathItem from another document (kernel);
-        # a sibling "x-opal-cli" map carries per-method group/command.
+        # a sibling "x-opal-cli" map carries per-method group/command (the
+        # extension was retired in the 0.5.0 kernel; parsing stays tolerant).
         resolved = _deref_path_item(docs, base_dir, doc, item)
         cli_by_method = item.get("x-opal-cli") or {}
         if resolved is None:
@@ -186,10 +187,10 @@ def load_contract(path: Path) -> ContractInventory:
             op_id = op.get("operationId")
             if not op_id:
                 problems.append(f"{method.upper()} {api_path}: missing operationId")
-            # Kernel x-opal-cli-format: a descriptor's `command` is required;
-            # `group`, `parent` and `aliases` are optional. An absent
-            # descriptor is a deliberate "no CLI binding" (e.g. the kernel
-            # health probes direct callers to `info health`).
+            # Retired kernel x-opal-cli-format: when a descriptor exists its
+            # `command` is required; `group`, `parent` and `aliases` are
+            # optional. The 0.5.0 contract ships no descriptors at all, so
+            # absent metadata is the norm, not a gap.
             if cli and not cli.get("command"):
                 problems.append(
                     f"{method.upper()} {api_path}: missing x-opal-cli command"
@@ -375,7 +376,7 @@ def format_text(report: AuditReport) -> str:
         lines.append("")
     else:
         lines.append("contract structure: ok (3.1.x, unique operationIds, "
-                     "x-opal-cli complete, all local $refs resolve)")
+                     "all local $refs resolve)")
         lines.append("")
     lines.append("RESULT: " + ("CONFORMANT" if report.ok else "GAPS PRESENT"))
     return "\n".join(lines)
@@ -390,10 +391,10 @@ def _build_app(data_dir: Path | None) -> Any:
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         prog="opal-look-audit",
-        description="Audit implemented routes against the pinned 0.1.0 contract.",
+        description="Audit implemented routes against the pinned 0.5.0 contract.",
     )
     parser.add_argument("--contract", type=Path, default=DEFAULT_CONTRACT,
-                        help="pinned OpenAPI YAML (default: openapi/opal_look_v0.1.0.yaml)")
+                        help="pinned OpenAPI YAML (default: openapi/opal_look_v0.5.0.yaml)")
     parser.add_argument("--strict", action="store_true",
                         help="exit 1 on missing/legacy routes or contract problems")
     parser.add_argument("--json", action="store_true", dest="as_json",

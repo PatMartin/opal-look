@@ -1,10 +1,11 @@
-"""opal-look: thin REST client mirroring the v0.1.0 contract.
+"""opal-look: thin REST client mirroring the v0.5.0 contract.
 
-Group/verb layout follows the contract's x-opal-cli metadata: canonical
-`opal look [parent] [group] <command>` spellings — top-level groups are
-`engine`, `model`, `predict`, `hardware`, `stream`, `profile`, `persona`,
-`service` and `info`; `config` parents `setting` and the snapshot verbs
-`save`/`load`/`validate`.
+Group/verb layout keeps the canonical `opal look [parent] [group]
+<command>` spellings from the retired contract x-opal-cli bindings —
+top-level groups are `engine`, `model`, `predict`, `hardware`, `stream`,
+`profile`, `persona` and `service`; `config` parents `setting` and the
+snapshot verbs `save`/`load`/`validate`. Kernel 0.5.0 directs the
+human-readable health report to `service health`.
 All logic lives server-side; this client only issues HTTP calls and
 honestly surfaces streaming/bearer limits. `service` falls back to local
 pidfile control when the API is unreachable — a dead server cannot
@@ -24,10 +25,10 @@ import typer
 from .client import ApiClient, unwrap
 
 app = typer.Typer(
-    help="OPAL Look v0.1.0 REST CLI (thin client; no business logic).",
+    help="OPAL Look v0.5.0 REST CLI (thin client; no business logic).",
     epilog=(
         "Examples:\n"
-        "  opal-look info health\n"
+        "  opal-look service health\n"
         "  opal-look engine list\n"
         "  opal-look predict image --engine synthetic --model m --source img.jpg\n"
         "  opal-look stream start rtsp://cam.local/live\n"
@@ -433,19 +434,11 @@ def _stream_metrics(stream_id: str):
 
 app.add_typer(stream, name="stream")
 
-# -- info ------------------------------------------------------------------------
-
-info = typer.Typer(help="info", epilog=(
-    "Examples:\n"
-    "  opal-look info health"))
-
-info.command("health")(lambda: _emit(unwrap(_client().get("/api/v1/health/"))))
-app.add_typer(info, name="info")
-
 # -- service (REST first; local pidfile fallback when unreachable) ---------------
 
 service = typer.Typer(help="service", epilog=(
     "Examples:\n"
+    "  opal-look service health\n"
     "  opal-look service start\n"
     "  opal-look service stop\n"
     "  opal-look service log --lines 20\n"
@@ -497,6 +490,12 @@ def _svc_start(
     pid = sc.spawn_server(append=append, wait_pid=managed,
                           env_extra=env_extra or None)
     typer.echo(f"started opal-look (pid {pid}); output -> {sc.log_path()}")
+
+
+@service.command("health")
+def _svc_health():
+    """Aggregated health report (REST; the live/ready probes stay machine-only)."""
+    _emit(unwrap(_client().get("/api/v1/health/")))
 
 
 @service.command("stop")

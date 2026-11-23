@@ -81,6 +81,17 @@ def test_foreign_compartment_validated(client):
     assert _mk(client, modules={"x-mod": "not-an-object"}).status_code == 422
 
 
+def test_kernel_0_5_bus_compartment_rename(client):
+    """Kernel 0.5.0 renamed the declared empty compartment opal-event ->
+    opal-bus: opal-bus members are rejected, while opal-event is now an
+    undeclared namespace preserved verbatim like any unrecognized module."""
+    assert _mk(client, modules={"opal-bus": {}}).status_code == 201
+    assert _mk(client, modules={"opal-bus": {"x": 1}}).status_code == 422
+    resp = _mk(client, modules={"opal-event": {"broker": "zmq://h:1"}})
+    assert resp.status_code == 201, resp.text
+    assert resp.json()["modules"]["opal-event"] == {"broker": "zmq://h:1"}
+
+
 def test_patch_merges_and_bumps_updated_at(client):
     pid = _mk(client).json()["id"]
     resp = client.patch(f"/api/v1/profile/{pid}",

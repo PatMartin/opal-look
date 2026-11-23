@@ -57,7 +57,7 @@ opal serve                       # service on http://127.0.0.1:8002
 Second terminal, same venv:
 
 ```bash
-opal-look info health            # -> "ok"
+opal-look service health         # -> "ok"
 opal-look model load synthetic-det --engine synthetic
 opal-look predict image --engine synthetic --model synthetic-det --source sample.jpg
 ```
@@ -79,7 +79,7 @@ detector). Stop the service with `opal-look service stop` or Ctrl-C.
 - **`credential_ref`** — names an `OPAL_LOOK_CRED_<REF>` env var holding
   `user:pass`, injected into the RTSP URI at connect time only. Never
   stored, logged, or echoed.
-- **Contract** — `openapi/opal_look_v0.1.0.yaml` is authoritative and
+- **Contract** — `openapi/opal_look_v0.5.0.yaml` is authoritative and
   pinned; `opal-look-audit` verifies conformance offline.
 
 ## Common tasks
@@ -137,7 +137,7 @@ at `…/front-ai/video?annotated=true`. What `yolo26n` can identify:
 **Outcome:** check health, adjust runtime knobs, save a snapshot.
 
 ```bash
-opal-look info health                     # service report
+opal-look service health                  # service report
 opal-look config setting list             # effective settings
 opal-look config save --out snapshot.json # portable config snapshot
 ```
@@ -151,9 +151,10 @@ opal-look config save --out snapshot.json # portable config snapshot
   — real object detection. Look registers it via
   `OPAL_LOOK_ENGINE_YOLO_BASE_URL` and proxies engine/model/predict calls
   over HTTP. Full guide: [docs/YOLO_INSTALL.md](docs/YOLO_INSTALL.md).
-- **opal-event / opal-listen / opal-talk** — stream events are designed
-  to feed suite-wide automation and speech, but no integration guide
-  exists yet. Contract references are vendored under `vendor/opal-api/`.
+- **opal-bus (formerly opal-event) / opal-listen / opal-talk** — stream
+  events are designed to feed suite-wide automation and speech, but no
+  integration guide exists yet. Contract references are vendored under
+  `vendor/opal-api/`.
 
 ## Configuration
 
@@ -207,7 +208,7 @@ config.
   remote adapter setup
 - [docs/yolo26n_classes.md](docs/yolo26n_classes.md) — what the YOLO
   models detect
-- [openapi/opal_look_v0.1.0.yaml](openapi/opal_look_v0.1.0.yaml) —
+- [openapi/opal_look_v0.5.0.yaml](openapi/opal_look_v0.5.0.yaml) —
   authoritative REST contract; [specs/](specs/) holds the migration
   ledger and pending amendments (`name`, `credential_ref`)
 - [AGENTS.md](AGENTS.md) — architecture, conventions, coverage status
